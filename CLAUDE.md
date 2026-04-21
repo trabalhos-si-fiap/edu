@@ -2,6 +2,15 @@
 
 App educacional com Flutter (frontend) e Python + FastAPI (backend em microservicos com BFF).
 
+## Documentacao
+
+| Modulo | Docs | Descricao |
+|--------|------|-----------|
+| **Frontend** | [front-end-flutter/README.md](front-end-flutter/README.md) | Quick start, estrutura, telas, design system |
+| | [docs/front-end/archtecture.md](docs/front-end/archtecture.md) | Arquitetura feature-first, convencoes de codigo |
+| | [docs/front-end/visual_guide.md](docs/front-end/visual_guide.md) | Paleta de cores, componentes, espacamento |
+| **Backend** | [docs/back-end/start-here.md](docs/back-end/start-here.md) | Setup, arquitetura, padroes, git versioning |
+
 ## Tech Stack
 
 ### Frontend
@@ -99,9 +108,49 @@ docker compose logs -f <servico>    # logs
 - Testes de integração com banco real (não mocks de banco)
 - Usar `httpx.AsyncClient` para testar endpoints FastAPI
 
-### Git
-- Commits em inglês, curtos, no imperativo: `add user auth endpoint`
-- Um commit por mudança lógica
+# Git Versioning
+
+Follow **Conventional Commits** strictly. One commit per logical component — never group unrelated changes.
+
+## Format
+
+```
+<type>(<scope>): <description in English, imperative, lowercase>
+```
+
+## Allowed types
+
+| Type | When to use |
+|---|---|
+| `feat` | New functionality that didn't exist before |
+| `fix` | Corrects existing broken behavior (bug fix) |
+| `test` | Tests without changing production code |
+| `refactor` | Change that is neither a feat nor a fix |
+| `docs` | Documentation only |
+
+## Rules
+
+- Run `git diff --staged` before every commit to confirm exactly what is being included
+- Never commit files unrelated to the task
+- Commit message body is optional but encouraged for non-obvious changes
+- One logical unit per commit — if you can split it, split it
+
+## TDD commit sequence (example — cache layer)
+
+```
+feat(cache): add CacheBackend abstract base class
+test(cache): add MemoryCacheBackend tests
+feat(cache): implement MemoryCacheBackend
+test(cache): add RedisCacheBackend tests
+feat(cache): implement RedisCacheBackend
+feat(cache): add get_default_backend factory
+test(warren): add WarrenTokenCache tests
+feat(warren): implement WarrenTokenCache
+test(warren): update WarrenClient tests for cache integration
+refactor(warren): integrate WarrenTokenCache into WarrenClient
+refactor(brokers): move wiring to BrokerFactory
+docs(claude): add Cache Architecture section to CLAUDE.md
+```
 
 ---
 
