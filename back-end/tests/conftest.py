@@ -18,8 +18,9 @@ from app.main import app
 
 @pytest.fixture(scope="session")
 async def test_engine() -> AsyncIterator[AsyncEngine]:
-    # Module models are imported lazily here so each domain's tables register
-    # with Base.metadata before create_all. Add imports as modules are added.
+    # Import all module models so they register with Base.metadata before create_all.
+    from app.modules.auth import models  # noqa: F401
+
     engine = create_async_engine(settings.DATABASE_URL_TEST, echo=False, future=True)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
