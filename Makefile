@@ -30,7 +30,7 @@ front-test: ## Run Flutter tests
 
 # ── Backend ───────────────────────────────────────────────
 
-.PHONY: back-up back-down back-logs back-sh back-test back-lint back-format back-migrate back-revision back-sync
+.PHONY: back-up back-down back-logs back-sh back-test back-test-e2e back-lint back-format back-migrate back-revision back-sync
 
 back-up: ## Start backend stack (postgres, redis, rabbitmq, api, worker)
 	cd $(BACK_DIR) && $(COMPOSE) up -d
@@ -44,8 +44,11 @@ back-logs: ## Tail backend api logs (use SVC=worker for worker)
 back-sh: ## Open shell inside api container
 	cd $(BACK_DIR) && $(COMPOSE) exec api bash
 
-back-test: ## Run backend tests inside container
+back-test: ## Run backend unit + integration tests inside the container (excludes e2e)
 	cd $(BACK_DIR) && $(COMPOSE) exec api uv run pytest
+
+back-test-e2e: ## Run e2e tests against the live stack (stack must be up via back-up)
+	cd $(BACK_DIR) && $(COMPOSE) exec -e E2E_BASE_URL=http://localhost:8000 api uv run pytest -m e2e tests/e2e/
 
 back-lint: ## Run ruff check
 	cd $(BACK_DIR) && $(COMPOSE) exec api uv run ruff check .
