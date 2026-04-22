@@ -1,0 +1,103 @@
+services:
+  postgres:
+    container_name: edu-postgres
+    image: postgres:17.4-alpine3.21
+    restart: unless-stopped
+    ports:
+      - "${POSTGRES_PORT_EXTERNAL:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+      - ./postgres/initdb.d:/docker-entrypoint-initdb.d:ro
+    env_file:
+      - .env
+    command: postgres -c max_connections=200
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:8.2.1-alpine
+    container_name: ${COMPOSE_PROJECT_NAME}-redis
+    ports:
+      - "${REDIS_PORT_EXTERNAL:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:4.2.3-management-alpine
+    container_name: ${COMPOSE_PROJECT_NAME}-rabbitmq
+    restart: unless-stopped
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    ports:
+      - "${RABBITMQ_PORT_EXTERNAL:-5672}:5672"         # Porta do protocolo AMQP
+      - "${RABBITMQ_UI_PORT_EXTERNAL:-15672}:15672"   # Painel de Controle (Login padrão: guest/guest)
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  migrate:
+    build: .
+    command: uv run alembic upgrade head
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./:/app
+    restart: "no"
+
+  api:
+    build: .
+    command: granian --interface asgi --host 0.0.0.0 --port 8000 --reload app.main:app
+    env_file:
+      - .env
+    ports:
+      - "${API_PORT_EXTERNAL:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - ./:/app
+
+  worker:
+    build: .
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - ./:/app
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:

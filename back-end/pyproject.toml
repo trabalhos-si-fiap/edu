@@ -1,0 +1,56 @@
+[project]
+name = "edu-backend"
+version = "0.1.0"
+description = "Edu - Estuda App backend (modular monolith, future microservices)"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "granian[reload]>=1.6.0",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30.0",
+    "alembic>=1.14.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.6.0",
+    "celery>=5.4.0",
+    "redis>=5.2.0",
+    "loguru>=0.7.2",
+    "httpx>=0.28.0",
+    "python-jose[cryptography]>=3.3.0",
+    "bcrypt>=4.2.0",
+    "uuid-utils>=0.9.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.25.0",
+    "pytest-cov>=6.0.0",
+    "ruff>=0.8.0",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "RUF", "ASYNC", "S"]
+ignore = ["S101"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "ASYNC"]
+"alembic/**" = ["S", "E501"]
+"app/modules/*/exceptions.py" = ["N818"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers -m 'not e2e'"
+markers = [
+    "e2e: end-to-end tests that run against a live stack (opt-in; run with `make back-test-e2e`)",
+]
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["app/core/logging.py", "alembic/*"]
