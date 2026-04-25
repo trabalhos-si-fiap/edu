@@ -190,13 +190,6 @@ class _FeatureRow extends StatelessWidget {
           ),
         ),
         SizedBox(width: 14),
-        Expanded(
-          child: _SquareCard(
-            label: 'Área de\nconteúdos',
-            image: 'assets/images/books.png',
-            color: Color(0xFF9645D1),
-          ),
-        ),
       ],
     );
   }
@@ -223,14 +216,14 @@ class _SquareCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(24),
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Flexible(
             child: Text(
               label,
               style: const TextStyle(
-                fontSize: 12,
+                fontSize: 14,
                 fontWeight: FontWeight.w700,
                 color: AppColors.white,
               ),
