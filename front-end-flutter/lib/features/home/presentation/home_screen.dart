@@ -1,5 +1,8 @@
+import 'package:estuda_app/features/components/nav_bar.dart';
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../features/components/top_bar.dart';
+
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -17,16 +20,16 @@ class _HomeScreenState extends State<HomeScreen> {
       decoration: const BoxDecoration(gradient: AppColors.headerGradient),
       child: Scaffold(
         backgroundColor: Colors.transparent,
+        appBar: const TopBar(),
         body: SafeArea(
           child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const _TopBar(),
                 const SizedBox(height: 24),
                 const Text(
-                  'Bem vindo(a) de\nvolta, Amanda! \u{1F44B}',
+                  'Bem vindo(a) de\nvolta, Amanda!',
                   style: TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.w800,
@@ -39,17 +42,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(height: 16),
                 const _FeatureRow(),
                 const SizedBox(height: 16),
-                const _WideCard(
-                  label: 'Sessão de estudo\nPomodoro',
-                  image: 'assets/images/clock.png',
-                  color: Color(0xFF369FFF),
-                ),
-                const SizedBox(height: 16),
-                const _WideCard(
-                  label: 'Agenda',
-                  image: 'assets/images/calendar.png',
-                  color: Color(0xFF9645D1),
-                ),
                 const SizedBox(height: 24),
                 const _SubjectsSection(),
                 const SizedBox(height: 24),
@@ -58,62 +50,32 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
         ),
-        bottomNavigationBar: ClipRRect(
-          borderRadius:
-              const BorderRadius.vertical(top: Radius.circular(24)),
-          child: BottomNavigationBar(
-            currentIndex: _currentTabIndex,
-            onTap: (index) => setState(() => _currentTabIndex = index),
-            backgroundColor: AppColors.white,
-            selectedItemColor: AppColors.purple,
-            unselectedItemColor: AppColors.textSecondary,
-            type: BottomNavigationBarType.fixed,
-            items: const [
-              BottomNavigationBarItem(
-                icon: Icon(Icons.home_rounded),
-                label: 'Home',
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.quiz_outlined),
-                label: 'Quiz',
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.menu_book_outlined),
-                label: 'Estudo',
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.assignment_turned_in_outlined),
-                label: 'Revisão',
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.insights_outlined),
-                label: 'Status',
-              ),
-            ],
-          ),
+        bottomNavigationBar: NavBar(
+        currentIndex: _currentTabIndex,
+        onTap: (index) {
+          setState(() => _currentTabIndex = index);
+
+          // Navegação de acordo com o índice
+          switch (index) {
+            case 0:
+              Navigator.pushReplacementNamed(context, '/home');
+              break;
+            case 1:
+              Navigator.pushReplacementNamed(context, '/quiz');
+              break;
+            case 2:
+              Navigator.pushReplacementNamed(context, '/study');
+              break;
+            case 3:
+              Navigator.pushReplacementNamed(context, '/review');
+              break;
+            case 4:
+              Navigator.pushReplacementNamed(context, '/status');
+              break;
+          }
+        },
         ),
       ),
-    );
-  }
-}
-
-class _TopBar extends StatelessWidget {
-  const _TopBar();
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        IconButton(
-          onPressed: () {},
-          icon: const Icon(Icons.notifications_none, size: 28),
-        ),
-        IconButton(
-          onPressed: () => Navigator.pushNamed(context, '/profile'),
-          icon: const Icon(Icons.person_outline, size: 28),
-        ),
-      ],
     );
   }
 }
@@ -227,7 +189,7 @@ class _FeatureRow extends StatelessWidget {
             color: Color(0xFF369FFF),
           ),
         ),
-        SizedBox(width: 12),
+        SizedBox(width: 14),
         Expanded(
           child: _SquareCard(
             label: 'Área de\nconteúdos',
@@ -264,15 +226,17 @@ class _SquareCard extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w700,
-              color: AppColors.white,
+          Flexible(
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: AppColors.white,
+              ),
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 9),
           Image.asset(image, width: 60, height: 60),
         ],
       ),
@@ -280,44 +244,6 @@ class _SquareCard extends StatelessWidget {
   }
 }
 
-class _WideCard extends StatelessWidget {
-  const _WideCard({
-    required this.label,
-    required this.image,
-    required this.color,
-  });
-
-  final String label;
-  final String image;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      height: 120,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(24),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 17,
-              fontWeight: FontWeight.w700,
-              color: AppColors.white,
-            ),
-          ),
-          Image.asset(image, width: 64, height: 64),
-        ],
-      ),
-    );
-  }
-}
 
 class _SubjectsSection extends StatelessWidget {
   const _SubjectsSection();
