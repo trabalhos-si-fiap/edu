@@ -22,12 +22,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _obscureConfirmPassword = true;
 
   static const _educationLevels = [
-    'Ensino Fundamental',
-    'Ensino Médio',
-    'Ensino Superior',
-    'Pós-graduação',
-    'Mestrado',
-    'Doutorado',
+    '8º ano',
+    '9º ano',
+    '1º ano do Ensino Médio',
+    '2º ano do Ensino Médio',
+    '3º ano do Ensino Médio',
+    'Vestibulando',
   ];
 
   @override
@@ -302,7 +302,7 @@ class _Header extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Logo Edu',
+            'Edu IA',
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w600,

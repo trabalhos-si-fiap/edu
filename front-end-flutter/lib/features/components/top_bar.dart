@@ -15,7 +15,7 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             IconButton(
-              onPressed: () {},
+              onPressed: () => Navigator.pushNamed(context, '/notifications'),
               icon: const Icon(Icons.notifications_none, size: 28),
             ),
             IconButton(

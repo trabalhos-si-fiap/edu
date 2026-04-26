@@ -10,7 +10,7 @@ class AppTheme {
           surface: AppColors.background,
         ),
         scaffoldBackgroundColor: AppColors.background,
-        fontFamily: 'Roboto',
+        fontFamily: 'LexendDeca',
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
           fillColor: AppColors.inputFill,

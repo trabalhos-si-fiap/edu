@@ -1,3 +1,5 @@
+import 'package:edu_ia/features/intro/presentation/intro_screen.dart';
+import 'package:edu_ia/features/notifications/presentation/notifications_screen.dart';
 import 'package:edu_ia/features/quiz/presentation/quiz_screen.dart';
 import 'package:edu_ia/features/quiz/presentation/quiz_subjets_screen.dart';
 import 'package:flutter/material.dart';
@@ -20,14 +22,16 @@ class MyApp extends StatelessWidget {
       title: 'Edu IA',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
-      initialRoute: '/login',
+      initialRoute: '/intro',
       routes: {
         '/login': (_) => const LoginScreen(),
         '/register': (_) => const RegisterScreen(),
         '/home': (_) => const HomeScreen(),
         '/profile': (_) => const ProfileScreen(),
         '/quiz' : (_) => const QuizSubjetsScreen(),
-        '/questions' : (_) => const QuizScreen()
+        '/questions' : (_) => const QuizScreen(),
+        '/intro' : (_) => const IntroScreen(),
+        '/notifications' : (_) => const NotificationsScreen(),
       },
     );
   }
