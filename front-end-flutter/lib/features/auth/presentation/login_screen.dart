@@ -122,7 +122,7 @@ class _Header extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Logo Edu',
+            'Edu IA',
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w600,
