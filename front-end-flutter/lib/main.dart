@@ -1,4 +1,5 @@
 import 'package:edu_ia/features/intro/presentation/intro_screen.dart';
+import 'package:edu_ia/features/notifications/presentation/notifications_screen.dart';
 import 'package:edu_ia/features/quiz/presentation/quiz_screen.dart';
 import 'package:edu_ia/features/quiz/presentation/quiz_subjets_screen.dart';
 import 'package:flutter/material.dart';
@@ -30,6 +31,7 @@ class MyApp extends StatelessWidget {
         '/quiz' : (_) => const QuizSubjetsScreen(),
         '/questions' : (_) => const QuizScreen(),
         '/intro' : (_) => const IntroScreen(),
+        '/notifications' : (_) => const NotificationsScreen(),
       },
     );
   }
