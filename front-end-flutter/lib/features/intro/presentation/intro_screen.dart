@@ -1,3 +1,4 @@
+import 'package:edu_ia/core/theme/app_colors.dart';
 import 'package:flutter/material.dart';
 
 class IntroScreen extends StatelessWidget {
@@ -9,7 +10,7 @@ class IntroScreen extends StatelessWidget {
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            colors: [Colors.deepPurple, Color.fromARGB(255, 40, 57, 217)],
+            colors: [ AppColors.blue, AppColors.background],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -37,7 +38,8 @@ class IntroScreen extends StatelessWidget {
                   "Descubra como a IA pode transformar seus estudos.",
                   style: TextStyle(
                     fontSize: 16,
-                    color: Colors.white70,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
                   ),
                   textAlign: TextAlign.center,
                 ),

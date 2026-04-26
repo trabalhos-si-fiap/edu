@@ -10,7 +10,7 @@ class NotificationsScreen extends StatefulWidget {
 }
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
-     int _currentTabIndex = 1;
+     int _currentTabIndex = 0;
 
     final List<Map<String, String>> notifications = [
       {
