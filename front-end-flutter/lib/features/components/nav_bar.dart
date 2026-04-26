@@ -32,16 +32,16 @@ class NavBar extends StatelessWidget {
             label: 'Quiz',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.menu_book_outlined),
-            label: 'Estudo',
-          ),
-          BottomNavigationBarItem(
             icon: Icon(Icons.assignment_turned_in_outlined),
             label: 'Revisão',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.insights_outlined),
-            label: 'Status',
+            icon: Icon(Icons.menu_book_outlined),
+            label: 'Estudo',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.local_shipping_outlined),
+            label: 'Loja',
           ),
         ],
       ),
