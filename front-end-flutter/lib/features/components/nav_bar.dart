@@ -40,7 +40,7 @@ class NavBar extends StatelessWidget {
             label: 'Estudo',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.local_shipping_outlined),
+            icon: Icon(Icons.store_mall_directory_outlined),
             label: 'Loja',
           ),
         ],
