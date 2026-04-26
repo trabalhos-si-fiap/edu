@@ -1,5 +1,5 @@
-import 'package:estuda_app/core/theme/app_colors.dart';
-import 'package:estuda_app/features/components/nav_bar.dart';
+import 'package:edu_ia/core/theme/app_colors.dart';
+import 'package:edu_ia/features/components/nav_bar.dart';
 import 'package:flutter/material.dart';
 
 class ReportScreen extends StatefulWidget {

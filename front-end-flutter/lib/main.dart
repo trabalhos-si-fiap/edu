@@ -1,5 +1,5 @@
-import 'package:estuda_app/features/quiz/presentation/quiz_screen.dart';
-import 'package:estuda_app/features/quiz/presentation/quiz_subjets_screen.dart';
+import 'package:edu_ia/features/quiz/presentation/quiz_screen.dart';
+import 'package:edu_ia/features/quiz/presentation/quiz_subjets_screen.dart';
 import 'package:flutter/material.dart';
 import 'core/theme/app_theme.dart';
 import 'features/auth/presentation/login_screen.dart';

@@ -1,5 +1,5 @@
-import 'package:estuda_app/features/components/nav_bar.dart';
-import 'package:estuda_app/features/quiz/presentation/report_screen.dart';
+import 'package:edu_ia/features/components/nav_bar.dart';
+import 'package:edu_ia/features/quiz/presentation/report_screen.dart';
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 
