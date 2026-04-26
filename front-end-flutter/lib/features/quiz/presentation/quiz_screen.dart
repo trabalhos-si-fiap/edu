@@ -1,4 +1,5 @@
 import 'package:estuda_app/features/components/nav_bar.dart';
+import 'package:estuda_app/features/quiz/presentation/report_screen.dart';
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 
@@ -11,18 +12,56 @@ class QuizScreen extends StatefulWidget {
 
 class _QuizScreenState extends State<QuizScreen> {
   int _currentTabIndex = 1;
-  int _currentQuestion = 1;
-  final int _totalQuestions = 5;
+  int _currentQuestion = 0;
   int? _selectedOption;
+  int _correctAnswers = 0;
+  late Stopwatch _stopwatch;
+
+  // Mock de perguntas
+  final List<Map<String, dynamic>> mockQuestions = [
+    {
+      "question": "Qual é a capital da França?",
+      "options": ["Paris", "Londres", "Roma", "Berlim"],
+      "correctIndex": 0,
+    },
+    {
+      "question": "Qual é o resultado de 2 + 2?",
+      "options": ["3", "4", "5", "6"],
+      "correctIndex": 1,
+    },
+    {
+      "question": "Quem formulou as Leis de Newton?",
+      "options": ["Einstein", "Newton", "Galileu", "Tesla"],
+      "correctIndex": 1,
+    },
+    {
+      "question": "Qual é o maior planeta do Sistema Solar?",
+      "options": ["Terra", "Marte", "Júpiter", "Saturno"],
+      "correctIndex": 2,
+    },
+    {
+      "question": "Qual é a fórmula da água?",
+      "options": ["CO2", "H2O", "O2", "NaCl"],
+      "correctIndex": 1,
+    },
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _stopwatch = Stopwatch()..start();
+  }
 
   @override
   Widget build(BuildContext context) {
     final args = ModalRoute.of(context)?.settings.arguments as Map<String, String>?;
-    final subject = args?['subject']?.toUpperCase() ?? '';
-    final topic = args?['topic'] ?? '';
+    final subject = args?['subject']?.toUpperCase() ?? 'MATÉRIA';
+    final topic = args?['topic'] ?? 'ASSUNTO';
 
-    double progress = _currentQuestion / _totalQuestions;
-    final options = ["Opção 1", "Opção 2", "Opção 3", "Opção 4"];
+    final totalQuestions = mockQuestions.length;
+    final progress = (_currentQuestion + 1) / totalQuestions;
+    final currentData = mockQuestions[_currentQuestion];
+    final options = currentData["options"] as List<String>;
 
     return Container(
       decoration: const BoxDecoration(gradient: AppColors.headerGradient),
@@ -71,7 +110,7 @@ class _QuizScreenState extends State<QuizScreen> {
 
                 // Progresso
                 Text(
-                  "Questão $_currentQuestion/$_totalQuestions",
+                  "Questão ${_currentQuestion + 1}/$totalQuestions",
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
@@ -89,9 +128,9 @@ class _QuizScreenState extends State<QuizScreen> {
                 ),
                 const SizedBox(height: 24),
 
-                // Enunciado adaptável
+                // Enunciado
                 Text(
-                  "Enunciado - TESTE",
+                  currentData["question"],
                   style: const TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w600,
@@ -100,7 +139,7 @@ class _QuizScreenState extends State<QuizScreen> {
                 ),
                 const SizedBox(height: 20),
 
-                // Alternativas adaptáveis (sem rolagem própria)
+                // Alternativas
                 Column(
                   children: List.generate(options.length, (index) {
                     final isSelected = _selectedOption == index;
@@ -108,6 +147,9 @@ class _QuizScreenState extends State<QuizScreen> {
                       onTap: () {
                         setState(() {
                           _selectedOption = index;
+                          if (index == currentData["correctIndex"]) {
+                            _correctAnswers++;
+                          }
                         });
                       },
                       child: AnimatedContainer(
@@ -127,7 +169,7 @@ class _QuizScreenState extends State<QuizScreen> {
                             CircleAvatar(
                               backgroundColor: isSelected ? AppColors.purple : Colors.grey[300],
                               child: Text(
-                                String.fromCharCode(65 + index), // A, B, C, D
+                                String.fromCharCode(65 + index),
                                 style: const TextStyle(color: Colors.white),
                               ),
                             ),
@@ -146,14 +188,14 @@ class _QuizScreenState extends State<QuizScreen> {
                   }),
                 ),
 
-                const SizedBox(height: 30), // espaçamento antes dos botões
+                const SizedBox(height: 30),
 
-                // Botões adaptáveis
+                // Botões
                 Row(
                   children: [
                     Expanded(
                       child: ElevatedButton(
-                        onPressed: _currentQuestion > 1
+                        onPressed: _currentQuestion > 0
                             ? () {
                                 setState(() {
                                   _currentQuestion--;
@@ -168,22 +210,32 @@ class _QuizScreenState extends State<QuizScreen> {
                     Expanded(
                       child: ElevatedButton(
                         onPressed: () {
-                          if (_currentQuestion < _totalQuestions) {
+                          if (_currentQuestion < totalQuestions - 1) {
                             setState(() {
                               _currentQuestion++;
                               _selectedOption = null;
                             });
                           } else {
-                            // chegou ao fim → vai para outra página
-                            Navigator.pushReplacementNamed(context, '/results'); 
-                            // você pode trocar '/results' pela rota que quiser
+                            _stopwatch.stop();
+                            Navigator.pushReplacement(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => ReportScreen(
+                                  subject: subject,
+                                  topic: topic,
+                                  correctAnswers: _correctAnswers,
+                                  totalQuestions: totalQuestions,
+                                  totalTime: _stopwatch.elapsed,
+                                ),
+                              ),
+                            );
                           }
                         },
                         child: const Text("Avançar"),
                       ),
                     ),
                   ],
-                )
+                ),
               ],
             ),
           ),
@@ -216,7 +268,6 @@ class _QuizScreenState extends State<QuizScreen> {
   }
 }
 
-
 class ExitQuizModal extends StatelessWidget {
   const ExitQuizModal({super.key});
 
@@ -247,7 +298,7 @@ class ExitQuizModal extends StatelessWidget {
                     backgroundColor: Colors.grey[300],
                   ),
                   onPressed: () {
-                    Navigator.pop(context); // fecha a modal
+                    Navigator.pop(context);
                   },
                   child: const Text('Não', style: TextStyle(color: Colors.black)),
                 ),
@@ -259,8 +310,8 @@ class ExitQuizModal extends StatelessWidget {
                     backgroundColor: Colors.red,
                   ),
                   onPressed: () {
-                    Navigator.pop(context); // fecha a modal
-                    Navigator.pushReplacementNamed(context, '/home'); // vai para home
+                    Navigator.pop(context);
+                    Navigator.pushReplacementNamed(context, '/home');
                   },
                   child: const Text('Sim'),
                 ),

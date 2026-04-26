@@ -27,7 +27,7 @@ class MyApp extends StatelessWidget {
         '/home': (_) => const HomeScreen(),
         '/profile': (_) => const ProfileScreen(),
         '/quiz' : (_) => const QuizSubjetsScreen(),
-        '/questions' : (_) => const QuizScreen(),
+        '/questions' : (_) => const QuizScreen()
       },
     );
   }
