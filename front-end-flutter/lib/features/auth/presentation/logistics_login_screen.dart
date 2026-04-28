@@ -24,8 +24,14 @@ class _LogisticsLoginScreenState extends State<LogisticsLoginScreen> {
   }
 
   void _handleLogin() {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+    if (email == 'teste' && password == 'teste') {
+      Navigator.pushReplacementNamed(context, '/logistics-dashboard');
+      return;
+    }
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Login do Edu Logistics em breve')),
+      const SnackBar(content: Text('Credenciais inválidas. Use teste / teste')),
     );
   }
 
