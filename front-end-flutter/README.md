@@ -45,6 +45,10 @@ lib/
 │   │       ├── add_payment_method_screen.dart  # Adicionar metodo de pagamento
 │   │       ├── orders_screen.dart              # Lista de pedidos do usuario
 │   │       └── order_details_screen.dart       # Status do rastreio + suporte
+│   ├── logistics/
+│   │   └── presentation/
+│   │       ├── logistics_dashboard_screen.dart # Painel de logistica pos-login
+│   │       └── order_picking_screen.dart       # Separacao de pedido na rota
 │   └── profile/
 │       └── presentation/
 │           └── profile_screen.dart   # Perfil do usuario
@@ -65,6 +69,8 @@ lib/
 | `/add-payment-method` | AddPaymentMethodScreen | Cadastro de cartao, PIX ou boleto |
 | `/orders` | OrdersScreen | Pedido ativo com stepper de entrega + historico |
 | `/order-details` | OrderDetailsScreen | Status do rastreio, localizacao, conteudo do kit |
+| `/logistics-dashboard` | LogisticsDashboardScreen | Painel de logistica com destino atual, progresso do dia e proximas paradas |
+| `/logistics-picking` | OrderPickingScreen | Separacao de pedido com item atual, proximos na rota e info de envio |
 
 ## Design System
 
@@ -124,6 +130,8 @@ Navegacao via `Navigator` com rotas nomeadas definidas em `main.dart`:
 - Marketplace -> Checkout: icone de carrinho na top bar
 - Checkout -> AddPaymentMethod: opcao "Outro metodo"
 - Orders -> OrderDetails: botao "Detalhes do pedido"
+- Logistics (login) -> LogisticsDashboard: credenciais `teste` / `teste`
+- LogisticsDashboard -> OrderPicking: aba "Separacao" no bottom nav
 
 ## Documentacao Adicional
 
