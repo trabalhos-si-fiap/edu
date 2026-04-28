@@ -70,7 +70,7 @@ class _HomeScreenState extends State<HomeScreen> {
               Navigator.pushReplacementNamed(context, '/review');
               break;
             case 4:
-              Navigator.pushReplacementNamed(context, '/status');
+              Navigator.pushReplacementNamed(context, '/marketplace');
               break;
           }
         },

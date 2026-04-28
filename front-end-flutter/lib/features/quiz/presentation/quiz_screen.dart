@@ -258,7 +258,7 @@ class _QuizScreenState extends State<QuizScreen> {
                 Navigator.pushReplacementNamed(context, '/review');
                 break;
               case 4:
-                Navigator.pushReplacementNamed(context, '/status');
+                Navigator.pushReplacementNamed(context, '/marketplace');
                 break;
             }
           },
