@@ -11,6 +11,8 @@ import 'package:flutter/material.dart';
 import 'core/theme/app_theme.dart';
 import 'features/auth/presentation/login_screen.dart';
 import 'features/auth/presentation/logistics_login_screen.dart';
+import 'features/logistics/presentation/logistics_dashboard_screen.dart';
+import 'features/logistics/presentation/order_picking_screen.dart';
 import 'features/auth/presentation/register_screen.dart';
 import 'features/home/presentation/home_screen.dart';
 import 'features/profile/presentation/profile_screen.dart';
@@ -32,6 +34,8 @@ class MyApp extends StatelessWidget {
       routes: {
         '/login': (_) => const LoginScreen(),
         '/logistics': (_) => const LogisticsLoginScreen(),
+        '/logistics-dashboard': (_) => const LogisticsDashboardScreen(),
+        '/logistics-picking': (_) => const OrderPickingScreen(),
         '/register': (_) => const RegisterScreen(),
         '/home': (_) => const HomeScreen(),
         '/profile': (_) => const ProfileScreen(),
