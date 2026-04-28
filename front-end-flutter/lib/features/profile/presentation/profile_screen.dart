@@ -46,10 +46,15 @@ class ProfileScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 12),
-              const _SettingsCard(
-                items: [
+              _SettingsCard(
+                items: const [
                   _SettingsItem(Icons.person_outline, 'Editar perfil e configurações'),
                   _SettingsItem(Icons.track_changes_outlined, 'Metas e objetivos'),
+                  _SettingsItem(
+                    Icons.receipt_long_outlined,
+                    'Meus pedidos',
+                    route: '/orders',
+                  ),
                   _SettingsItem(Icons.notifications_none, 'Configuração'),
                 ],
               ),
@@ -62,7 +67,7 @@ class ProfileScreen extends StatelessWidget {
                 trailing: _LogoutTile(onTap: () {
                   Navigator.pushNamedAndRemoveUntil(
                     context,
-                    '/login',
+                    '/intro',
                     (_) => false,
                   );
                 }),
@@ -271,9 +276,10 @@ class _StatsRow extends StatelessWidget {
 }
 
 class _SettingsItem {
-  const _SettingsItem(this.icon, this.label);
+  const _SettingsItem(this.icon, this.label, {this.route});
   final IconData icon;
   final String label;
+  final String? route;
 }
 
 class _SettingsCard extends StatelessWidget {
@@ -298,7 +304,9 @@ class _SettingsCard extends StatelessWidget {
                   style: const TextStyle(fontSize: 14, color: AppColors.textPrimary),
                 ),
                 trailing: const Icon(Icons.chevron_right, color: AppColors.textSecondary, size: 20),
-                onTap: () {},
+                onTap: item.route == null
+                    ? () {}
+                    : () => Navigator.pushNamed(context, item.route!),
               )),
           ?trailing,
         ],
