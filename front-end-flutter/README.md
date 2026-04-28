@@ -32,11 +32,19 @@ lib/
 ├── features/
 │   ├── auth/
 │   │   └── presentation/
-│   │       ├── login_screen.dart     # Tela de login
-│   │       └── register_screen.dart  # Tela de cadastro
+│   │       ├── login_screen.dart            # Tela de login Edu
+│   │       ├── logistics_login_screen.dart  # Tela de login Edu Logistics
+│   │       └── register_screen.dart         # Tela de cadastro
 │   ├── home/
 │   │   └── presentation/
 │   │       └── home_screen.dart      # Dashboard principal
+│   ├── marketplace/
+│   │   └── presentation/
+│   │       ├── marketplace_screen.dart         # Loja com banner e produtos
+│   │       ├── checkout_screen.dart            # Revisao do carrinho + pagamento
+│   │       ├── add_payment_method_screen.dart  # Adicionar metodo de pagamento
+│   │       ├── orders_screen.dart              # Lista de pedidos do usuario
+│   │       └── order_details_screen.dart       # Status do rastreio + suporte
 │   └── profile/
 │       └── presentation/
 │           └── profile_screen.dart   # Perfil do usuario
@@ -47,10 +55,16 @@ lib/
 
 | Rota | Tela | Descricao |
 |------|------|-----------|
-| `/login` | LoginScreen | Email + senha, login social (Google/Apple) |
+| `/login` | LoginScreen | Email + senha, login social, link para Edu Logistics |
+| `/logistics` | LogisticsLoginScreen | Login do Edu Logistics com seletor de papel |
 | `/register` | RegisterScreen | Cadastro com validacao de senha |
 | `/home` | HomeScreen | Dashboard com progresso, trilhas, revisao |
 | `/profile` | ProfileScreen | Perfil, stats, configuracoes, logout |
+| `/marketplace` | MarketplaceScreen | Loja com banner de colecao em destaque e produtos |
+| `/checkout` | CheckoutScreen | Revisao do carrinho e selecao de metodo de pagamento |
+| `/add-payment-method` | AddPaymentMethodScreen | Cadastro de cartao, PIX ou boleto |
+| `/orders` | OrdersScreen | Pedido ativo com stepper de entrega + historico |
+| `/order-details` | OrderDetailsScreen | Status do rastreio, localizacao, conteudo do kit |
 
 ## Design System
 
@@ -102,8 +116,14 @@ Navegacao via `Navigator` com rotas nomeadas definidas em `main.dart`:
 
 - Login -> Home: apos autenticacao valida
 - Login <-> Cadastro: via bottom nav e links
+- Login -> Logistics: link "Entrar no Edu Logistics" no rodape
 - Home -> Profile: icone de perfil no topo
-- Profile -> Login: botao Logout (limpa stack)
+- Profile -> Orders: item "Meus pedidos" nas configuracoes
+- Profile -> Intro: botao Logout (limpa stack)
+- NavBar (Loja) -> Marketplace: indice 4 do bottom nav em todas as telas
+- Marketplace -> Checkout: icone de carrinho na top bar
+- Checkout -> AddPaymentMethod: opcao "Outro metodo"
+- Orders -> OrderDetails: botao "Detalhes do pedido"
 
 ## Documentacao Adicional
 
