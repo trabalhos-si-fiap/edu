@@ -277,20 +277,24 @@ class _SubjectsSection extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 16),
-        GridView.count(
-          crossAxisCount: 2,
+        GridView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: 12,
-          crossAxisSpacing: 12,
-          childAspectRatio: 1.15,
-          children: _subjects
-              .map((s) => _SubjectCard(
-                    name: s.name,
-                    subtitle: s.subtitle,
-                    image: 'assets/images/subjects/${s.image}',
-                  ))
-              .toList(),
+          itemCount: _subjects.length,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            mainAxisSpacing: 12,
+            crossAxisSpacing: 12,
+            mainAxisExtent: 168 * MediaQuery.textScalerOf(context).scale(1),
+          ),
+          itemBuilder: (context, index) {
+            final s = _subjects[index];
+            return _SubjectCard(
+              name: s.name,
+              subtitle: s.subtitle,
+              image: 'assets/images/subjects/${s.image}',
+            );
+          },
         ),
       ],
     );
