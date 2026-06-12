@@ -7,7 +7,7 @@ class TestRegisterEndpoint:
         client: AsyncClient,
         register_payload: dict[str, object],
     ) -> None:
-        r = await client.post("/auth/register", json=register_payload)
+        r = await client.post("/api/auth/register", json=register_payload)
         assert r.status_code == 201, r.text
         body = r.json()
         assert body["user"]["email"] == "maria@example.com"
@@ -25,8 +25,8 @@ class TestRegisterEndpoint:
         client: AsyncClient,
         register_payload: dict[str, object],
     ) -> None:
-        await client.post("/auth/register", json=register_payload)
-        r = await client.post("/auth/register", json=register_payload)
+        await client.post("/api/auth/register", json=register_payload)
+        r = await client.post("/api/auth/register", json=register_payload)
         assert r.status_code == 409
 
     async def test_invalid_email_returns_422(
@@ -34,7 +34,7 @@ class TestRegisterEndpoint:
         client: AsyncClient,
         register_payload: dict[str, object],
     ) -> None:
-        r = await client.post("/auth/register", json={**register_payload, "email": "not-email"})
+        r = await client.post("/api/auth/register", json={**register_payload, "email": "not-email"})
         assert r.status_code == 422
 
     async def test_short_password_returns_422(
@@ -42,7 +42,9 @@ class TestRegisterEndpoint:
         client: AsyncClient,
         register_payload: dict[str, object],
     ) -> None:
-        r = await client.post("/auth/register", json={**register_payload, "password": "Short!1"})
+        r = await client.post(
+            "/api/auth/register", json={**register_payload, "password": "Short!1"}
+        )
         assert r.status_code == 422
 
     async def test_password_without_special_char_returns_422(
@@ -51,7 +53,7 @@ class TestRegisterEndpoint:
         register_payload: dict[str, object],
     ) -> None:
         r = await client.post(
-            "/auth/register", json={**register_payload, "password": "NoSpecial123"}
+            "/api/auth/register", json={**register_payload, "password": "NoSpecial123"}
         )
         assert r.status_code == 422
 
@@ -61,7 +63,7 @@ class TestRegisterEndpoint:
         register_payload: dict[str, object],
     ) -> None:
         r = await client.post(
-            "/auth/register",
+            "/api/auth/register",
             json={**register_payload, "education_level": "Astronauta"},
         )
         assert r.status_code == 422
@@ -72,7 +74,7 @@ class TestRegisterEndpoint:
         register_payload: dict[str, object],
     ) -> None:
         r = await client.post(
-            "/auth/register",
+            "/api/auth/register",
             json={**register_payload, "phone": "(11) 99999-8888"},
         )
         assert r.status_code == 201
@@ -84,7 +86,7 @@ class TestRegisterEndpoint:
         register_payload: dict[str, object],
     ) -> None:
         r = await client.post(
-            "/auth/register",
+            "/api/auth/register",
             json={**register_payload, "birth_date": "1995-06-15"},
         )
         assert r.status_code == 201

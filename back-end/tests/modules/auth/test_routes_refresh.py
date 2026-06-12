@@ -11,7 +11,7 @@ class TestRefreshEndpoint:
         created_user: User,
     ) -> None:
         refresh = create_refresh_token(created_user.id)
-        r = await client.post("/auth/refresh", json={"refresh_token": refresh})
+        r = await client.post("/api/auth/refresh", json={"refresh_token": refresh})
         assert r.status_code == 200
         body = r.json()
         assert body["access_token"]
@@ -24,13 +24,13 @@ class TestRefreshEndpoint:
         created_user: User,
     ) -> None:
         access = create_access_token(created_user.id)
-        r = await client.post("/auth/refresh", json={"refresh_token": access})
+        r = await client.post("/api/auth/refresh", json={"refresh_token": access})
         assert r.status_code == 401
 
     async def test_malformed_token_rejected(self, client: AsyncClient) -> None:
-        r = await client.post("/auth/refresh", json={"refresh_token": "garbage"})
+        r = await client.post("/api/auth/refresh", json={"refresh_token": "garbage"})
         assert r.status_code == 401
 
     async def test_empty_body_returns_422(self, client: AsyncClient) -> None:
-        r = await client.post("/auth/refresh", json={})
+        r = await client.post("/api/auth/refresh", json={})
         assert r.status_code == 422

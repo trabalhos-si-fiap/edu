@@ -30,7 +30,7 @@ async def test_health_is_up(http: AsyncClient) -> None:
 async def test_full_auth_flow(http: AsyncClient) -> None:
     payload = _register_payload()
 
-    r = await http.post("/auth/register", json=payload)
+    r = await http.post("/api/auth/register", json=payload)
     assert r.status_code == 201, r.text
     body = r.json()
     assert body["user"]["email"] == payload["email"]
@@ -40,24 +40,24 @@ async def test_full_auth_flow(http: AsyncClient) -> None:
     refresh_token = body["tokens"]["refresh_token"]
 
     r = await http.post(
-        "/auth/login",
+        "/api/auth/login",
         json={"email": payload["email"], "password": payload["password"]},
     )
     assert r.status_code == 200, r.text
     access_token = r.json()["tokens"]["access_token"]
 
-    r = await http.get("/auth/me", headers={"Authorization": f"Bearer {access_token}"})
+    r = await http.get("/api/auth/me", headers={"Authorization": f"Bearer {access_token}"})
     assert r.status_code == 200
     assert r.json()["email"] == payload["email"]
 
-    r = await http.post("/auth/refresh", json={"refresh_token": refresh_token})
+    r = await http.post("/api/auth/refresh", json={"refresh_token": refresh_token})
     assert r.status_code == 200
     rotated = r.json()
     assert rotated["access_token"] and rotated["refresh_token"]
     assert rotated["token_type"] == "bearer"
 
     r = await http.post(
-        "/auth/logout",
+        "/api/auth/logout",
         headers={"Authorization": f"Bearer {rotated['access_token']}"},
     )
     assert r.status_code == 200
@@ -66,17 +66,17 @@ async def test_full_auth_flow(http: AsyncClient) -> None:
 
 async def test_duplicate_email_returns_409(http: AsyncClient) -> None:
     payload = _register_payload()
-    r = await http.post("/auth/register", json=payload)
+    r = await http.post("/api/auth/register", json=payload)
     assert r.status_code == 201
-    r = await http.post("/auth/register", json=payload)
+    r = await http.post("/api/auth/register", json=payload)
     assert r.status_code == 409
 
 
 async def test_wrong_password_returns_401(http: AsyncClient) -> None:
     payload = _register_payload()
-    await http.post("/auth/register", json=payload)
+    await http.post("/api/auth/register", json=payload)
     r = await http.post(
-        "/auth/login",
+        "/api/auth/login",
         json={"email": payload["email"], "password": "WrongPass!9"},
     )
     assert r.status_code == 401
@@ -84,21 +84,21 @@ async def test_wrong_password_returns_401(http: AsyncClient) -> None:
 
 async def test_access_token_cannot_be_used_as_refresh(http: AsyncClient) -> None:
     payload = _register_payload()
-    body = (await http.post("/auth/register", json=payload)).json()
+    body = (await http.post("/api/auth/register", json=payload)).json()
     access = body["tokens"]["access_token"]
-    r = await http.post("/auth/refresh", json={"refresh_token": access})
+    r = await http.post("/api/auth/refresh", json={"refresh_token": access})
     assert r.status_code == 401
 
 
 async def test_login_rate_limit_eventually_triggers_429(http: AsyncClient) -> None:
     # Use a fresh email so we don't collide with other tests' email counters.
     payload = _register_payload()
-    await http.post("/auth/register", json=payload)
+    await http.post("/api/auth/register", json=payload)
 
     saw_429 = False
     for _ in range(10):
         r = await http.post(
-            "/auth/login",
+            "/api/auth/login",
             json={"email": payload["email"], "password": "WrongPass!9"},
         )
         if r.status_code == 429:

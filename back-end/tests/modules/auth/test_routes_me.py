@@ -14,7 +14,7 @@ class TestMeEndpoint:
         auth_headers: dict[str, str],
         created_user: User,
     ) -> None:
-        r = await client.get("/auth/me", headers=auth_headers)
+        r = await client.get("/api/auth/me", headers=auth_headers)
         assert r.status_code == 200
         body = r.json()
         assert body["email"] == created_user.email
@@ -22,11 +22,11 @@ class TestMeEndpoint:
         assert "password_hash" not in body
 
     async def test_missing_auth_returns_401(self, client: AsyncClient) -> None:
-        r = await client.get("/auth/me")
+        r = await client.get("/api/auth/me")
         assert r.status_code == 401
 
     async def test_invalid_token_returns_401(self, client: AsyncClient) -> None:
-        r = await client.get("/auth/me", headers={"Authorization": "Bearer not.a.token"})
+        r = await client.get("/api/auth/me", headers={"Authorization": "Bearer not.a.token"})
         assert r.status_code == 401
 
     async def test_refresh_token_cannot_be_used_as_access(
@@ -35,7 +35,7 @@ class TestMeEndpoint:
         created_user: User,
     ) -> None:
         refresh = create_refresh_token(created_user.id)
-        r = await client.get("/auth/me", headers={"Authorization": f"Bearer {refresh}"})
+        r = await client.get("/api/auth/me", headers={"Authorization": f"Bearer {refresh}"})
         assert r.status_code == 401
 
     async def test_expired_token_returns_401(
@@ -45,7 +45,7 @@ class TestMeEndpoint:
     ) -> None:
         past = datetime.now(UTC) - timedelta(minutes=5)
         token = create_access_token(created_user.id, expires_at=past)
-        r = await client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+        r = await client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
         assert r.status_code == 401
 
     async def test_inactive_user_returns_401(
@@ -57,5 +57,5 @@ class TestMeEndpoint:
     ) -> None:
         created_user.is_active = False
         await db_session.commit()
-        r = await client.get("/auth/me", headers=auth_headers)
+        r = await client.get("/api/auth/me", headers=auth_headers)
         assert r.status_code == 401

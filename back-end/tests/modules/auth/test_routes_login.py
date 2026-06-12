@@ -7,9 +7,9 @@ class TestLoginEndpoint:
         client: AsyncClient,
         register_payload: dict[str, object],
     ) -> None:
-        await client.post("/auth/register", json=register_payload)
+        await client.post("/api/auth/register", json=register_payload)
         r = await client.post(
-            "/auth/login",
+            "/api/auth/login",
             json={"email": "maria@example.com", "password": "Secret!1"},
         )
         assert r.status_code == 200
@@ -23,9 +23,9 @@ class TestLoginEndpoint:
         client: AsyncClient,
         register_payload: dict[str, object],
     ) -> None:
-        await client.post("/auth/register", json=register_payload)
+        await client.post("/api/auth/register", json=register_payload)
         r = await client.post(
-            "/auth/login",
+            "/api/auth/login",
             json={"email": "maria@example.com", "password": "Wrong!1"},
         )
         assert r.status_code == 401
@@ -33,7 +33,7 @@ class TestLoginEndpoint:
 
     async def test_unknown_user_returns_same_401(self, client: AsyncClient) -> None:
         r = await client.post(
-            "/auth/login",
+            "/api/auth/login",
             json={"email": "nobody@example.com", "password": "Secret!1"},
         )
         assert r.status_code == 401
@@ -45,9 +45,9 @@ class TestLoginEndpoint:
         client: AsyncClient,
         register_payload: dict[str, object],
     ) -> None:
-        await client.post("/auth/register", json=register_payload)
+        await client.post("/api/auth/register", json=register_payload)
         r = await client.post(
-            "/auth/login",
+            "/api/auth/login",
             json={"email": "MARIA@EXAMPLE.COM", "password": "Secret!1"},
         )
         assert r.status_code == 200
@@ -57,15 +57,15 @@ class TestLoginEndpoint:
         client: AsyncClient,
         register_payload: dict[str, object],
     ) -> None:
-        await client.post("/auth/register", json=register_payload)
+        await client.post("/api/auth/register", json=register_payload)
         for _ in range(5):
             r = await client.post(
-                "/auth/login",
+                "/api/auth/login",
                 json={"email": "maria@example.com", "password": "Wrong!1"},
             )
             assert r.status_code == 401
         r = await client.post(
-            "/auth/login",
+            "/api/auth/login",
             json={"email": "maria@example.com", "password": "Wrong!1"},
         )
         assert r.status_code == 429
