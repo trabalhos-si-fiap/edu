@@ -10,7 +10,6 @@ class NotificationsScreen extends StatefulWidget {
 }
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
-     int _currentTabIndex = 0;
 
     final List<Map<String, String>> notifications = [
       {
@@ -67,30 +66,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             ),
           ),
         ),
-        bottomNavigationBar: NavBar(
-          currentIndex: _currentTabIndex,
-          onTap: (index) {
-            setState(() => _currentTabIndex = index);
-
-            switch (index) {
-              case 0:
-                Navigator.pushReplacementNamed(context, '/home');
-                break;
-              case 1:
-                Navigator.pushReplacementNamed(context, '/quiz');
-                break;
-              case 2:
-                Navigator.pushReplacementNamed(context, '/study');
-                break;
-              case 3:
-                Navigator.pushReplacementNamed(context, '/review');
-                break;
-              case 4:
-                Navigator.pushReplacementNamed(context, '/marketplace');
-                break;
-            }
-          },
-        ),
+        bottomNavigationBar: const NavBar(currentIndex: -1),
       ),
     );
   }

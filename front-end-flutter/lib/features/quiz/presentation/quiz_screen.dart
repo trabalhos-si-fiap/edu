@@ -11,7 +11,6 @@ class QuizScreen extends StatefulWidget {
 }
 
 class _QuizScreenState extends State<QuizScreen> {
-  int _currentTabIndex = 1;
   int _currentQuestion = 0;
   int? _selectedOption;
   int _correctAnswers = 0;
@@ -240,29 +239,7 @@ class _QuizScreenState extends State<QuizScreen> {
             ),
           ),
         ),
-        bottomNavigationBar: NavBar(
-          currentIndex: _currentTabIndex,
-          onTap: (index) {
-            setState(() => _currentTabIndex = index);
-            switch (index) {
-              case 0:
-                Navigator.pushReplacementNamed(context, '/home');
-                break;
-              case 1:
-                Navigator.pushReplacementNamed(context, '/quiz');
-                break;
-              case 2:
-                Navigator.pushReplacementNamed(context, '/study');
-                break;
-              case 3:
-                Navigator.pushReplacementNamed(context, '/review');
-                break;
-              case 4:
-                Navigator.pushReplacementNamed(context, '/marketplace');
-                break;
-            }
-          },
-        ),
+        bottomNavigationBar: const NavBar(currentIndex: 1),
       ),
     );
   }
