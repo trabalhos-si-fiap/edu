@@ -1,8 +1,30 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../auth/data/auth_api.dart';
+import '../../components/nav_bar.dart';
 
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
+
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  final _authApi = AuthApi();
+  String? _name;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadName();
+  }
+
+  Future<void> _loadName() async {
+    final name = await _authApi.currentDisplayName();
+    if (!mounted || name == null || name.isEmpty) return;
+    setState(() => _name = name);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -31,7 +53,7 @@ class ProfileScreen extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const _AvatarSection(),
+              _AvatarSection(name: _name),
               const SizedBox(height: 24),
               const _PointsCard(),
               const SizedBox(height: 16),
@@ -55,6 +77,11 @@ class ProfileScreen extends StatelessWidget {
                     'Meus pedidos',
                     route: '/orders',
                   ),
+                  _SettingsItem(
+                    Icons.location_on_outlined,
+                    'Meus endereços',
+                    route: '/addresses',
+                  ),
                   _SettingsItem(Icons.notifications_none, 'Configuração'),
                 ],
               ),
@@ -67,7 +94,7 @@ class ProfileScreen extends StatelessWidget {
                 trailing: _LogoutTile(onTap: () {
                   Navigator.pushNamedAndRemoveUntil(
                     context,
-                    '/intro',
+                    '/login',
                     (_) => false,
                   );
                 }),
@@ -75,31 +102,16 @@ class ProfileScreen extends StatelessWidget {
             ],
           ),
         ),
-        bottomNavigationBar: ClipRRect(
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          child: BottomNavigationBar(
-            currentIndex: 0,
-            onTap: (_) {},
-            backgroundColor: AppColors.white,
-            selectedItemColor: AppColors.purple,
-            unselectedItemColor: AppColors.textSecondary,
-            type: BottomNavigationBarType.fixed,
-            items: const [
-              BottomNavigationBarItem(icon: Icon(Icons.home_rounded), label: 'Home'),
-              BottomNavigationBarItem(icon: Icon(Icons.quiz_outlined), label: 'Quiz'),
-              BottomNavigationBarItem(icon: Icon(Icons.menu_book_outlined), label: 'Estudo'),
-              BottomNavigationBarItem(icon: Icon(Icons.assignment_turned_in_outlined), label: 'Revisão'),
-              BottomNavigationBarItem(icon: Icon(Icons.insights_outlined), label: 'Status'),
-            ],
-          ),
-        ),
+        bottomNavigationBar: const NavBar(currentIndex: -1),
       ),
     );
   }
 }
 
 class _AvatarSection extends StatelessWidget {
-  const _AvatarSection();
+  const _AvatarSection({this.name});
+
+  final String? name;
 
   @override
   Widget build(BuildContext context) {
@@ -136,9 +148,9 @@ class _AvatarSection extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
-          const Text(
-            'Amanda',
-            style: TextStyle(
+          Text(
+            name == null || name!.isEmpty ? 'Aluno(a)' : name!,
+            style: const TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.w800,
               color: AppColors.textPrimary,
