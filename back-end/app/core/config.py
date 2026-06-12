@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     ENV: str = "development"
     DEBUG: bool = False
 
+    # All module routers are mounted under this prefix (faithful to the
+    # original `/api/` client contract). `/health` stays at the root.
+    API_PREFIX: str = "/api"
+
     DATABASE_URL: str = "postgresql+asyncpg://edu:edu@postgres:5432/edu"
     DATABASE_URL_TEST: str = "postgresql+asyncpg://edu:edu@postgres:5432/edu_test"
     REDIS_URL: str = "redis://:edu@redis:6379/0"
@@ -28,6 +32,13 @@ class Settings(BaseSettings):
 
     LOGIN_RATE_LIMIT_ATTEMPTS: int = 5
     LOGIN_RATE_LIMIT_WINDOW_SECONDS: int = 900
+
+    # Path to the Firebase service account JSON used by the Admin SDK to send
+    # push notifications. Mounted into the api/worker containers as a secret;
+    # never commit the file itself (see project .gitignore).
+    FIREBASE_CREDENTIALS_PATH: str | None = None
+    FCM_SEND_TIME_LIMIT: int = 30
+    FCM_SEND_SOFT_TIME_LIMIT: int = 25
 
 
 settings = Settings()
