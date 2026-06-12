@@ -10,7 +10,14 @@ from app.core.config import settings
 from app.core.database import Base
 
 # Import module models here so they register with Base.metadata for autogenerate.
+from app.modules.addresses import models as addresses_models  # noqa: F401
 from app.modules.auth import models  # noqa: F401
+from app.modules.cart import models as cart_models  # noqa: F401
+from app.modules.notifications import models as notifications_models  # noqa: F401
+from app.modules.orders import models as orders_models  # noqa: F401
+from app.modules.payment_methods import models as payment_methods_models  # noqa: F401
+from app.modules.products import models as products_models  # noqa: F401
+from app.modules.support import models as support_models  # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
