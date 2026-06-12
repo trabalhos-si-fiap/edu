@@ -1,6 +1,15 @@
 import 'package:edu_ia/core/theme/app_colors.dart';
+import 'package:edu_ia/core/utils/currency.dart';
+import 'package:edu_ia/features/cart/data/cart_store.dart';
 import 'package:edu_ia/features/components/nav_bar.dart';
+import 'package:edu_ia/features/marketplace/data/mock_marketplace.dart';
+import 'package:edu_ia/features/marketplace/domain/product.dart';
+import 'package:edu_ia/features/marketplace/presentation/widgets/add_to_cart_button.dart';
+import 'package:edu_ia/features/marketplace/presentation/widgets/product_visuals.dart';
+import 'package:edu_ia/features/marketplace/presentation/widgets/rating_stars.dart';
+import 'package:edu_ia/features/marketplace/presentation/widgets/review_item.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 class MarketplaceScreen extends StatefulWidget {
   const MarketplaceScreen({super.key});
@@ -10,8 +19,15 @@ class MarketplaceScreen extends StatefulWidget {
 }
 
 class _MarketplaceScreenState extends State<MarketplaceScreen> {
-  int _currentTabIndex = 4;
   final TextEditingController _searchController = TextEditingController();
+  String _query = '';
+  String? _selectedType;
+
+  late final List<String> _types = mockProducts
+      .map((p) => p.type)
+      .where((t) => t.isNotEmpty)
+      .toSet()
+      .toList();
 
   @override
   void dispose() {
@@ -19,383 +35,462 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
     super.dispose();
   }
 
+  List<Product> get _filtered {
+    final q = _query.trim().toLowerCase();
+    return mockProducts.where((p) {
+      final matchesType = _selectedType == null || p.type == _selectedType;
+      final matchesQuery =
+          q.isEmpty ||
+          p.name.toLowerCase().contains(q) ||
+          p.description.toLowerCase().contains(q);
+      return matchesType && matchesQuery;
+    }).toList();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final filtered = _filtered;
     return Container(
       decoration: const BoxDecoration(gradient: AppColors.headerGradient),
       child: Scaffold(
         backgroundColor: Colors.transparent,
-        appBar: AppBar(
-          backgroundColor: Colors.white,
-          elevation: 0,
-          automaticallyImplyLeading: false,
-          title: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                IconButton(
-                  onPressed: () => Navigator.pushNamed(context, '/profile'),
-                  icon: const Icon(Icons.person_outline, size: 28),
-                ),
-                Row(
-                  children: [
-                    IconButton(
-                      onPressed: () =>
-                          Navigator.pushNamed(context, '/checkout'),
-                      icon: const Icon(Icons.shopping_cart_outlined, size: 28),
-                    ),
-                    IconButton(
-                      onPressed: () =>
-                          Navigator.pushNamed(context, '/notifications'),
-                      icon: const Icon(Icons.notifications_none, size: 28),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
         body: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'EduMarketplace',
-                  style: TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.textPrimary,
-                    letterSpacing: -0.5,
-                  ),
+          child: Column(
+            children: [
+              _TopBar(
+                controller: _searchController,
+                onSearchChange: (v) => setState(() => _query = v),
+                onOpenProfile: () => Navigator.pushNamed(context, '/profile'),
+                onOpenCart: () => Navigator.pushNamed(context, '/checkout'),
+              ),
+              _CategoryChips(
+                types: _types,
+                selected: _selectedType,
+                onSelected: (t) => setState(() => _selectedType = t),
+              ),
+              Expanded(
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    const padding = 24.0;
+                    const spacing = 12.0;
+                    final cellWidth =
+                        (constraints.maxWidth - padding * 2 - spacing) / 2;
+                    // Altura = imagem quadrada + bloco de conteúdo (textos
+                    // limitados + botão), com folga.
+                    final extent = cellWidth + 252;
+                    return CustomScrollView(
+                      slivers: [
+                        const SliverToBoxAdapter(
+                          child: Padding(
+                            padding: EdgeInsets.fromLTRB(
+                              padding,
+                              padding,
+                              padding,
+                              16,
+                            ),
+                            child: Text(
+                              'EduMarketplace',
+                              style: TextStyle(
+                                fontSize: 32,
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.textPrimary,
+                                letterSpacing: -0.5,
+                              ),
+                            ),
+                          ),
+                        ),
+                        if (filtered.isEmpty)
+                          SliverToBoxAdapter(child: _EmptyResult(query: _query))
+                        else
+                          SliverPadding(
+                            padding: const EdgeInsets.fromLTRB(
+                              padding,
+                              0,
+                              padding,
+                              24,
+                            ),
+                            sliver: SliverGrid(
+                              gridDelegate:
+                                  SliverGridDelegateWithFixedCrossAxisCount(
+                                    crossAxisCount: 2,
+                                    crossAxisSpacing: spacing,
+                                    mainAxisSpacing: 16,
+                                    mainAxisExtent: extent,
+                                  ),
+                              delegate: SliverChildBuilderDelegate(
+                                (context, i) =>
+                                    _ProductCard(product: filtered[i]),
+                                childCount: filtered.length,
+                              ),
+                            ),
+                          ),
+                      ],
+                    );
+                  },
                 ),
-                const SizedBox(height: 24),
-                _SearchField(controller: _searchController),
-                const SizedBox(height: 28),
-                const _FeaturedCollectionCard(),
-                const SizedBox(height: 20),
-                const _ProductCard(
-                  category: 'APOSTILA DIGITAL',
-                  title: 'Guia de Redação Nota 1000',
-                  description:
-                      'Estruturas prontas e repertório sociocultural para o ENEM.',
-                  price: 'R\$ 49,90',
-                  imageIcon: Icons.menu_book_outlined,
-                ),
-                const SizedBox(height: 20),
-                const _ProductCard(
-                  title: '2024 Exam Prep Guide',
-                  description: 'Physical Book • Hardcover',
-                  price: 'R\$ 49,90',
-                  imageIcon: Icons.auto_stories_outlined,
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
-        bottomNavigationBar: NavBar(
-          currentIndex: _currentTabIndex,
-          onTap: (index) {
-            setState(() => _currentTabIndex = index);
-
-            switch (index) {
-              case 0:
-                Navigator.pushReplacementNamed(context, '/home');
-                break;
-              case 1:
-                Navigator.pushReplacementNamed(context, '/quiz');
-                break;
-              case 2:
-                Navigator.pushReplacementNamed(context, '/study');
-                break;
-              case 3:
-                Navigator.pushReplacementNamed(context, '/review');
-                break;
-              case 4:
-                Navigator.pushReplacementNamed(context, '/marketplace');
-                break;
-            }
-          },
-        ),
+        bottomNavigationBar: const NavBar(currentIndex: 4),
       ),
     );
   }
 }
 
-class _SearchField extends StatelessWidget {
+class _TopBar extends StatelessWidget {
   final TextEditingController controller;
+  final ValueChanged<String> onSearchChange;
+  final VoidCallback onOpenProfile;
+  final VoidCallback onOpenCart;
 
-  const _SearchField({required this.controller});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.white,
-        borderRadius: BorderRadius.circular(32),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: TextField(
-        controller: controller,
-        style: const TextStyle(fontSize: 15, color: AppColors.textPrimary),
-        decoration: InputDecoration(
-          hintText: 'Search courses, guides, or materials...',
-          hintStyle: const TextStyle(
-            color: AppColors.textSecondary,
-            fontSize: 15,
-          ),
-          prefixIcon: const Padding(
-            padding: EdgeInsets.only(left: 16, right: 8),
-            child: Icon(Icons.search, color: AppColors.textSecondary),
-          ),
-          prefixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
-          border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 8),
-        ),
-      ),
-    );
-  }
-}
-
-class _FeaturedCollectionCard extends StatelessWidget {
-  const _FeaturedCollectionCard();
+  const _TopBar({
+    required this.controller,
+    required this.onSearchChange,
+    required this.onOpenProfile,
+    required this.onOpenCart,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(28),
-      decoration: BoxDecoration(
-        color: AppColors.primary,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.12),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: Row(
         children: [
-          const Text(
-            'EDUCAÇÃO 5.0',
-            style: TextStyle(
-              color: Color(0xFF22C55E),
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 1.5,
+          IconButton(
+            onPressed: onOpenProfile,
+            icon: const Icon(
+              Icons.person_outline,
+              size: 26,
+              color: AppColors.textPrimary,
             ),
           ),
-          const SizedBox(height: 18),
-          const Text(
-            'Potencialize sua\njornada cognitiva.',
-            style: TextStyle(
-              color: AppColors.white,
-              fontSize: 32,
-              fontWeight: FontWeight.w800,
-              height: 1.15,
-              letterSpacing: -0.5,
-            ),
-          ),
-          const SizedBox(height: 18),
-          Text(
-            'A curadoria definitiva de conhecimento e ferramentas para o estudante de alta performance.',
-            style: TextStyle(
-              color: AppColors.white.withValues(alpha: 0.65),
-              fontSize: 15,
-              height: 1.5,
-            ),
-          ),
-          const SizedBox(height: 28),
-          _ExploreButton(onPressed: () {}),
-          const SizedBox(height: 24),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: AspectRatio(
-              aspectRatio: 16 / 10,
-              child: Container(
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      Color(0xFF0B1A2E),
-                      Color(0xFF0F2944),
-                      Color(0xFF1A4A6B),
-                    ],
+          Expanded(
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 4),
+              decoration: BoxDecoration(
+                color: AppColors.white,
+                borderRadius: BorderRadius.circular(32),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.04),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
                   ),
+                ],
+              ),
+              child: TextField(
+                controller: controller,
+                onChanged: onSearchChange,
+                style: const TextStyle(
+                  fontSize: 15,
+                  color: AppColors.textPrimary,
                 ),
-                child: const Center(
-                  child: Icon(
-                    Icons.dashboard_customize_outlined,
-                    color: Color(0xFF22D3EE),
-                    size: 64,
+                decoration: const InputDecoration(
+                  hintText: 'Buscar cursos, guias ou materiais...',
+                  hintStyle: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 14,
                   ),
+                  prefixIcon: Icon(
+                    Icons.search,
+                    color: AppColors.textSecondary,
+                  ),
+                  border: InputBorder.none,
+                  contentPadding: EdgeInsets.symmetric(vertical: 16),
                 ),
               ),
             ),
           ),
+          _CartButton(onTap: onOpenCart),
         ],
+      ),
+    );
+  }
+}
+
+/// Ícone do carrinho com badge de quantidade. Observa o [CartStore].
+class _CartButton extends StatelessWidget {
+  final VoidCallback onTap;
+
+  const _CartButton({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final count = context.watch<CartStore>().totalQuantity;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        IconButton(
+          onPressed: onTap,
+          icon: const Icon(
+            Icons.shopping_cart_outlined,
+            size: 26,
+            color: AppColors.textPrimary,
+          ),
+        ),
+        if (count > 0)
+          Positioned(
+            right: 4,
+            top: 4,
+            child: Container(
+              width: 18,
+              height: 18,
+              alignment: Alignment.center,
+              decoration: const BoxDecoration(
+                color: AppColors.purple,
+                shape: BoxShape.circle,
+              ),
+              child: Text(
+                count > 99 ? '99+' : '$count',
+                style: const TextStyle(
+                  color: AppColors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _CategoryChips extends StatelessWidget {
+  final List<String> types;
+  final String? selected;
+  final ValueChanged<String?> onSelected;
+
+  const _CategoryChips({
+    required this.types,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 52,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        children: [
+          _Chip(
+            label: 'Tudo',
+            selected: selected == null,
+            onTap: () => onSelected(null),
+          ),
+          for (final type in types) ...[
+            const SizedBox(width: 8),
+            _Chip(
+              label: type.toUpperCase(),
+              selected: selected == type,
+              onTap: () => onSelected(type),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _Chip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _Chip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        decoration: BoxDecoration(
+          color: selected ? AppColors.purple : AppColors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: selected
+              ? null
+              : [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.04),
+                    blurRadius: 4,
+                    offset: const Offset(0, 1),
+                  ),
+                ],
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: selected ? AppColors.white : AppColors.textPrimary,
+            fontWeight: FontWeight.w700,
+            fontSize: 12,
+            letterSpacing: 0.5,
+          ),
+        ),
       ),
     );
   }
 }
 
 class _ProductCard extends StatelessWidget {
-  final String? category;
-  final String title;
-  final String description;
-  final String price;
-  final IconData imageIcon;
+  final Product product;
 
-  const _ProductCard({
-    this.category,
-    required this.title,
-    required this.description,
-    required this.price,
-    required this.imageIcon,
-  });
+  const _ProductCard({required this.product});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: AspectRatio(
-              aspectRatio: 16 / 11,
-              child: Container(
-                color: const Color(0xFFEFEFEF),
-                child: Center(
-                  child: Icon(
-                    imageIcon,
-                    size: 64,
-                    color: AppColors.textSecondary.withValues(alpha: 0.6),
+    return GestureDetector(
+      onTap: () =>
+          Navigator.pushNamed(context, '/product', arguments: product.id),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppColors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.06),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: AspectRatio(
+                aspectRatio: 1,
+                child: Container(
+                  color: AppColors.imagePlaceholder,
+                  child: Center(
+                    child: Icon(
+                      iconForProduct(product.type),
+                      size: 48,
+                      color: AppColors.textSecondary.withValues(alpha: 0.6),
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-          const SizedBox(height: 16),
-          if (category != null) ...[
+            const SizedBox(height: 10),
             Text(
-              category!,
+              product.categoryLabel,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: AppColors.purple,
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              product.name,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+                height: 1.2,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              product.description,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                 color: AppColors.textSecondary,
                 fontSize: 12,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 1.2,
+                height: 1.3,
               ),
             ),
             const SizedBox(height: 8),
-          ],
-          Text(
-            title,
-            style: const TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 20,
-              fontWeight: FontWeight.w800,
-              height: 1.2,
+            GestureDetector(
+              onTap: product.ratingCount > 0
+                  ? () => showReviewsBottomSheet(context, product)
+                  : null,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: RatingStars(
+                  rating: product.ratingAvg,
+                  count: product.ratingCount,
+                  starSize: 13,
+                ),
+              ),
             ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            description,
-            style: const TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 14,
-              height: 1.4,
-            ),
-          ),
-          const SizedBox(height: 14),
-          Text(
-            price,
-            style: const TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 20,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: () {},
-              icon: const Icon(Icons.add, size: 18, color: AppColors.textPrimary),
-              label: const Text(
-                'Carrinho',
-                style: TextStyle(
+            const Spacer(),
+            const SizedBox(height: 8),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                formatBRL(product.price),
+                maxLines: 1,
+                style: const TextStyle(
                   color: AppColors.textPrimary,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.inputFill,
-                elevation: 0,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
             ),
-          ),
-        ],
+            const SizedBox(height: 10),
+            AddToCartButton(
+              enabled: true,
+              onAddToCart: () => context.read<CartStore>().add(product),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-class _ExploreButton extends StatelessWidget {
-  final VoidCallback onPressed;
+class _EmptyResult extends StatelessWidget {
+  final String query;
 
-  const _ExploreButton({required this.onPressed});
+  const _EmptyResult({required this.query});
 
   @override
   Widget build(BuildContext context) {
-    return ElevatedButton(
-      onPressed: onPressed,
-      style: ElevatedButton.styleFrom(
-        backgroundColor: AppColors.purple,
-        foregroundColor: AppColors.white,
-        elevation: 0,
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-      child: const Row(
-        mainAxisSize: MainAxisSize.min,
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 24),
+      child: Column(
         children: [
-          Text(
-            'Explorar Coleção',
-            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+          const Icon(
+            Icons.search_off,
+            size: 56,
+            color: AppColors.textSecondary,
           ),
-          SizedBox(width: 12),
-          Icon(Icons.arrow_forward, size: 18),
+          const SizedBox(height: 16),
+          const Text(
+            'Nenhum produto encontrado',
+            style: TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            query.trim().isEmpty
+                ? 'Tente buscar por outro termo.'
+                : 'Não encontramos resultados para "$query". Tente outras palavras-chave.',
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: AppColors.textSecondary),
+          ),
         ],
       ),
     );
