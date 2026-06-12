@@ -2,13 +2,25 @@ FLUTTER = /home/elias/Documents/flutter/bin/flutter
 FRONT_DIR = front-end-flutter
 BACK_DIR = back-end
 COMPOSE = docker compose
+ADB = adb
+# Host port the API is published on (see back-end/.env API_PORT_EXTERNAL).
+API_PORT = 8001
+# Base URL used by physical devices: adb reverse maps the device's localhost
+# back to the host over USB, so the app talks to http://localhost:$(API_PORT).
+DEVICE_API_URL = http://localhost:$(API_PORT)/api
 
 # ── Frontend ──────────────────────────────────────────────
 
-.PHONY: front front-web front-linux front-devices front-analyze front-clean front-test
+.PHONY: front front-web front-linux front-device adb-reverse front-devices front-analyze front-clean front-test
 
 front: ## Run Flutter app (default device)
 	cd $(FRONT_DIR) && $(FLUTTER) run
+
+adb-reverse: ## Forward host API port to a USB device (re-run after replugging)
+	$(ADB) reverse tcp:$(API_PORT) tcp:$(API_PORT)
+
+front-device: adb-reverse ## Run Flutter on a USB phone, reaching the host API via adb reverse
+	cd $(FRONT_DIR) && $(FLUTTER) run --dart-define=API_BASE_URL=$(DEVICE_API_URL)
 
 front-web: ## Run Flutter app on Chrome
 	cd $(FRONT_DIR) && $(FLUTTER) run -d chrome
@@ -30,7 +42,7 @@ front-test: ## Run Flutter tests
 
 # ── Backend ───────────────────────────────────────────────
 
-.PHONY: back-up back-down back-logs back-sh back-test back-test-e2e back-lint back-format back-migrate back-revision back-sync
+.PHONY: back-up back-down back-logs back-sh back-test back-test-e2e back-lint back-format back-migrate back-seed back-revision back-sync
 
 back-up: ## Start backend stack (postgres, redis, rabbitmq, api, worker)
 	cd $(BACK_DIR) && $(COMPOSE) up -d
@@ -58,6 +70,9 @@ back-format: ## Run ruff format
 
 back-migrate: ## Apply alembic migrations
 	cd $(BACK_DIR) && $(COMPOSE) exec api uv run alembic upgrade head
+
+back-seed: ## Seed the products catalog (idempotent)
+	cd $(BACK_DIR) && $(COMPOSE) exec api uv run python -m app.seeds.products
 
 back-revision: ## Create new alembic revision (use M="message")
 	cd $(BACK_DIR) && $(COMPOSE) exec api uv run alembic revision --autogenerate -m "$(M)"
