@@ -13,3 +13,10 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+# Local-only working notes / handovers (não versionar)
+no-git/
+
+# Firebase service account (Admin SDK) — segredo, nunca versionar
+**/firebase-service-account*.json
+secrets/
