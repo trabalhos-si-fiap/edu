@@ -81,6 +81,11 @@ services:
         condition: service_completed_successfully
     volumes:
       - ./:/app
+      # Firebase service account (read-only). Lives at the repo root, outside
+      # the build context, and is git-ignored — never bake it into the image.
+      - ../secrets:/app/secrets:ro
+    environment:
+      FIREBASE_CREDENTIALS_PATH: /app/secrets/edu-ia-29080-firebase-adminsdk-fbsvc-4b9cc9075d.json
 
   worker:
     build: .
@@ -96,6 +101,9 @@ services:
         condition: service_completed_successfully
     volumes:
       - ./:/app
+      - ../secrets:/app/secrets:ro
+    environment:
+      FIREBASE_CREDENTIALS_PATH: /app/secrets/edu-ia-29080-firebase-adminsdk-fbsvc-4b9cc9075d.json
 
 volumes:
   postgres_data:
