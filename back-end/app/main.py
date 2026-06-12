@@ -11,6 +11,7 @@ from app.modules.orders.routes import router as orders_router
 from app.modules.payment_methods.routes import router as payment_methods_router
 from app.modules.products.routes import router as products_router
 from app.modules.support.routes import router as support_router
+from app.modules.tracking.routes import router as tracking_router
 
 configure_logging()
 
@@ -34,6 +35,7 @@ app.include_router(addresses_router, prefix=settings.API_PREFIX)
 app.include_router(products_router, prefix=settings.API_PREFIX)
 app.include_router(cart_router, prefix=settings.API_PREFIX)
 app.include_router(orders_router, prefix=settings.API_PREFIX)
+app.include_router(tracking_router, prefix=settings.API_PREFIX)
 app.include_router(payment_methods_router, prefix=settings.API_PREFIX)
 app.include_router(notifications_router, prefix=settings.API_PREFIX)
 app.include_router(support_router, prefix=settings.API_PREFIX)
