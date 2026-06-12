@@ -1,4 +1,5 @@
 import 'package:edu_ia/core/theme/app_colors.dart';
+import 'package:edu_ia/features/auth/data/auth_api.dart';
 import 'package:edu_ia/features/components/nav_bar.dart';
 import 'package:flutter/material.dart';
 
@@ -23,11 +24,27 @@ class ReportScreen extends StatefulWidget {
 }
 
 class _ReportScreenState extends State<ReportScreen> {
-  int _currentTabIndex = 1;
+  final _authApi = AuthApi();
+  String? _firstName;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadName();
+  }
+
+  Future<void> _loadName() async {
+    final name = await _authApi.currentDisplayName();
+    if (!mounted || name == null || name.isEmpty) return;
+    setState(() => _firstName = name.split(' ').first);
+  }
 
   @override
   Widget build(BuildContext context) {
     double scorePercent = widget.correctAnswers / widget.totalQuestions;
+    final greeting = _firstName == null || _firstName!.isEmpty
+        ? 'Excelente progresso!'
+        : 'Excelente progresso, $_firstName';
 
     return Container(
       decoration: const BoxDecoration(gradient: AppColors.headerGradient),
@@ -58,9 +75,9 @@ class _ReportScreenState extends State<ReportScreen> {
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 const SizedBox(height: 12),
-                const Text(
-                  "Excelente progresso, Amanda",
-                  style: TextStyle(
+                Text(
+                  greeting,
+                  style: const TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.w700,
                   ),
@@ -173,30 +190,7 @@ class _ReportScreenState extends State<ReportScreen> {
             ),
           ),
         ),
-        bottomNavigationBar: NavBar(
-          currentIndex: _currentTabIndex,
-          onTap: (index) {
-            setState(() => _currentTabIndex = index);
-
-            switch (index) {
-              case 0:
-                Navigator.pushReplacementNamed(context, '/home');
-                break;
-              case 1:
-                Navigator.pushReplacementNamed(context, '/quiz');
-                break;
-              case 2:
-                Navigator.pushReplacementNamed(context, '/study');
-                break;
-              case 3:
-                Navigator.pushReplacementNamed(context, '/review');
-                break;
-              case 4:
-                Navigator.pushReplacementNamed(context, '/marketplace');
-                break;
-            }
-          },
-        ),
+        bottomNavigationBar: const NavBar(currentIndex: 1),
       ),
     );
   }

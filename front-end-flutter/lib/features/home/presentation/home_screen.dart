@@ -1,6 +1,7 @@
 import 'package:edu_ia/features/components/nav_bar.dart';
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../features/auth/data/auth_api.dart';
 import '../../../features/components/top_bar.dart';
 
 
@@ -12,10 +13,50 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  int _currentTabIndex = 0;
+  final _authApi = AuthApi();
+  String? _firstName;
+  bool _welcomeHandled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadName();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeShowWelcome());
+  }
+
+  Future<void> _loadName() async {
+    final name = await _authApi.currentDisplayName();
+    if (!mounted || name == null || name.isEmpty) return;
+    setState(() => _firstName = name.split(' ').first);
+  }
+
+  void _maybeShowWelcome() {
+    if (_welcomeHandled || !mounted) return;
+    final args = ModalRoute.of(context)?.settings.arguments;
+    if (args is! Map) return;
+
+    final String? message;
+    if (args['justRegistered'] == true) {
+      message = 'Conta criada com sucesso! 🎉';
+    } else if (args['justLoggedIn'] == true) {
+      message = 'Login realizado com sucesso!';
+    } else {
+      message = null;
+    }
+    if (message == null) return;
+
+    _welcomeHandled = true;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: AppColors.purple),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
+    final name = _firstName;
+    final greeting = name == null || name.isEmpty
+        ? 'Bem vindo(a)!'
+        : 'Bem vindo(a) de\nvolta, $name!';
     return Container(
       decoration: const BoxDecoration(gradient: AppColors.headerGradient),
       child: Scaffold(
@@ -28,9 +69,9 @@ class _HomeScreenState extends State<HomeScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const SizedBox(height: 24),
-                const Text(
-                  'Bem vindo(a) de\nvolta, Amanda!',
-                  style: TextStyle(
+                Text(
+                  greeting,
+                  style: const TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.w800,
                     color: AppColors.textPrimary,
@@ -50,31 +91,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
         ),
-        bottomNavigationBar: NavBar(
-        currentIndex: _currentTabIndex,
-        onTap: (index) {
-          setState(() => _currentTabIndex = index);
-
-          // Navegação de acordo com o índice
-          switch (index) {
-            case 0:
-              Navigator.pushReplacementNamed(context, '/home');
-              break;
-            case 1:
-              Navigator.pushReplacementNamed(context, '/quiz');
-              break;
-            case 2:
-              Navigator.pushReplacementNamed(context, '/study');
-              break;
-            case 3:
-              Navigator.pushReplacementNamed(context, '/review');
-              break;
-            case 4:
-              Navigator.pushReplacementNamed(context, '/marketplace');
-              break;
-          }
-        },
-        ),
+        bottomNavigationBar: const NavBar(currentIndex: 0),
       ),
     );
   }

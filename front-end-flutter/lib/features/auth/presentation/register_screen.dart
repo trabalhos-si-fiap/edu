@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../notifications/data/messaging_service.dart';
+import '../data/auth_api.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -17,17 +19,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _birthDateController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
+  final _authApi = AuthApi();
   String? _selectedEducation;
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
+  bool _submitting = false;
 
+  // Must match the backend `EducationLevel` enum values exactly.
   static const _educationLevels = [
-    '8º ano',
-    '9º ano',
-    '1º ano do Ensino Médio',
-    '2º ano do Ensino Médio',
-    '3º ano do Ensino Médio',
-    'Vestibulando',
+    'Ensino Fundamental',
+    'Ensino Médio',
+    'Ensino Superior',
+    'Pós-graduação',
+    'Mestrado',
+    'Doutorado',
   ];
 
   @override
@@ -52,6 +57,39 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (picked != null) {
       _birthDateController.text =
           '${picked.day.toString().padLeft(2, '0')}/${picked.month.toString().padLeft(2, '0')}/${picked.year}';
+    }
+  }
+
+  Future<void> _handleRegister() async {
+    if (_submitting) return;
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+
+    setState(() => _submitting = true);
+    try {
+      await _authApi.register(
+        name: _nameController.text.trim(),
+        email: _emailController.text.trim(),
+        phone: _phoneController.text.trim(),
+        birthDate: _birthDateController.text.trim(),
+        educationLevel: _selectedEducation!,
+        password: _passwordController.text,
+      );
+      // A JWT now exists; register this device for push notifications.
+      // Best-effort: never block navigation on it.
+      await MessagingService().syncToken();
+      if (!mounted) return;
+      Navigator.pushReplacementNamed(
+        context,
+        '/home',
+        arguments: {'justRegistered': true},
+      );
+    } on AuthException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.message)));
+    } finally {
+      if (mounted) setState(() => _submitting = false);
     }
   }
 
@@ -270,10 +308,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
             ),
             const SizedBox(height: 28),
             ElevatedButton(
-              onPressed: () {
-                _formKey.currentState?.validate();
-              },
-              child: const Text('Cadastrar'),
+              onPressed: _submitting ? null : _handleRegister,
+              child: _submitting
+                  ? const SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: AppColors.white,
+                      ),
+                    )
+                  : const Text('Cadastrar'),
             ),
           ],
         ),

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../notifications/data/messaging_service.dart';
+import '../data/auth_api.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -11,7 +13,9 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _authApi = AuthApi();
   bool _obscurePassword = true;
+  bool _submitting = false;
   final int _currentTabIndex = 0;
 
   @override
@@ -21,16 +25,30 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  void _handleLogin() {
+  Future<void> _handleLogin() async {
+    if (_submitting) return;
     final email = _emailController.text.trim();
     final password = _passwordController.text;
 
-    if (email == 'teste' && password == 'teste') {
-      Navigator.pushReplacementNamed(context, '/home');
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('E-mail ou senha inválidos')),
+    setState(() => _submitting = true);
+    try {
+      await _authApi.login(email: email, password: password);
+      // Now that a JWT exists, register this device for push notifications.
+      // Best-effort: never block navigation on it.
+      await MessagingService().syncToken();
+      if (!mounted) return;
+      Navigator.pushReplacementNamed(
+        context,
+        '/home',
+        arguments: {'justLoggedIn': true},
       );
+    } on AuthException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.message)));
+    } finally {
+      if (mounted) setState(() => _submitting = false);
     }
   }
 
@@ -83,23 +101,12 @@ class _LoginScreenState extends State<LoginScreen> {
             const SizedBox(height: 12),
             GestureDetector(
               onTap: () => Navigator.pushNamed(context, '/logistics'),
-              child: Text.rich(
-                TextSpan(
-                  text: 'É da equipe de logística? ',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    color: AppColors.textSecondary,
-                  ),
-                  children: [
-                    TextSpan(
-                      text: 'Entrar no Edu Logistics',
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.purple,
-                      ),
-                    ),
-                  ],
+              child: const Text(
+                'Acessar Edu Logistics',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.purple,
                 ),
                 textAlign: TextAlign.center,
               ),
@@ -235,29 +242,13 @@ class _LoginCard extends StatelessWidget {
             decoration: const InputDecoration(hintText: 'nome@email.com'),
           ),
           const SizedBox(height: 20),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Senha',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-              GestureDetector(
-                onTap: () {},
-                child: const Text(
-                  'Esqueceu sua senha?',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: AppColors.purple,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-            ],
+          const Text(
+            'Senha',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textPrimary,
+            ),
           ),
           const SizedBox(height: 8),
           TextField(
@@ -271,6 +262,21 @@ class _LoginCard extends StatelessWidget {
                   color: AppColors.textSecondary,
                 ),
                 onPressed: onToggleObscure,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerRight,
+            child: GestureDetector(
+              onTap: () {},
+              child: const Text(
+                'Esqueceu sua senha?',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: AppColors.purple,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
             ),
           ),
