@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "959968702656",
+    "project_id": "edu-ia-29080",
+    "storage_bucket": "edu-ia-29080.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:959968702656:android:8a777f53ef2b27e136fd25",
+        "android_client_info": {
+          "package_name": "br.com.fiap.estuda_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAtBK8sV0WEVnqbI9h4Hicn8rsSP3-vmF8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
