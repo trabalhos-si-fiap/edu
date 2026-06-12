@@ -40,5 +40,12 @@ class Settings(BaseSettings):
     FCM_SEND_TIME_LIMIT: int = 30
     FCM_SEND_SOFT_TIME_LIMIT: int = 25
 
+    # Delivery tracking / route prediction. While the real routing provider
+    # (e.g. Google Maps) is not integrated, the ETA is estimated locally from
+    # the great-circle distance corrected by an urban-route factor (to account
+    # for streets, turns and detours) and a configurable average speed.
+    TRACKING_AVERAGE_SPEED_KMH: float = 30.0
+    TRACKING_URBAN_ROUTE_FACTOR: float = 1.4
+
 
 settings = Settings()
