@@ -19,7 +19,14 @@ from app.main import app
 @pytest.fixture(scope="session")
 async def test_engine() -> AsyncIterator[AsyncEngine]:
     # Import all module models so they register with Base.metadata before create_all.
+    from app.modules.addresses import models as addresses_models  # noqa: F401
     from app.modules.auth import models  # noqa: F401
+    from app.modules.cart import models as cart_models  # noqa: F401
+    from app.modules.notifications import models as notifications_models  # noqa: F401
+    from app.modules.orders import models as orders_models  # noqa: F401
+    from app.modules.payment_methods import models as payment_methods_models  # noqa: F401
+    from app.modules.products import models as products_models  # noqa: F401
+    from app.modules.support import models as support_models  # noqa: F401
 
     engine = create_async_engine(settings.DATABASE_URL_TEST, echo=False, future=True)
     async with engine.begin() as conn:
