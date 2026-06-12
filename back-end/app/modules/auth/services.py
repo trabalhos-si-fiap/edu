@@ -13,7 +13,7 @@ from app.modules.auth.exceptions import (
     UserInactive,
 )
 from app.modules.auth.models import User
-from app.modules.auth.schemas import RegisterIn, TokenPair
+from app.modules.auth.schemas import RegisterIn, TokenPair, UserPatch
 from app.modules.auth.security import (
     DUMMY_PASSWORD_HASH,
     create_access_token,
@@ -73,6 +73,16 @@ async def authenticate(session: AsyncSession, email: str, password: str) -> User
 
 async def get_by_id(session: AsyncSession, user_id: uuid.UUID) -> User | None:
     return await session.get(User, user_id)
+
+
+async def update_me(session: AsyncSession, user: User, data: UserPatch) -> User:
+    # Only the fields the client actually sent are applied (partial update).
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(user, field, value)
+    await session.commit()
+    await session.refresh(user)
+    logger.info("auth: user profile updated id={}", user.id)
+    return user
 
 
 async def refresh_tokens(session: AsyncSession, refresh_token: str) -> TokenPair:

@@ -58,6 +58,41 @@ class RegisterIn(BaseModel):
         return v
 
 
+class UserPatch(BaseModel):
+    """Partial profile update. All fields optional (mirrors Kotlin UserPatchDto).
+
+    Email, password and education_level are intentionally NOT patchable here.
+    """
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    phone: str | None = Field(default=None, max_length=20)
+    birth_date: date | None = None
+
+    @field_validator("phone", mode="before")
+    @classmethod
+    def _digits_only_phone(cls, v: object) -> object:
+        if v is None:
+            return v
+        if not isinstance(v, str):
+            raise ValueError("phone must be a string")
+        digits = re.sub(r"\D", "", v)
+        if not _PHONE_DIGITS_RE.match(digits):
+            raise ValueError("phone must contain 10 or 11 digits")
+        return digits
+
+    @field_validator("birth_date", mode="before")
+    @classmethod
+    def _parse_birth_date(cls, v: object) -> object:
+        if isinstance(v, str):
+            m = _DDMMYYYY_RE.match(v)
+            if m:
+                day, month, year = m.groups()
+                return date(int(year), int(month), int(day))
+        return v
+
+
 class LoginIn(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 

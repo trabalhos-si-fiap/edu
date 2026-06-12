@@ -24,6 +24,7 @@ from app.modules.auth.schemas import (
     RegisterIn,
     TokenPair,
     UserOut,
+    UserPatch,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -101,6 +102,16 @@ async def me(
     user: Annotated[User, Depends(get_current_user)],
 ) -> UserOut:
     return UserOut.model_validate(user)
+
+
+@router.patch("/me", response_model=UserOut)
+async def update_me(
+    payload: UserPatch,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> UserOut:
+    updated = await services.update_me(session, user, payload)
+    return UserOut.model_validate(updated)
 
 
 @router.post("/logout")
