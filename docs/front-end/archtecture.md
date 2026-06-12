@@ -40,9 +40,9 @@ Naming Conventions
 
 3. State Management Standards
 
-    Preferred Library: Flutter Riverpod (or specify your choice: Bloc, Provider, etc.).
+    Library: **`provider`** (pub.dev). Shared state is a `ChangeNotifier` registered in a `MultiProvider` at the app root (`main.dart`) and consumed with `context.watch` (reactive reads in `build`) / `context.read` (actions in callbacks). Ephemeral single-screen state stays in `setState`.
 
-    Logic Placement: Keep business logic inside Providers or StateNotifiers.
+    Logic Placement: Keep business logic inside the `ChangeNotifier` stores (e.g. `CartStore`, `PaymentStore`), not in widgets.
 
     Async Operations: Always use AsyncValue or equivalent patterns to handle Loading, Error, and Data states explicitly.
 

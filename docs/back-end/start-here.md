@@ -50,7 +50,15 @@ back-end/
 │   │   ├── celery_app.py       # instância Celery + autodiscover
 │   │   └── logging.py          # configuração do loguru
 │   ├── modules/                # UM SUBDIRETÓRIO POR DOMÍNIO
-│   │   └── __init__.py         # (vazio — os módulos entram aqui)
+│   │   ├── auth/               # users, JWT, login/register/refresh, addresses
+│   │   ├── products/           # catálogo + reviews
+│   │   ├── cart/               # carrinho por usuário
+│   │   ├── orders/             # pedidos (checkout a partir do carrinho)
+│   │   ├── addresses/          # endereços (montado sob /auth/addresses)
+│   │   ├── payment_methods/    # métodos de pagamento (dados mascarados)
+│   │   ├── support/            # chat de suporte
+│   │   └── notifications/      # device tokens + push (FCM)
+│   ├── seeds/                  # seeds idempotentes (ex.: catálogo de produtos)
 │   └── bff/                    # camada agregadora para o Flutter
 │       └── router.py           # APIRouter com prefix=/bff
 ├── alembic/
@@ -59,6 +67,9 @@ back-end/
 │   └── versions/               # revisões geradas
 ├── tests/
 │   ├── conftest.py             # fixture `client` (httpx.AsyncClient + ASGITransport)
+│   ├── modules/<dominio>/      # testes espelhando cada módulo
+│   ├── seeds/                  # testes dos seeds
+│   ├── e2e/                    # testes e2e contra a stack viva (opt-in)
 │   └── test_health.py
 ├── pyproject.toml              # deps + ruff + pytest config
 ├── alembic.ini
@@ -154,23 +165,31 @@ Sempre que o Flutter precisar de dados de **mais de um** módulo, a rota vai em 
 
 3. **Confira o health**:
    ```bash
-   curl http://localhost:8000/health
+   curl http://localhost:8001/health
    # {"status":"ok"}
    ```
 
-4. **(Opcional) Sync de deps no host** para o IDE reconhecer os pacotes:
+4. **(Opcional) Popule o catálogo de produtos**:
+   ```bash
+   make back-seed
+   ```
+
+5. **(Opcional) Sync de deps no host** para o IDE reconhecer os pacotes:
    ```bash
    make back-sync
    ```
 
 ### Endereços locais
+> Portas externas vêm do `.env` (`API_PORT_EXTERNAL`, etc.). Os defaults do
+> projeto expõem a API na **8001** (a 8000 é a porta interna do container).
+
 | Serviço           | URL                        |
 | ----------------- | -------------------------- |
-| API               | http://localhost:8000      |
-| API docs (Swagger)| http://localhost:8000/docs |
-| RabbitMQ admin    | http://localhost:15672 (edu/edu) |
-| Postgres          | localhost:5432 (edu/edu)   |
-| Redis             | localhost:6379             |
+| API               | http://localhost:8001      |
+| API docs (Swagger)| http://localhost:8001/docs |
+| RabbitMQ admin    | http://localhost:15673 (edu/edu) |
+| Postgres          | localhost:5433 (edu/edu)   |
+| Redis             | localhost:6380             |
 
 ---
 
@@ -189,6 +208,8 @@ Todos a partir da raiz do repo.
 | `make back-lint`                | `ruff check .`                                     |
 | `make back-format`              | `ruff format .`                                    |
 | `make back-migrate`             | `alembic upgrade head`                             |
+| `make back-seed`                | Popula o catálogo de produtos (idempotente)        |
+| `make back-test-e2e`            | Roda os testes e2e contra a stack viva (opt-in)    |
 | `make back-revision M="msg"`    | Gera nova revisão com autogenerate                 |
 | `make back-sync`                | `uv sync` no host (para IDE)                       |
 
@@ -224,8 +245,13 @@ app/modules/auth/
 
 ```python
 from app.modules.auth.routes import router as auth_router
-app.include_router(auth_router)
+app.include_router(auth_router, prefix=settings.API_PREFIX)
 ```
+
+Todos os routers de módulo são montados sob o prefixo global **`/api`**
+(`settings.API_PREFIX`), fiel ao contrato original do cliente (o app Kotlin usava
+base `/api/`). Um `APIRouter(prefix="/auth")` vira, na prática, `/api/auth/...`.
+O `GET /health` é a única exceção — fica na raiz, sem `/api`, para sondas de infra.
 
 Não existe "auto-discovery" de routers aqui de propósito: o registro explícito força o autor a lembrar que aquele módulo vai virar serviço um dia.
 
@@ -348,5 +374,125 @@ make back-migrate
 - [ ] Tasks Celery com `time_limit` e `soft_time_limit`.
 - [ ] Nenhum `print`, nenhum segredo em log, nenhum `==` comparando segredo.
 - [ ] Alembic: models importados em `env.py`, revisão gerada e revisada.
+
+---
+
+## 13. Catálogo de módulos e endpoints (estado atual)
+
+Todas as rotas estão sob o prefixo **`/api`** e exigem `Authorization: Bearer
+<access>` (exceto `register`/`login`/`refresh` e `GET /health`). Convenções de
+JSON: **snake_case**; **valores monetários como string** (`"49.90"`); IDs são
+**UUIDv7**.
+
+### `auth` (`/api/auth`)
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| POST | `/auth/register` | cria usuário, retorna `{user, tokens}` |
+| POST | `/auth/login` | autentica (rate-limited), retorna `{user, tokens}` |
+| POST | `/auth/refresh` | rotaciona o par de tokens |
+| POST | `/auth/logout` | no-op no MVP (cliente descarta tokens) |
+| GET | `/auth/me` | usuário atual |
+| PATCH | `/auth/me` | edita perfil (`name`, `phone`, `birth_date`) |
+
+Política de cadastro: senha ≥8 com caractere especial; `education_level` de uma
+lista fixa; telefone normalizado para dígitos; `birth_date` aceita `DD/MM/YYYY`
+ou ISO.
+
+### `addresses` (`/api/auth/addresses`)
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| GET | `/auth/addresses` | lista (favorito primeiro) |
+| POST | `/auth/addresses` | cria; 1º endereço vira favorito |
+| PATCH | `/auth/addresses/{id}` | atualização parcial |
+| DELETE | `/auth/addresses/{id}` | remove (204) |
+
+Invariante: **um único favorito por usuário** (garantido em transação).
+
+### `products` (`/api/products`)
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| GET | `/products?q&limit&offset` | lista paginada (`{items,total,limit,offset}`) |
+| GET | `/products/categories` | contagem por `type` |
+| GET | `/products/{id}` | detalhe |
+| GET | `/products/{id}/reviews?limit&offset` | reviews + aggregates |
+| POST | `/products/{id}/reviews` | cria review (autor = usuário atual) |
+
+`rating_avg`/`rating_count` são **denormalizados** no produto e atualizados sob
+**row-lock** ao criar review (read→write atômico).
+
+### `cart` (`/api/cart`)
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| GET | `/cart` | carrinho do usuário |
+| POST | `/cart/items` | adiciona/incrementa item |
+| DELETE | `/cart/items/{product_id}?quantity` | sem `quantity` remove o item; com `quantity` decrementa |
+
+`total`/`subtotal` são **calculados no servidor** com preço vivo do catálogo.
+Mutação de quantidade é serializada com lock na linha do carrinho.
+
+### `orders` (`/api/orders`)
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| GET | `/orders?limit&offset` | pedidos do usuário (desc) |
+| POST | `/orders` | checkout: monta pedido do carrinho e **esvazia** numa transação com lock; body opcional `{payment_method:str}` |
+| POST | `/orders/{id}/rebuy` | recompõe o carrinho a partir do pedido, retorna o `Cart` |
+
+Itens do pedido **snapshotam** o preço pago (registro histórico imutável).
+
+### `payment_methods` (`/api/payment-methods`)
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| GET | `/payment-methods` | lista (default primeiro) |
+| POST | `/payment-methods` | cria; 1º vira default |
+| PATCH | `/payment-methods/{id}` | define como default |
+| DELETE | `/payment-methods/{id}` | remove; promove o próximo a default |
+
+**PCI/LGPD:** armazena só dados **mascarados** (`card_last4`, `card_brand`,
+`card_expiry` MMYY, `cardholder_name`, `pix_key`). Schema com `extra="forbid"`
+**rejeita** PAN completo, CVV ou CPF. Invariante de um único default por usuário.
+
+### `support` (`/api/support`)
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| GET | `/support` | histórico de mensagens do usuário |
+| POST | `/support` | envia mensagem, retorna a lista atualizada |
+
+### `notifications` (`/api/notifications`)
+Registro de device tokens e envio de push via FCM (worker Celery).
+
+---
+
+## 14. Seams de composição entre módulos (exceções documentadas)
+
+A regra de ouro (§4) é "um módulo nunca importa de outro". No monolito atual há
+**três pontos** onde isso é flexibilizado de forma consciente e comentada no
+código — todos são candidatos a virar chamada HTTP/saga na extração:
+
+1. **`cart.services` → `products`** — lê `Product` (batch select) para montar a
+   view do carrinho com nome/preço/rating vivos.
+2. **`orders.services` → `cart` + `products`** — o checkout precisa ler o
+   carrinho, snapshotar o produto, criar o pedido e esvaziar o carrinho **numa
+   única transação com lock**. A atomicidade (regra de segurança #3) prevalece
+   sobre a pureza de módulo aqui.
+3. **`orders.routes` (rebuy) → `cart.services`** — recompõe o carrinho a partir
+   de um pedido, no nível da rota (mantém `orders.services` desacoplado de
+   escrita no carrinho).
+
+Pagamento no pedido é uma **string descritiva** (ex.: `"Visa ••••1234"`) enviada
+no body de `POST /orders`; o cliente escolhe entre os `/payment-methods` salvos.
+
+---
+
+## 15. Seeds
+
+`app/seeds/products.py` popula o catálogo (6 produtos + reviews de exemplo)
+espelhando o mock do Flutter. É **idempotente** (chaveado por nome — rodar de
+novo insere 0). Exposto como `seed_products(session)` (testável, em
+`tests/seeds/`) e `main()` runnable:
+
+```bash
+make back-seed
+# ou: docker compose exec api uv run python -m app.seeds.products
+```
 
 ---

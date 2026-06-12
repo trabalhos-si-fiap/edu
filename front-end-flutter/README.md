@@ -40,9 +40,10 @@ lib/
 │   │       └── home_screen.dart      # Dashboard principal
 │   ├── marketplace/
 │   │   └── presentation/
-│   │       ├── marketplace_screen.dart         # Loja com banner e produtos
-│   │       ├── checkout_screen.dart            # Revisao do carrinho + pagamento
-│   │       ├── add_payment_method_screen.dart  # Adicionar metodo de pagamento
+│   │       ├── marketplace_screen.dart         # Loja: busca, chips, grid de produtos
+│   │       ├── product_detail_screen.dart      # Detalhe do produto + avaliacoes
+│   │       ├── checkout_screen.dart            # Carrinho + endereco + pagamento
+│   │       ├── add_payment_method_screen.dart  # Adicionar/editar metodo de pagamento
 │   │       ├── orders_screen.dart              # Lista de pedidos do usuario
 │   │       └── order_details_screen.dart       # Status do rastreio + suporte
 │   ├── logistics/
@@ -64,9 +65,10 @@ lib/
 | `/register` | RegisterScreen | Cadastro com validacao de senha |
 | `/home` | HomeScreen | Dashboard com progresso, trilhas, revisao |
 | `/profile` | ProfileScreen | Perfil, stats, configuracoes, logout |
-| `/marketplace` | MarketplaceScreen | Loja com banner de colecao em destaque e produtos |
-| `/checkout` | CheckoutScreen | Revisao do carrinho e selecao de metodo de pagamento |
-| `/add-payment-method` | AddPaymentMethodScreen | Cadastro de cartao, PIX ou boleto |
+| `/marketplace` | MarketplaceScreen | Loja com busca, chips de categoria e grid de produtos |
+| `/product` | ProductDetailScreen | Detalhe do produto: hero, rating, preco, descricao, avaliacoes |
+| `/checkout` | CheckoutScreen | Carrinho (stepper + total), endereco e metodos de pagamento |
+| `/add-payment-method` | AddPaymentMethodScreen | Cadastro/edicao de cartao, PIX ou boleto |
 | `/orders` | OrdersScreen | Pedido ativo com stepper de entrega + historico |
 | `/order-details` | OrderDetailsScreen | Status do rastreio, localizacao, conteudo do kit |
 | `/logistics-dashboard` | LogisticsDashboardScreen | Painel de logistica com destino atual, progresso do dia e proximas paradas |
@@ -127,8 +129,9 @@ Navegacao via `Navigator` com rotas nomeadas definidas em `main.dart`:
 - Profile -> Orders: item "Meus pedidos" nas configuracoes
 - Profile -> Intro: botao Logout (limpa stack)
 - NavBar (Loja) -> Marketplace: indice 4 do bottom nav em todas as telas
-- Marketplace -> Checkout: icone de carrinho na top bar
-- Checkout -> AddPaymentMethod: opcao "Outro metodo"
+- Marketplace -> Product: toque no card do produto
+- Marketplace/Product -> Checkout: icone de carrinho na top bar
+- Checkout -> AddPaymentMethod: opcao "Outro metodo" (ou icone editar para alterar)
 - Orders -> OrderDetails: botao "Detalhes do pedido"
 - Logistics (login) -> LogisticsDashboard: credenciais `teste` / `teste`
 - LogisticsDashboard -> OrderPicking: aba "Separacao" no bottom nav
@@ -137,8 +140,10 @@ Navegacao via `Navigator` com rotas nomeadas definidas em `main.dart`:
 
 - [Arquitetura e Guidelines](docs/archtecture.md) -- Padroes de codigo, arquitetura feature-first, convencoes
 - [Guia de Estilo Visual](docs/visual_guide.md) -- Padroes de UI, componentes reutilizaveis, layout
+- [Modulo Marketplace](../docs/front-end/marketplace.md) -- Loja, produto, carrinho e pagamento (modelos, stores, telas)
 
 ## Dependencias
 
 - `flutter` (SDK)
 - `cupertino_icons` -- Icones iOS
+- `provider` -- gerencia de estado (ChangeNotifier compartilhado via MultiProvider)
