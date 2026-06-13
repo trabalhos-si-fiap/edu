@@ -42,9 +42,7 @@ class TestCreateOrderFromCart:
         by_name = {i.product_name: i for i in order.items}
         assert by_name["Cálculo"].unit_price == filled_cart[0].price
 
-    async def test_empty_cart_raises(
-        self, db_session: AsyncSession, created_user: User
-    ) -> None:
+    async def test_empty_cart_raises(self, db_session: AsyncSession, created_user: User) -> None:
         with pytest.raises(EmptyCart):
             await services.create_order_from_cart(db_session, created_user.id, "")
 
@@ -71,9 +69,7 @@ class TestListAndGet:
         assert len(orders) == 1
         assert orders[0].items
 
-    async def test_get_unknown_raises(
-        self, db_session: AsyncSession, created_user: User
-    ) -> None:
+    async def test_get_unknown_raises(self, db_session: AsyncSession, created_user: User) -> None:
         with pytest.raises(OrderNotFound):
             await services.get_order(db_session, created_user.id, uuid.uuid4())
 
