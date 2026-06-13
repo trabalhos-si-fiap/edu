@@ -2,8 +2,8 @@ import 'package:edu_ia/core/theme/app_colors.dart';
 import 'package:edu_ia/core/utils/currency.dart';
 import 'package:edu_ia/features/cart/data/cart_store.dart';
 import 'package:edu_ia/features/components/nav_bar.dart';
-import 'package:edu_ia/features/marketplace/data/mock_marketplace.dart';
 import 'package:edu_ia/features/marketplace/domain/product.dart';
+import 'package:edu_ia/features/marketplace/presentation/products_provider.dart';
 import 'package:edu_ia/features/marketplace/presentation/widgets/add_to_cart_button.dart';
 import 'package:edu_ia/features/marketplace/presentation/widgets/product_visuals.dart';
 import 'package:edu_ia/features/marketplace/presentation/widgets/rating_stars.dart';
@@ -11,23 +11,29 @@ import 'package:edu_ia/features/marketplace/presentation/widgets/review_item.dar
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-class MarketplaceScreen extends StatefulWidget {
+/// Entrada de rota do marketplace. Cria o [ProductsProvider] e carrega o
+/// catálogo; a UI fica em [MarketplaceView] para facilitar testes.
+class MarketplaceScreen extends StatelessWidget {
   const MarketplaceScreen({super.key});
 
   @override
-  State<MarketplaceScreen> createState() => _MarketplaceScreenState();
+  Widget build(BuildContext context) {
+    return ChangeNotifierProvider(
+      create: (_) => ProductsProvider()..load(),
+      child: const MarketplaceView(),
+    );
+  }
 }
 
-class _MarketplaceScreenState extends State<MarketplaceScreen> {
-  final TextEditingController _searchController = TextEditingController();
-  String _query = '';
-  String? _selectedType;
+class MarketplaceView extends StatefulWidget {
+  const MarketplaceView({super.key});
 
-  late final List<String> _types = mockProducts
-      .map((p) => p.type)
-      .where((t) => t.isNotEmpty)
-      .toSet()
-      .toList();
+  @override
+  State<MarketplaceView> createState() => _MarketplaceViewState();
+}
+
+class _MarketplaceViewState extends State<MarketplaceView> {
+  final TextEditingController _searchController = TextEditingController();
 
   @override
   void dispose() {
@@ -35,21 +41,10 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
     super.dispose();
   }
 
-  List<Product> get _filtered {
-    final q = _query.trim().toLowerCase();
-    return mockProducts.where((p) {
-      final matchesType = _selectedType == null || p.type == _selectedType;
-      final matchesQuery =
-          q.isEmpty ||
-          p.name.toLowerCase().contains(q) ||
-          p.description.toLowerCase().contains(q);
-      return matchesType && matchesQuery;
-    }).toList();
-  }
-
   @override
   Widget build(BuildContext context) {
-    final filtered = _filtered;
+    final provider = context.watch<ProductsProvider>();
+    final filtered = provider.visibleProducts;
     return Container(
       decoration: const BoxDecoration(gradient: AppColors.headerGradient),
       child: Scaffold(
@@ -59,76 +54,16 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
             children: [
               _TopBar(
                 controller: _searchController,
-                onSearchChange: (v) => setState(() => _query = v),
+                onSearchChange: provider.setQuery,
                 onOpenProfile: () => Navigator.pushNamed(context, '/profile'),
                 onOpenCart: () => Navigator.pushNamed(context, '/checkout'),
               ),
               _CategoryChips(
-                types: _types,
-                selected: _selectedType,
-                onSelected: (t) => setState(() => _selectedType = t),
+                types: provider.types,
+                selected: provider.selectedType,
+                onSelected: provider.setType,
               ),
-              Expanded(
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    const padding = 24.0;
-                    const spacing = 12.0;
-                    final cellWidth =
-                        (constraints.maxWidth - padding * 2 - spacing) / 2;
-                    // Altura = imagem quadrada + bloco de conteúdo (textos
-                    // limitados + botão), com folga.
-                    final extent = cellWidth + 252;
-                    return CustomScrollView(
-                      slivers: [
-                        const SliverToBoxAdapter(
-                          child: Padding(
-                            padding: EdgeInsets.fromLTRB(
-                              padding,
-                              padding,
-                              padding,
-                              16,
-                            ),
-                            child: Text(
-                              'EduMarketplace',
-                              style: TextStyle(
-                                fontSize: 32,
-                                fontWeight: FontWeight.w800,
-                                color: AppColors.textPrimary,
-                                letterSpacing: -0.5,
-                              ),
-                            ),
-                          ),
-                        ),
-                        if (filtered.isEmpty)
-                          SliverToBoxAdapter(child: _EmptyResult(query: _query))
-                        else
-                          SliverPadding(
-                            padding: const EdgeInsets.fromLTRB(
-                              padding,
-                              0,
-                              padding,
-                              24,
-                            ),
-                            sliver: SliverGrid(
-                              gridDelegate:
-                                  SliverGridDelegateWithFixedCrossAxisCount(
-                                    crossAxisCount: 2,
-                                    crossAxisSpacing: spacing,
-                                    mainAxisSpacing: 16,
-                                    mainAxisExtent: extent,
-                                  ),
-                              delegate: SliverChildBuilderDelegate(
-                                (context, i) =>
-                                    _ProductCard(product: filtered[i]),
-                                childCount: filtered.length,
-                              ),
-                            ),
-                          ),
-                      ],
-                    );
-                  },
-                ),
-              ),
+              Expanded(child: _buildBody(provider, filtered)),
             ],
           ),
         ),
@@ -138,6 +73,90 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
         ),
       ),
     );
+  }
+
+  Widget _buildBody(ProductsProvider provider, List<Product> filtered) {
+    switch (provider.state) {
+      case ProductsViewState.loading:
+        return const Center(
+          child: CircularProgressIndicator(color: AppColors.purple),
+        );
+      case ProductsViewState.error:
+        return Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Não foi possível carregar o catálogo.',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                provider.errorMessage ?? '',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: AppColors.textSecondary),
+              ),
+              const SizedBox(height: 12),
+              TextButton(
+                onPressed: provider.load,
+                child: const Text('Tentar novamente',
+                    style: TextStyle(color: AppColors.purple)),
+              ),
+            ],
+          ),
+        );
+      case ProductsViewState.success:
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            const padding = 24.0;
+            const spacing = 12.0;
+            final cellWidth =
+                (constraints.maxWidth - padding * 2 - spacing) / 2;
+            final extent = cellWidth + 252;
+            return CustomScrollView(
+              slivers: [
+                const SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(padding, padding, padding, 16),
+                    child: Text(
+                      'EduMarketplace',
+                      style: TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.textPrimary,
+                        letterSpacing: -0.5,
+                      ),
+                    ),
+                  ),
+                ),
+                if (filtered.isEmpty)
+                  SliverToBoxAdapter(child: _EmptyResult(query: provider.query))
+                else
+                  SliverPadding(
+                    padding:
+                        const EdgeInsets.fromLTRB(padding, 0, padding, 24),
+                    sliver: SliverGrid(
+                      gridDelegate:
+                          SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 2,
+                        crossAxisSpacing: spacing,
+                        mainAxisSpacing: 16,
+                        mainAxisExtent: extent,
+                      ),
+                      delegate: SliverChildBuilderDelegate(
+                        (context, i) => _ProductCard(product: filtered[i]),
+                        childCount: filtered.length,
+                      ),
+                    ),
+                  ),
+              ],
+            );
+          },
+        );
+    }
   }
 }
 
@@ -351,7 +370,7 @@ class _ProductCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: () =>
-          Navigator.pushNamed(context, '/product', arguments: product.id),
+          Navigator.pushNamed(context, '/product', arguments: product),
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
