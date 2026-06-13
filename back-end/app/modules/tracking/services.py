@@ -12,10 +12,14 @@ onto this endpoint with no further change.
 
 from datetime import UTC, datetime, timedelta
 
+import httpx
+import redis.asyncio as aioredis
 from loguru import logger
 
 from app.core.config import settings
+from app.modules.tracking import directions
 from app.modules.tracking.enums import TrackingStepStatus
+from app.modules.tracking.exceptions import RouteUnavailable
 from app.modules.tracking.routing import predict_route
 from app.modules.tracking.schemas import (
     CourierLocationIn,
@@ -23,6 +27,8 @@ from app.modules.tracking.schemas import (
     GeoPoint,
     KitItemOut,
     OrderTrackingOut,
+    RouteOut,
+    RoutePoint,
     TrackingLocationOut,
     TrackingStepOut,
 )
@@ -31,6 +37,15 @@ from app.modules.tracking.schemas import (
 # The tracking screen contract doesn't carry this coordinate, so it lives here
 # until the addresses/orders integration provides the real one.
 _MOCK_DESTINATION = GeoPoint(latitude=-23.561414, longitude=-46.655881)
+
+# Mocked distribution center (route origin) — Cajamar/SP. Paired with
+# _MOCK_DESTINATION until the orders/addresses integration provides real coords.
+_MOCK_ORIGIN = GeoPoint(latitude=-23.3558, longitude=-46.8769)
+_ORIGIN_LABEL = "Centro de Distribuição"
+_DESTINATION_LABEL = "Endereço de entrega"
+
+# Redis key prefix for cached order routes.
+_ROUTE_CACHE_PREFIX = "tracking:route:"
 
 
 def _build_mocked_tracking(order_id: str) -> OrderTrackingOut:
@@ -43,10 +58,7 @@ def _build_mocked_tracking(order_id: str) -> OrderTrackingOut:
     return OrderTrackingOut(
         id=order_id,
         headline="Status do Rastreio",
-        description=(
-            "Seu material didático premium está em rota de entrega para "
-            "sua residência."
-        ),
+        description=("Seu material didático premium está em rota de entrega para sua residência."),
         estimated_arrival=now + timedelta(days=4),
         steps=[
             TrackingStepOut(
@@ -132,3 +144,56 @@ async def predict_eta(
         courier_location=GeoPoint(latitude=courier.latitude, longitude=courier.longitude),
         destination_location=destination,
     )
+
+
+async def get_order_route(redis: aioredis.Redis, user_id: object, order_id: str) -> RouteOut:
+    """Return the street route from the distribution center to the order address.
+
+    Lazily calls the Google Directions API only on a cache miss; the origin and
+    destination are fixed per order, so the resulting route is cached in Redis
+    (security/cost: avoids repeated paid Directions calls). Ownership is the
+    caller's responsibility; with the current mock every order resolves.
+    """
+    cache_key = f"{_ROUTE_CACHE_PREFIX}{order_id}"
+    cached = await redis.get(cache_key)
+    if cached is not None:
+        return RouteOut.model_validate_json(cached)
+
+    api_key = settings.GOOGLE_MAPS_API_PLATAFORM
+    if not api_key:
+        logger.error("tracking: GOOGLE_MAPS_API_PLATAFORM is not configured")
+        raise RouteUnavailable("maps api key not configured")
+
+    async with httpx.AsyncClient() as client:
+        result = await directions.fetch_directions(
+            client,
+            origin=(_MOCK_ORIGIN.latitude, _MOCK_ORIGIN.longitude),
+            destination=(_MOCK_DESTINATION.latitude, _MOCK_DESTINATION.longitude),
+            api_key=api_key,
+        )
+
+    route = RouteOut(
+        origin=RoutePoint(
+            label=_ORIGIN_LABEL,
+            latitude=_MOCK_ORIGIN.latitude,
+            longitude=_MOCK_ORIGIN.longitude,
+        ),
+        destination=RoutePoint(
+            label=_DESTINATION_LABEL,
+            latitude=_MOCK_DESTINATION.latitude,
+            longitude=_MOCK_DESTINATION.longitude,
+        ),
+        polyline=result.polyline,
+        distance_text=result.distance_text,
+        distance_km=result.distance_km,
+        duration_text=result.duration_text,
+        duration_minutes=result.duration_minutes,
+    )
+
+    await redis.set(
+        cache_key,
+        route.model_dump_json(),
+        ex=settings.TRACKING_ROUTE_CACHE_TTL_SECONDS,
+    )
+    logger.info("tracking: route computed order={} user={}", order_id, user_id)
+    return route
