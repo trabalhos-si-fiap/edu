@@ -68,7 +68,7 @@ do back-end campo a campo.
 | `TrackingStep` | `domain/order_model.dart` | `code`, `title`, `status` (`done`/`current`/`pending`), `timestamp?` |
 | `TrackingLocation` | `domain/order_model.dart` | `name`, `city`, `state`, `updatedAt?`; getter `cityState` |
 | `KitItem` | `domain/order_model.dart` | `name`, `subtitle?` |
-| `OrderRoute` | `domain/order_route.dart` | `origin`, `destination` (`RoutePoint`), `polyline`, `distanceText`, `distanceKm`, `durationText`, `durationMinutes`; getter `polylinePoints` |
+| `OrderRoute` | `domain/order_route.dart` | `origin`, `destination` (`RoutePoint`), `polyline`, `distanceText`, `distanceKm`, `durationText`, `durationMinutes`; getter `polylinePoints`; método `estimatedArrival(now)` |
 | `RoutePoint` | `domain/order_route.dart` | `label`, `latitude`, `longitude`; getter `latLng` (`LatLng`) |
 
 `OrderRoute.polylinePoints` decodifica preguiçosamente a `polyline` codificada do
@@ -116,11 +116,18 @@ os cards. O `LocationCard` recebe `onOpenMap`, ligado a
 
 ### OrderMapScreen
 Observa o `RouteProvider`. No sucesso renderiza um `GoogleMap` com:
-- dois `Marker` (Centro de Distribuição e endereço de entrega);
+- marcador da **origem** (Centro de Distribuição = ponto de partida) como um
+  **ícone de caminhão**, gerado de `Icons.local_shipping` por
+  `truckMarkerBitmap` (`widgets/marker_icons.dart`) e carregado em `initState`;
+  o destino usa o pino padrão;
 - uma `Polyline` roxa com os `polylinePoints` decodificados;
 - a câmera enquadrando os dois pontos via `CameraUpdate.newLatLngBounds`,
   disparada num `addPostFrameCallback` (o mapa pode ter tamanho zero em
-  `onMapCreated` no Android).
+  `onMapCreated` no Android);
+- um **cartão flutuante** (`_RouteSummaryCard`) com saída/destino, a distância e
+  o tempo de trajeto da rota, e a **chegada estimada** = agora +
+  `durationMinutes` (formatada por `OrderFormat.estimatedArrivalLabel`, ex.:
+  "hoje, ~14:48").
 
 ---
 
@@ -187,7 +194,8 @@ projeto. Estados de loading/erro reutilizam `order_error_view.dart`.
 | Arquivo | Cobre |
 |---------|-------|
 | `polyline_codec_test.dart` | decodifica o vetor canônico do Google; entrada vazia |
-| `order_route_test.dart` | `OrderRoute.fromJson` (contrato) + `polylinePoints` |
+| `order_route_test.dart` | `OrderRoute.fromJson` (contrato) + `polylinePoints` + `estimatedArrival` |
+| `order_format_test.dart` | `estimatedArrivalLabel` (hoje / amanhã / data, com `~HH:MM`) |
 | `route_service_test.dart` | parse 200 + header bearer; `RouteException` em não-200 (`MockClient`) |
 | `route_provider_test.dart` | `load()` → success com rota; `RouteException` → estado de erro |
 
