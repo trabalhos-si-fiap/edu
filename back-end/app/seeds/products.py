@@ -4,15 +4,22 @@ Mirrors the Flutter mock catalog (mock_marketplace.dart) so the connected app
 shows the same data it does today with mocks. Safe to run repeatedly — products
 are keyed by name and skipped if already present.
 
+When an ObjectStorage instance is passed to seed_products(), a deterministic
+solid-color placeholder PNG is generated (stdlib only, no Pillow) and uploaded
+per product, and the product's image_url is set to the resulting object key.
+
 Run inside the api container:
 
     uv run python -m app.seeds.products
 """
 
 import asyncio
+import struct
 import uuid
+import zlib
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from loguru import logger
 from sqlalchemy import func, select
@@ -21,12 +28,38 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import SessionLocal
 from app.modules.products.models import Product, Review
 
+if TYPE_CHECKING:
+    from app.core.storage import ObjectStorage
+
 # Sentinel author id for sample/seeded reviews (no real user owns them).
 _SEED_AUTHOR_USER_ID = uuid.UUID(int=0)
 
 
 def _ts(date_str: str) -> datetime:
     return datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=UTC)
+
+
+def _solid_png(width: int, height: int, rgb: tuple[int, int, int]) -> bytes:
+    """Generate a valid solid-color RGB PNG using only the stdlib (no Pillow).
+
+    Used to give seeded products a real, viewable image without committing
+    binary assets to the repo.
+    """
+
+    def _chunk(typ: bytes, data: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(data))
+            + typ
+            + data
+            + struct.pack(">I", zlib.crc32(typ + data) & 0xFFFFFFFF)
+        )
+
+    signature = b"\x89PNG\r\n\x1a\n"
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)  # 8-bit, color type 2 (RGB)
+    row = b"\x00" + bytes(rgb) * width  # filter byte 0 + RGB pixels
+    raw = row * height
+    idat = zlib.compress(raw)
+    return signature + _chunk(b"IHDR", ihdr) + _chunk(b"IDAT", idat) + _chunk(b"IEND", b"")
 
 
 # rating_avg/rating_count are the "headline" aggregates carried over from the
@@ -63,8 +96,7 @@ SEED_PRODUCTS: list[dict] = [
         "type": "curso",
         "subtype": "Premium Course",
         "description": (
-            "Módulo avançado de Educação 5.0 com trilhas práticas de análise e "
-            "síntese de dados."
+            "Módulo avançado de Educação 5.0 com trilhas práticas de análise e síntese de dados."
         ),
         "price": "189.90",
         "rating_avg": 4.8,
@@ -103,8 +135,7 @@ SEED_PRODUCTS: list[dict] = [
         "type": "apostila",
         "subtype": "Apostila",
         "description": (
-            "Quatro provas no formato oficial, gabarito comentado e correção da "
-            "redação por TRI."
+            "Quatro provas no formato oficial, gabarito comentado e correção da redação por TRI."
         ),
         "price": "29.90",
         "rating_avg": 4.6,
@@ -129,8 +160,7 @@ SEED_PRODUCTS: list[dict] = [
         "type": "digital",
         "subtype": "Material Digital",
         "description": (
-            "Coletânea de mapas mentais de citologia, genética e ecologia para "
-            "revisão rápida."
+            "Coletânea de mapas mentais de citologia, genética e ecologia para revisão rápida."
         ),
         "price": "19.90",
         "rating_avg": 4.0,
@@ -160,18 +190,20 @@ SEED_PRODUCTS: list[dict] = [
 ]
 
 
-async def seed_products(session: AsyncSession) -> int:
+async def seed_products(session: AsyncSession, *, storage: "ObjectStorage | None" = None) -> int:
     """Insert any missing catalog products (and their sample reviews).
 
     Returns the number of products inserted. Existing products (matched by
     name) are left untouched, so this is safe to run repeatedly.
+
+    When storage is provided, a deterministic solid-color PNG placeholder is
+    generated and uploaded for each newly inserted product, and image_url is
+    set to the resulting object key.
     """
-    existing_names = set(
-        (await session.execute(select(Product.name))).scalars().all()
-    )
+    existing_names = set((await session.execute(select(Product.name))).scalars().all())
 
     inserted = 0
-    for data in SEED_PRODUCTS:
+    for index, data in enumerate(SEED_PRODUCTS):
         if data["name"] in existing_names:
             continue
         product = Product(
@@ -193,6 +225,11 @@ async def seed_products(session: AsyncSession) -> int:
                     created_at=_ts(review["created_at"]),
                 )
             )
+        if storage is not None:
+            key = f"products/seed-{index}.png"
+            color = ((index * 53) % 256, (index * 97) % 256, (index * 151) % 256)
+            await storage.put_object(key, _solid_png(400, 400, color), "image/png")
+            product.image_url = key
         session.add(product)
         inserted += 1
 
@@ -201,8 +238,11 @@ async def seed_products(session: AsyncSession) -> int:
 
 
 async def main() -> None:
+    from app.core.storage import ObjectStorage
+
+    storage = ObjectStorage()
     async with SessionLocal() as session:
-        inserted = await seed_products(session)
+        inserted = await seed_products(session, storage=storage)
         total = (await session.execute(select(func.count()).select_from(Product))).scalar_one()
     logger.info("seed: products inserted={} catalog_total={}", inserted, total)
 
