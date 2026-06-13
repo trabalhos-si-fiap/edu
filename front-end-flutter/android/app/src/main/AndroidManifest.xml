@@ -7,6 +7,11 @@
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true">
+        <!-- Google Maps SDK key, injected from android/secrets.properties
+             (gitignored) via the MAPS_API_KEY manifest placeholder. -->
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="${MAPS_API_KEY}" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

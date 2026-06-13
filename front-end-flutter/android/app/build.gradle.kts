@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -5,6 +7,14 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
     // Firebase (FCM) — must come after the Android/Flutter plugins above.
     id("com.google.gms.google-services")
+}
+
+// Google Maps SDK key, kept out of git in android/secrets.properties. Injected
+// into the manifest as ${MAPS_API_KEY}; empty if the file is absent (the map
+// simply won't render) so the build never fails for contributors without a key.
+val secretsProperties = Properties().apply {
+    val f = rootProject.file("secrets.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
 }
 
 android {
@@ -33,6 +43,9 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        manifestPlaceholders["MAPS_API_KEY"] =
+            (secretsProperties["MAPS_API_KEY"] as String?) ?: ""
     }
 
     buildTypes {

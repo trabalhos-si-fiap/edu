@@ -47,7 +47,7 @@ class OrdersScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 20),
                 const _ActiveOrderCard(
-                  orderId: '#EDU-882910',
+                  orderId: 'EDU-882910',
                   total: 'R\$242',
                   purchaseDate: '22 de abril, 2026',
                   estimatedDelivery: '27/04',
@@ -132,7 +132,7 @@ class _ActiveOrderCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Pedido $orderId',
+                      'Pedido #$orderId',
                       style: const TextStyle(
                         fontSize: 22,
                         fontWeight: FontWeight.w800,
@@ -223,23 +223,45 @@ class _ActiveOrderCard extends StatelessWidget {
           const SizedBox(height: 16),
           SizedBox(
             width: double.infinity,
-            child: Builder(
-              builder: (context) => ElevatedButton(
-                onPressed: () =>
-                    Navigator.pushNamed(context, '/order-details'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.inputFill,
-                  foregroundColor: AppColors.textPrimary,
-                  elevation: 0,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+            child: ElevatedButton.icon(
+              onPressed: () => Navigator.pushNamed(
+                context,
+                '/order-tracking',
+                arguments: orderId,
+              ),
+              icon: const Icon(Icons.local_shipping_outlined, size: 20),
+              label: const Text(
+                'Rastrear pedido',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.purple,
+                foregroundColor: AppColors.white,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Text(
-                  'Detalhes do pedido',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () => Navigator.pushNamed(context, '/order-details'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.inputFill,
+                foregroundColor: AppColors.textPrimary,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
                 ),
+              ),
+              child: const Text(
+                'Detalhes do pedido',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
               ),
             ),
           ),

@@ -460,6 +460,37 @@ Itens do pedido **snapshotam** o preço pago (registro histórico imutável).
 ### `notifications` (`/api/notifications`)
 Registro de device tokens e envio de push via FCM (worker Celery).
 
+### `tracking` (`/api/orders`)
+Superfície de **leitura/derivação** sobre pedidos: detalhe de rastreio, predição
+de ETA e a rota do mapa. Dados do pedido ainda **mockados** (sem persistência);
+quando o storage real entrar, só os builders privados de `services.py` mudam.
+
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| GET | `/orders/{id}/tracking` | payload da tela de rastreio (etapas, localização, kit) |
+| POST | `/orders/{id}/predict-eta` | estima o tempo restante a partir da posição do entregador (Haversine + fator urbano + trânsito) |
+| GET | `/orders/{id}/route` | rota real por ruas origem→destino para o mapa embutido |
+
+`order_id` é uma string opaca **limitada** (`Path(min_length=1, max_length=64)`,
+ex.: `ED-99420`), não UUID. Os três endpoints exigem `Depends(get_current_user)`.
+
+**`GET /orders/{id}/route`** (módulo de mapa do app):
+- Chama a **Google Directions API** server-side via `httpx`
+  (`tracking/directions.py`). A chave vem de `settings.GOOGLE_MAPS_API_PLATAFORM`
+  (em `back-end/.env`) e **nunca** é logada nem enviada ao cliente — a chave do
+  Maps SDK do app é outra, separada (regra de segurança #5).
+- Resultado **cacheado no Redis** por pedido (`tracking:route:{order_id}`, TTL
+  `TRACKING_ROUTE_CACHE_TTL_SECONDS`, default 6 h) — origem/destino são fixos por
+  pedido, então a Directions só é paga na **primeira** abertura do mapa.
+- Falha do provedor (fora do ar, cota, sem rota, chave ausente) vira
+  `RouteUnavailable` → resposta **503** limpa (nunca 500, nunca vaza detalhe).
+- Origem (Centro de Distribuição) e destino são **mockados** até a integração de
+  pedidos/endereços fornecer coordenadas reais.
+
+Config relacionada em `core/config.py`: `GOOGLE_MAPS_API_PLATAFORM`,
+`TRACKING_ROUTE_CACHE_TTL_SECONDS`, `TRACKING_AVERAGE_SPEED_KMH`,
+`TRACKING_URBAN_ROUTE_FACTOR`.
+
 ---
 
 ## 14. Seams de composição entre módulos (exceções documentadas)

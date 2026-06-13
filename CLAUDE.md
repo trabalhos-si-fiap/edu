@@ -10,6 +10,7 @@ App educacional com Flutter (frontend) e Python + FastAPI (backend em microservi
 | | [docs/front-end/archtecture.md](docs/front-end/archtecture.md) | Arquitetura feature-first, convencoes de codigo |
 | | [docs/front-end/visual_guide.md](docs/front-end/visual_guide.md) | Paleta de cores, componentes, espacamento |
 | | [docs/front-end/marketplace.md](docs/front-end/marketplace.md) | Modulo marketplace: loja, produto, carrinho, pagamento |
+| | [docs/front-end/order_tracking.md](docs/front-end/order_tracking.md) | Modulo order tracking: rastreio, mapa com rota (Google Maps) |
 | **Backend** | [docs/back-end/start-here.md](docs/back-end/start-here.md) | Setup, arquitetura, padroes, git versioning |
 
 ## Tech Stack
