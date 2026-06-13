@@ -27,12 +27,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   // Must match the backend `EducationLevel` enum values exactly.
   static const _educationLevels = [
-    'Ensino Fundamental',
-    'Ensino Médio',
-    'Ensino Superior',
-    'Pós-graduação',
-    'Mestrado',
-    'Doutorado',
+    '9º ano',
+    '1º ano',
+    '2º ano',
+    '3º ano',
+    'Vestibulando',
   ];
 
   @override
