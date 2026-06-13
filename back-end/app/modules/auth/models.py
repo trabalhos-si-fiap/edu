@@ -13,14 +13,7 @@ class User(Base):
     __tablename__ = "auth_users"
     __table_args__ = (
         CheckConstraint(
-            "education_level IN ("
-            "'Ensino Fundamental',"
-            "'Ensino Médio',"
-            "'Ensino Superior',"
-            "'Pós-graduação',"
-            "'Mestrado',"
-            "'Doutorado'"
-            ")",
+            "education_level IN ('9º ano','1º ano','2º ano','3º ano','Vestibulando')",
             name="ck_auth_users_education_level",
         ),
     )
