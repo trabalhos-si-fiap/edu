@@ -161,3 +161,15 @@ async def test_get_order_route_happy_path(
     assert body["polyline"] == "enc-poly"
     assert body["origin"]["label"] == "Centro de Distribuição"
     assert body["duration_minutes"] == 48
+
+
+async def test_get_order_route_unavailable_returns_503(
+    auth_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Provider failure surfaces as RouteUnavailable; the route must map it to a
+    # clean 503, never a 500. Here the maps key is unconfigured.
+    monkeypatch.setattr(settings, "GOOGLE_MAPS_API_PLATAFORM", None)
+
+    resp = await auth_client.get(f"/api/orders/{_ORDER_ID}/route")
+    assert resp.status_code == 503
+    assert resp.json()["detail"] == "Rota indisponível no momento"

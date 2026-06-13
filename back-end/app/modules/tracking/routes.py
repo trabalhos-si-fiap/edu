@@ -1,12 +1,13 @@
 from typing import Annotated
 
 import redis.asyncio as aioredis
-from fastapi import APIRouter, Depends, Path
+from fastapi import APIRouter, Depends, HTTPException, Path, status
 
 from app.core.redis_client import get_redis
 from app.modules.auth.dependencies import get_current_user
 from app.modules.auth.models import User
 from app.modules.tracking import services
+from app.modules.tracking.exceptions import RouteUnavailable
 from app.modules.tracking.schemas import (
     CourierLocationIn,
     ETAPredictionOut,
@@ -50,4 +51,12 @@ async def get_order_route(
     redis: Annotated[aioredis.Redis, Depends(get_redis)],
 ) -> RouteOut:
     """Return the street route from the distribution center to the destination."""
-    return await services.get_order_route(redis, user.id, order_id)
+    try:
+        return await services.get_order_route(redis, user.id, order_id)
+    except RouteUnavailable as exc:
+        # Provider down/over-quota, no route, or key unconfigured — surface a
+        # clean 503 instead of leaking a 500 (and never echo the provider detail).
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Rota indisponível no momento",
+        ) from exc
