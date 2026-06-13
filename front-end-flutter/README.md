@@ -50,6 +50,14 @@ lib/
 │   │   └── presentation/
 │   │       ├── logistics_dashboard_screen.dart # Painel de logistica pos-login
 │   │       └── order_picking_screen.dart       # Separacao de pedido na rota
+│   ├── notifications/
+│   │   ├── data/
+│   │   │   ├── messaging_service.dart   # Ciclo FCM: permissao, token, foreground
+│   │   │   └── notifications_api.dart   # Registro de device + GET /notifications
+│   │   ├── domain/
+│   │   │   └── notification_model.dart  # Modelo da notificacao
+│   │   └── presentation/
+│   │       └── notifications_screen.dart # Historico real (loading/erro/vazio + pull-to-refresh)
 │   └── profile/
 │       └── presentation/
 │           └── profile_screen.dart   # Perfil do usuario
@@ -71,6 +79,7 @@ lib/
 | `/add-payment-method` | AddPaymentMethodScreen | Cadastro/edicao de cartao, PIX ou boleto |
 | `/orders` | OrdersScreen | Pedido ativo com stepper de entrega + historico |
 | `/order-details` | OrderDetailsScreen | Status do rastreio, localizacao, conteudo do kit |
+| `/notifications` | NotificationsScreen | Historico de notificacoes (GET /notifications); icone por `data.type` (ex.: entrega) |
 | `/logistics-dashboard` | LogisticsDashboardScreen | Painel de logistica com destino atual, progresso do dia e proximas paradas |
 | `/logistics-picking` | OrderPickingScreen | Separacao de pedido com item atual, proximos na rota e info de envio |
 
