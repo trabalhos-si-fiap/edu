@@ -3,6 +3,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Integer,
@@ -15,16 +16,28 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 from app.core.ids import new_uuid
+from app.modules.orders.enums import OrderStatus
 
 
 class Order(Base):
     __tablename__ = "orders_orders"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'confirmed', 'separating', 'out_for_delivery', 'delivered')",
+            name="ck_orders_orders_status",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=new_uuid)
     # Logical FK to auth_users; ownership is always enforced in queries.
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
     total: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     payment_method: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    # Delivery lifecycle position. Starts PENDING; the status pipeline advances
+    # it forward-only (see app.modules.orders.lifecycle).
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=OrderStatus.PENDING.value
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
