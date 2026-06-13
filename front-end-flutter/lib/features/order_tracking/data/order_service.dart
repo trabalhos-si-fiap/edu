@@ -20,15 +20,14 @@ class OrderException implements Exception {
 /// Cliente HTTP para o rastreio de pedidos do backend FastAPI
 /// (`GET /orders/{id}/tracking`, RESTful, resposta JSON).
 ///
-/// Enquanto o endpoint real não está disponível, [useMock] mantém a tela
-/// funcional devolvendo um [OrderModel] simulado com `Future.delayed`. Basta
-/// virar a flag para `false` (ou injetar `useMock: false`) que a tela passa a
-/// consumir a API real — a estrutura de chamada já está pronta.
+/// Por padrão consome a API real ([useMock] = `false`). Para desenvolver a
+/// tela sem backend, injete `useMock: true` e o serviço devolve um
+/// [OrderModel] simulado com `Future.delayed`.
 class OrderService {
   OrderService({
     http.Client? client,
     TokenStore? tokenStore,
-    this.useMock = true,
+    this.useMock = false,
   }) : _client = client ?? http.Client(),
        _tokenStore = tokenStore ?? TokenStore();
 
