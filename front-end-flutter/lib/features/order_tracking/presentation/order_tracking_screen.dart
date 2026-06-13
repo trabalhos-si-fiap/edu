@@ -147,7 +147,14 @@ class _OrderContent extends StatelessWidget {
           const SizedBox(height: 24),
           TrackingTimeline(steps: order.steps),
           const SizedBox(height: 24),
-          LocationCard(location: order.location, onOpenMap: () {}),
+          LocationCard(
+            location: order.location,
+            onOpenMap: () => Navigator.pushNamed(
+              context,
+              '/order-map',
+              arguments: order.id,
+            ),
+          ),
           const SizedBox(height: 24),
           KitContentCard(kit: order.kit, carrier: order.carrier),
           const SizedBox(height: 24),

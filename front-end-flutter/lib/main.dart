@@ -5,6 +5,7 @@ import 'package:edu_ia/features/marketplace/presentation/orders_screen.dart';
 import 'package:edu_ia/features/marketplace/presentation/marketplace_screen.dart';
 import 'package:edu_ia/features/marketplace/presentation/product_detail_screen.dart';
 import 'package:edu_ia/features/notifications/presentation/notifications_screen.dart';
+import 'package:edu_ia/features/order_tracking/presentation/order_map_screen.dart';
 import 'package:edu_ia/features/order_tracking/presentation/order_tracking_screen.dart';
 import 'package:edu_ia/features/quiz/presentation/quiz_screen.dart';
 import 'package:edu_ia/features/quiz/presentation/quiz_subjets_screen.dart';
@@ -82,6 +83,7 @@ class _MyAppState extends State<MyApp> {
           '/orders': (_) => const OrdersScreen(),
           '/order-details': (_) => const OrderDetailsScreen(),
           '/order-tracking': (_) => const OrderTrackingScreen(),
+          '/order-map': (_) => const OrderMapScreen(),
         },
       ),
     );
