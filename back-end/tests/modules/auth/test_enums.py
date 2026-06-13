@@ -1,19 +1,18 @@
 from app.modules.auth.enums import EducationLevel
 
 
-def test_education_level_has_six_values() -> None:
-    assert len(EducationLevel) == 6
+def test_education_level_has_five_values() -> None:
+    assert len(EducationLevel) == 5
 
 
 def test_education_level_values_match_flutter_form() -> None:
-    assert EducationLevel.ENSINO_FUNDAMENTAL.value == "Ensino Fundamental"
-    assert EducationLevel.ENSINO_MEDIO.value == "Ensino Médio"
-    assert EducationLevel.ENSINO_SUPERIOR.value == "Ensino Superior"
-    assert EducationLevel.POS_GRADUACAO.value == "Pós-graduação"
-    assert EducationLevel.MESTRADO.value == "Mestrado"
-    assert EducationLevel.DOUTORADO.value == "Doutorado"
+    assert EducationLevel.NONO_ANO.value == "9º ano"
+    assert EducationLevel.PRIMEIRO_ANO.value == "1º ano"
+    assert EducationLevel.SEGUNDO_ANO.value == "2º ano"
+    assert EducationLevel.TERCEIRO_ANO.value == "3º ano"
+    assert EducationLevel.VESTIBULANDO.value == "Vestibulando"
 
 
 def test_education_level_is_str_enum() -> None:
-    assert isinstance(EducationLevel.MESTRADO, str)
-    assert EducationLevel.MESTRADO == "Mestrado"
+    assert isinstance(EducationLevel.VESTIBULANDO, str)
+    assert EducationLevel.VESTIBULANDO == "Vestibulando"

@@ -16,7 +16,7 @@ def _register_payload(email: str | None = None) -> dict[str, object]:
         "email": email or _unique_email(),
         "phone": "(11) 99999-9999",
         "birth_date": "01/01/2000",
-        "education_level": "Ensino Superior",
+        "education_level": "Vestibulando",
         "password": "E2ePass!9",
     }
 

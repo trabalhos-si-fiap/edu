@@ -16,7 +16,7 @@ async def created_user(db_session: AsyncSession) -> User:
         email="maria@example.com",
         phone="11999998888",
         birth_date=date(1995, 6, 15),
-        education_level="Ensino Superior",
+        education_level="Vestibulando",
         password="Secret!1",
     )
     return await auth_services.register(db_session, data)

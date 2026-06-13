@@ -67,7 +67,7 @@ class TestSupportFlow:
                 email="outro@example.com",
                 phone="11888887777",
                 birth_date=date(1990, 1, 1),
-                education_level="Ensino Superior",
+                education_level="Vestibulando",
                 password="Secret!1",
             ),
         )

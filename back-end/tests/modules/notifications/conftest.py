@@ -16,7 +16,7 @@ async def created_user(db_session: AsyncSession) -> User:
         email="maria@example.com",
         phone="11999998888",
         birth_date=date(1995, 6, 15),
-        education_level="Ensino Superior",
+        education_level="Vestibulando",
         password="Secret!1",
     )
     return await auth_services.register(db_session, data)
@@ -29,7 +29,7 @@ async def other_user(db_session: AsyncSession) -> User:
         email="joao@example.com",
         phone="11888887777",
         birth_date=date(1990, 1, 20),
-        education_level="Ensino Superior",
+        education_level="Vestibulando",
         password="Secret!1",
     )
     return await auth_services.register(db_session, data)

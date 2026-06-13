@@ -19,7 +19,7 @@ class TestRegisterIn:
         "email": "maria@example.com",
         "phone": "11999998888",
         "birth_date": date(1995, 6, 15),
-        "education_level": "Ensino Superior",
+        "education_level": "Vestibulando",
         "password": "Secret!1",
     }
 
@@ -27,7 +27,7 @@ class TestRegisterIn:
         r = RegisterIn(**self._valid)
         assert r.email == "maria@example.com"
         assert r.phone == "11999998888"
-        assert r.education_level.value == "Ensino Superior"
+        assert r.education_level.value == "Vestibulando"
 
     def test_accepts_ddmmyyyy_birth_date_from_flutter(self) -> None:
         r = RegisterIn(**{**self._valid, "birth_date": "15/06/1995"})

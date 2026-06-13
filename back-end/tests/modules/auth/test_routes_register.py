@@ -12,7 +12,7 @@ class TestRegisterEndpoint:
         body = r.json()
         assert body["user"]["email"] == "maria@example.com"
         assert body["user"]["phone"] == "11999998888"
-        assert body["user"]["education_level"] == "Ensino Superior"
+        assert body["user"]["education_level"] == "Vestibulando"
         assert body["tokens"]["access_token"]
         assert body["tokens"]["refresh_token"]
         assert body["tokens"]["token_type"] == "bearer"

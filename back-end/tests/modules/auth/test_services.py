@@ -20,7 +20,7 @@ def _register_data(**overrides: object) -> RegisterIn:
         "email": "maria@example.com",
         "phone": "11999998888",
         "birth_date": date(1995, 6, 15),
-        "education_level": "Ensino Superior",
+        "education_level": "Vestibulando",
         "password": "Secret!1",
     }
     base.update(overrides)

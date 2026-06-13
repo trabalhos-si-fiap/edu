@@ -15,7 +15,7 @@ def make_register_payload(**overrides: object) -> dict[str, object]:
         "email": "maria@example.com",
         "phone": "11999998888",
         "birth_date": "15/06/1995",
-        "education_level": "Ensino Superior",
+        "education_level": "Vestibulando",
         "password": "Secret!1",
     }
     base.update(overrides)
@@ -34,7 +34,7 @@ async def created_user(db_session: AsyncSession) -> User:
         email="maria@example.com",
         phone="11999998888",
         birth_date=date(1995, 6, 15),
-        education_level="Ensino Superior",
+        education_level="Vestibulando",
         password="Secret!1",
     )
     return await services.register(db_session, data)
