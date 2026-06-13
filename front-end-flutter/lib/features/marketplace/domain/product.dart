@@ -3,7 +3,7 @@
 /// No edu-kt o preço vinha como `String` da API; aqui (dados mockados) usamos
 /// `double` para permitir cálculo de subtotais/totais no carrinho.
 class Product {
-  final int id;
+  final String id;
   final String name;
   final String type;
   final String subtype;
@@ -25,6 +25,20 @@ class Product {
     this.ratingCount = 0,
   });
 
+  factory Product.fromJson(Map<String, dynamic> json) {
+    return Product(
+      id: json['id'] as String,
+      name: json['name'] as String? ?? '',
+      type: json['type'] as String? ?? '',
+      subtype: json['subtype'] as String? ?? '',
+      description: json['description'] as String? ?? '',
+      price: double.tryParse('${json['price']}') ?? 0.0,
+      imageUrl: json['image_url'] as String? ?? '',
+      ratingAvg: (json['rating_avg'] as num?)?.toDouble() ?? 0.0,
+      ratingCount: (json['rating_count'] as num?)?.toInt() ?? 0,
+    );
+  }
+
   /// Rótulo de categoria exibido nos cards (subtype, com fallback no type).
   String get categoryLabel =>
       subtype.trim().isNotEmpty ? subtype.toUpperCase() : type.toUpperCase();
@@ -32,7 +46,7 @@ class Product {
 
 /// Avaliação de um produto. Portado de edu-kt `Review`.
 class Review {
-  final int id;
+  final String id;
   final String author;
   final int rating;
   final String comment;
@@ -45,4 +59,14 @@ class Review {
     required this.comment,
     required this.createdAt,
   });
+
+  factory Review.fromJson(Map<String, dynamic> json) {
+    return Review(
+      id: json['id'] as String,
+      author: json['author'] as String? ?? '',
+      rating: (json['rating'] as num?)?.toInt() ?? 0,
+      comment: json['comment'] as String? ?? '',
+      createdAt: json['created_at'] as String? ?? '',
+    );
+  }
 }
