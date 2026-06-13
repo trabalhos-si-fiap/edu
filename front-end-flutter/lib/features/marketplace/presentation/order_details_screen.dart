@@ -152,7 +152,10 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
             ),
           ),
         ),
-        bottomNavigationBar: const NavBar(currentIndex: 4),
+        bottomNavigationBar: const NavBar(
+          mode: NavBarMode.store,
+          currentIndex: 1,
+        ),
       ),
     );
   }

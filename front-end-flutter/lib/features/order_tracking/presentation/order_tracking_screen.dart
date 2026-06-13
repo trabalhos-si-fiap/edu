@@ -67,7 +67,10 @@ class OrderTrackingScreen extends StatelessWidget {
               },
             ),
           ),
-          bottomNavigationBar: const NavBar(currentIndex: 4),
+          bottomNavigationBar: const NavBar(
+            mode: NavBarMode.store,
+            currentIndex: 1,
+          ),
         ),
       ),
     );
