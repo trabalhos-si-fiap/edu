@@ -126,3 +126,24 @@ class TestReviews:
     ) -> None:
         r = await client.get(f"/api/products/{uuid.uuid4()}/reviews", headers=auth_headers)
         assert r.status_code == 404
+
+
+class TestImagePresign:
+    async def test_image_url_is_presigned_when_key_present(
+        self,
+        client: AsyncClient,
+        seeded_products: list[Product],
+        auth_headers: dict[str, str],
+    ) -> None:
+        r = await client.get("/api/products?q=Cálculo", headers=auth_headers)
+        item = r.json()["items"][0]
+        assert "X-Amz-Signature" in item["image_url"] or "X-Amz-Credential" in item["image_url"]
+
+    async def test_image_url_empty_when_no_key(
+        self,
+        client: AsyncClient,
+        seeded_products: list[Product],
+        auth_headers: dict[str, str],
+    ) -> None:
+        r = await client.get("/api/products?q=Física", headers=auth_headers)
+        assert r.json()["items"][0]["image_url"] == ""
