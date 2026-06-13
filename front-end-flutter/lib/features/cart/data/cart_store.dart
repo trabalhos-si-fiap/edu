@@ -18,7 +18,7 @@ class CartStore extends ChangeNotifier {
   int get totalQuantity => _items.fold(0, (sum, i) => sum + i.quantity);
   double get total => _items.fold(0.0, (sum, i) => sum + i.subtotal);
 
-  int _indexOf(int productId) =>
+  int _indexOf(String productId) =>
       _items.indexWhere((i) => i.product.id == productId);
 
   void add(Product product, [int quantity = 1]) {
@@ -33,7 +33,7 @@ class CartStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  void decrement(int productId) {
+  void decrement(String productId) {
     final idx = _indexOf(productId);
     if (idx < 0) return;
     final next = _items[idx].quantity - 1;
@@ -45,7 +45,7 @@ class CartStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  void removeAll(int productId) {
+  void removeAll(String productId) {
     final idx = _indexOf(productId);
     if (idx < 0) return;
     _items.removeAt(idx);
