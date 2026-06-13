@@ -132,7 +132,10 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
             ],
           ),
         ),
-        bottomNavigationBar: const NavBar(currentIndex: 4),
+        bottomNavigationBar: const NavBar(
+          mode: NavBarMode.store,
+          currentIndex: 3,
+        ),
       ),
     );
   }

@@ -26,6 +26,7 @@ import 'features/home/presentation/home_screen.dart';
 import 'features/profile/presentation/profile_screen.dart';
 import 'features/profile/presentation/addresses_screen.dart';
 import 'features/profile/presentation/address_form_screen.dart';
+import 'features/support/presentation/support_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -81,6 +82,7 @@ class _MyAppState extends State<MyApp> {
           '/checkout': (_) => const CheckoutScreen(),
           '/add-payment-method': (_) => const AddPaymentMethodScreen(),
           '/orders': (_) => const OrdersScreen(),
+          '/support': (_) => const SupportScreen(),
           '/order-details': (_) => const OrderDetailsScreen(),
           '/order-tracking': (_) => const OrderTrackingScreen(),
           '/order-map': (_) => const OrderMapScreen(),

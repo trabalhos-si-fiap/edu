@@ -1,4 +1,5 @@
 import 'package:edu_ia/core/theme/app_colors.dart';
+import 'package:edu_ia/features/components/nav_bar.dart';
 import 'package:flutter/material.dart';
 
 class OrdersScreen extends StatelessWidget {
@@ -10,6 +11,10 @@ class OrdersScreen extends StatelessWidget {
       decoration: const BoxDecoration(gradient: AppColors.headerGradient),
       child: Scaffold(
         backgroundColor: Colors.transparent,
+        bottomNavigationBar: const NavBar(
+          mode: NavBarMode.store,
+          currentIndex: 1,
+        ),
         appBar: AppBar(
           backgroundColor: Colors.white,
           elevation: 0,
