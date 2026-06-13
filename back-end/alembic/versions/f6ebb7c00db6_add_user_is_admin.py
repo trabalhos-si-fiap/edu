@@ -1,7 +1,7 @@
 """add user is_admin
 
 Revision ID: f6ebb7c00db6
-Revises: f4a5b6c7d8e9
+Revises: e3f4a5b6c7d8
 Create Date: 2026-06-13 19:16:55.940112
 
 """
