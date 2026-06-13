@@ -60,4 +60,10 @@ class OrderRoute {
 
   /// The route geometry, decoded from the encoded [polyline].
   List<LatLng> get polylinePoints => decodePolyline(polyline);
+
+  /// Estimated arrival = [now] plus the route's travel time. The duration comes
+  /// from the Directions API (driving time over [distanceKm]), so the estimate
+  /// is grounded in the real route between origin and destination.
+  DateTime estimatedArrival(DateTime now) =>
+      now.add(Duration(minutes: durationMinutes));
 }

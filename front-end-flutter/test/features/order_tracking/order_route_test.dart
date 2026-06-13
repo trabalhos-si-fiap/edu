@@ -29,4 +29,16 @@ void main() {
     // Decoded lazily from the encoded polyline.
     expect(route.polylinePoints.length, 3);
   });
+
+  test('estimatedArrival adds the route duration to the given moment', () {
+    final route = OrderRoute.fromJson({
+      'polyline': '',
+      'distance_km': 32.0,
+      'duration_minutes': 48,
+    });
+
+    final arrival = route.estimatedArrival(DateTime(2026, 6, 13, 14, 0));
+
+    expect(arrival, DateTime(2026, 6, 13, 14, 48));
+  });
 }

@@ -38,4 +38,22 @@ class OrderFormat {
     if (diff.inHours < 24) return 'há ${diff.inHours} h';
     return 'há ${diff.inDays} ${diff.inDays == 1 ? 'dia' : 'dias'}';
   }
+
+  /// Chegada estimada relativa ao dia: "hoje, ~14:48", "amanhã, ~09:05" ou
+  /// "16 Jun, ~14:48". O "~" sinaliza que é uma estimativa. [now] é injetável
+  /// para teste.
+  static String estimatedArrivalLabel(DateTime arrival, {DateTime? now}) {
+    final ref = now ?? DateTime.now();
+    final today = DateTime(ref.year, ref.month, ref.day);
+    final arrivalDay = DateTime(arrival.year, arrival.month, arrival.day);
+    final deltaDays = arrivalDay.difference(today).inDays;
+
+    final h = arrival.hour.toString().padLeft(2, '0');
+    final m = arrival.minute.toString().padLeft(2, '0');
+    final time = '~$h:$m';
+
+    if (deltaDays == 0) return 'hoje, $time';
+    if (deltaDays == 1) return 'amanhã, $time';
+    return '${dayMonth(arrival)}, $time';
+  }
 }
