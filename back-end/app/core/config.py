@@ -40,6 +40,14 @@ class Settings(BaseSettings):
     FCM_SEND_TIME_LIMIT: int = 30
     FCM_SEND_SOFT_TIME_LIMIT: int = 25
 
+    # Order delivery status pipeline. Real logistics events are simulated for
+    # this demo: after checkout, the order advances through its lifecycle
+    # automatically, waiting a random delay (seconds) between each transition.
+    ORDER_STATUS_MIN_DELAY_SECONDS: int = 10
+    ORDER_STATUS_MAX_DELAY_SECONDS: int = 30
+    ORDER_STATUS_TASK_TIME_LIMIT: int = 30
+    ORDER_STATUS_TASK_SOFT_TIME_LIMIT: int = 25
+
     # Delivery tracking / route prediction. While the real routing provider
     # (e.g. Google Maps) is not integrated, the ETA is estimated locally from
     # the great-circle distance corrected by an urban-route factor (to account

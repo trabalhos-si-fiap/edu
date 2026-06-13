@@ -4,6 +4,8 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
+from app.modules.orders.enums import OrderStatus
+
 
 class OrderCreateIn(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
@@ -35,6 +37,7 @@ class OrderOut(BaseModel):
 
     id: uuid.UUID
     total: Decimal
+    status: OrderStatus
     payment_method: str = ""
     created_at: datetime
     items: list[OrderItemOut]
