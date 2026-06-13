@@ -6,9 +6,12 @@ from collections.abc import AsyncIterator
 import pytest
 from httpx import AsyncClient
 
+from app.core.config import settings
 from app.main import app
 from app.modules.auth.dependencies import get_current_user
 from app.modules.auth.models import User
+from app.modules.tracking import directions
+from app.modules.tracking.directions import DirectionsResult
 
 # The app uses opaque order labels, not UUIDs.
 _ORDER_ID = "ED-99420"
@@ -118,3 +121,43 @@ async def test_predict_eta_at_destination_is_arrived(auth_client: AsyncClient) -
 async def test_predict_eta_validates_payload(auth_client: AsyncClient, payload: dict) -> None:
     resp = await auth_client.post(f"/api/orders/{_ORDER_ID}/predict-eta", json=payload)
     assert resp.status_code == 422
+
+
+async def test_get_order_route_requires_auth(client: AsyncClient) -> None:
+    resp = await client.get(f"/api/orders/{_ORDER_ID}/route")
+    assert resp.status_code == 401
+
+
+async def test_get_order_route_happy_path(
+    auth_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "GOOGLE_MAPS_API_PLATAFORM", "test-key")
+
+    async def fake_fetch(client, *, origin, destination, api_key):
+        return DirectionsResult(
+            polyline="enc-poly",
+            distance_text="32 km",
+            distance_km=32.0,
+            duration_text="48 min",
+            duration_minutes=48,
+        )
+
+    monkeypatch.setattr(directions, "fetch_directions", fake_fetch)
+
+    resp = await auth_client.get(f"/api/orders/{_ORDER_ID}/route")
+    assert resp.status_code == 200
+
+    body = resp.json()
+    assert set(body) == {
+        "origin",
+        "destination",
+        "polyline",
+        "distance_text",
+        "distance_km",
+        "duration_text",
+        "duration_minutes",
+    }
+    assert set(body["origin"]) == {"label", "latitude", "longitude"}
+    assert body["polyline"] == "enc-poly"
+    assert body["origin"]["label"] == "Centro de Distribuição"
+    assert body["duration_minutes"] == 48
