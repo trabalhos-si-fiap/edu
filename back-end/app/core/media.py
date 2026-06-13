@@ -26,6 +26,10 @@ def validate_image_bytes(content: bytes, *, declared_type: str) -> tuple[str, st
     ext, magic = _ALLOWED[declared]
     if not content.startswith(magic):
         raise ImageValidationError("File content does not match an image of the declared type")
+    # WebP is a RIFF container; require the WEBP form marker so other RIFF
+    # types (WAV/AVI) can't pass as an image.
+    if declared == "image/webp" and content[8:12] != b"WEBP":
+        raise ImageValidationError("File content does not match an image of the declared type")
     return ext, declared
 
 

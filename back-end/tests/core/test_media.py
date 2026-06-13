@@ -25,6 +25,20 @@ def test_validate_rejects_content_not_matching_magic_bytes() -> None:
         validate_image_bytes(b"not an image", declared_type="image/png")
 
 
+def test_validate_accepts_real_webp() -> None:
+    webp = b"RIFF" + b"\x00\x00\x00\x00" + b"WEBP" + b"\x00" * 16
+    ext, content_type = validate_image_bytes(webp, declared_type="image/webp")
+    assert ext == "webp"
+    assert content_type == "image/webp"
+
+
+def test_validate_rejects_riff_that_is_not_webp() -> None:
+    # A RIFF container that is NOT WebP (e.g. a WAV) declared as webp must be rejected.
+    not_webp = b"RIFF" + b"\x00\x00\x00\x00" + b"WAVE" + b"\x00" * 16
+    with pytest.raises(ImageValidationError):
+        validate_image_bytes(not_webp, declared_type="image/webp")
+
+
 async def test_presigned_image_url_empty_key_returns_empty(
     redis_client: aioredis.Redis,
 ) -> None:
