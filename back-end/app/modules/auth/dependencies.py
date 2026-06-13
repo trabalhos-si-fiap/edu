@@ -57,3 +57,17 @@ async def get_current_active_user(
     # get_current_user already validates is_active; this wrapper exists so
     # future role/2FA gating can attach without changing call sites.
     return user
+
+
+_FORBIDDEN = HTTPException(
+    status_code=status.HTTP_403_FORBIDDEN,
+    detail="Admin privileges required",
+)
+
+
+async def require_admin(
+    user: Annotated[User, Depends(get_current_user)],
+) -> User:
+    if not user.is_admin:
+        raise _FORBIDDEN
+    return user

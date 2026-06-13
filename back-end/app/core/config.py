@@ -64,5 +64,22 @@ class Settings(BaseSettings):
     # calls (and cost).
     TRACKING_ROUTE_CACHE_TTL_SECONDS: int = 21600  # 6 hours
 
+    # Object storage for product images. Cloudflare R2 in prod, MinIO in dev —
+    # both speak the S3 API, so only the endpoint/credentials change. The bucket
+    # is private; clients read via short-lived presigned GET URLs. Defaults point
+    # at the dev MinIO; prod must set these env vars to the R2 values.
+    R2_ENDPOINT_URL: str = "http://minio:9000"
+    R2_PUBLIC_ENDPOINT_URL: str | None = None  # URL host reachable by the app/client
+    R2_ACCESS_KEY_ID: str = "edu"
+    R2_SECRET_ACCESS_KEY: str = "edu-secret"  # noqa: S105
+    R2_REGION: str = "auto"
+    R2_BUCKET: str = "edu-media"
+    # Presigned URL lifetime, and how long we memoize a generated URL in Redis
+    # (kept under the lifetime so a cached URL never hands out an almost-expired link).
+    MEDIA_PRESIGN_TTL_SECONDS: int = 86400
+    MEDIA_PRESIGN_CACHE_TTL_SECONDS: int = 82800
+    # Max accepted upload size for a product image.
+    MEDIA_MAX_UPLOAD_BYTES: int = 5 * 1024 * 1024
+
 
 settings = Settings()

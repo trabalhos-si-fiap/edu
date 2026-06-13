@@ -1,14 +1,26 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+import redis.asyncio as aioredis
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_session
-from app.modules.auth.dependencies import get_current_user
+from app.core.media import (
+    ImageValidationError,
+    new_image_key,
+    presigned_image_url,
+    validate_image_bytes,
+)
+from app.core.redis_client import get_redis
+from app.core.storage import ObjectStorage, get_storage
+from app.modules.auth.dependencies import get_current_user, require_admin
 from app.modules.auth.models import User
 from app.modules.products import services
 from app.modules.products.exceptions import ProductNotFound
+from app.modules.products.models import Product
 from app.modules.products.schemas import (
     CategoryList,
     CategoryOut,
@@ -24,17 +36,27 @@ router = APIRouter(prefix="/products", tags=["products"])
 _NOT_FOUND = HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
 
 
+async def _product_out(
+    product: Product, *, storage: ObjectStorage, redis: aioredis.Redis
+) -> ProductOut:
+    out = ProductOut.model_validate(product)
+    out.image_url = await presigned_image_url(product.image_url, storage=storage, redis=redis)
+    return out
+
+
 @router.get("", response_model=ProductList)
 async def list_products(
     _user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_session)],
+    storage: Annotated[ObjectStorage, Depends(get_storage)],
+    redis: Annotated[aioredis.Redis, Depends(get_redis)],
     q: Annotated[str | None, Query(max_length=160)] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> ProductList:
     items, total = await services.list_products(session, q=q, limit=limit, offset=offset)
     return ProductList(
-        items=[ProductOut.model_validate(p) for p in items],
+        items=[await _product_out(p, storage=storage, redis=redis) for p in items],
         total=total,
         limit=limit,
         offset=offset,
@@ -55,12 +77,14 @@ async def get_product(
     product_id: uuid.UUID,
     _user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_session)],
+    storage: Annotated[ObjectStorage, Depends(get_storage)],
+    redis: Annotated[aioredis.Redis, Depends(get_redis)],
 ) -> ProductOut:
     try:
         product = await services.get_product(session, product_id)
     except ProductNotFound as exc:
         raise _NOT_FOUND from exc
-    return ProductOut.model_validate(product)
+    return await _product_out(product, storage=storage, redis=redis)
 
 
 @router.get("/{product_id}/reviews", response_model=ReviewList)
@@ -73,9 +97,7 @@ async def list_reviews(
 ) -> ReviewList:
     try:
         product = await services.get_product(session, product_id)
-        items, total = await services.list_reviews(
-            session, product_id, limit=limit, offset=offset
-        )
+        items, total = await services.list_reviews(session, product_id, limit=limit, offset=offset)
     except ProductNotFound as exc:
         raise _NOT_FOUND from exc
     return ReviewList(
@@ -108,3 +130,44 @@ async def create_review(
     except ProductNotFound as exc:
         raise _NOT_FOUND from exc
     return ReviewOut.model_validate(review)
+
+
+@router.post("/{product_id}/image", response_model=ProductOut)
+async def upload_product_image(
+    product_id: uuid.UUID,
+    _admin: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    storage: Annotated[ObjectStorage, Depends(get_storage)],
+    redis: Annotated[aioredis.Redis, Depends(get_redis)],
+    file: Annotated[UploadFile, File()],
+) -> ProductOut:
+    # Read with a hard cap so an oversized upload can't exhaust memory
+    # (security rule #4: server-side size limit, never trust Content-Length).
+    content = await file.read(settings.MEDIA_MAX_UPLOAD_BYTES + 1)
+    if len(content) > settings.MEDIA_MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Image too large")
+    try:
+        ext, content_type = validate_image_bytes(content, declared_type=file.content_type or "")
+    except ImageValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    try:
+        old_key = (await services.get_product(session, product_id)).image_url
+    except ProductNotFound as exc:
+        raise _NOT_FOUND from exc
+
+    key = new_image_key(ext)
+    await storage.put_object(key, content, content_type)
+    try:
+        product = await services.set_product_image(session, product_id, image_key=key)
+    except ProductNotFound as exc:
+        await storage.delete_object(key)
+        raise _NOT_FOUND from exc
+
+    if old_key and old_key != key:
+        try:
+            await storage.delete_object(old_key)
+        except Exception:  # best-effort cleanup, never fail the request
+            logger.warning("products: failed to delete old image key={}", old_key)
+
+    return await _product_out(product, storage=storage, redis=redis)

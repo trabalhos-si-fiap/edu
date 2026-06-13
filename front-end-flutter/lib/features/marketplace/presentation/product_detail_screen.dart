@@ -4,7 +4,7 @@ import 'package:edu_ia/features/cart/data/cart_store.dart';
 import 'package:edu_ia/features/marketplace/data/product_service.dart';
 import 'package:edu_ia/features/marketplace/domain/product.dart';
 import 'package:edu_ia/features/marketplace/presentation/widgets/add_to_cart_button.dart';
-import 'package:edu_ia/features/marketplace/presentation/widgets/product_visuals.dart';
+import 'package:edu_ia/features/marketplace/presentation/widgets/product_image.dart';
 import 'package:edu_ia/features/marketplace/presentation/widgets/rating_stars.dart';
 import 'package:edu_ia/features/marketplace/presentation/widgets/review_item.dart';
 import 'package:flutter/material.dart';
@@ -208,17 +208,16 @@ class _HeroImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 280,
-      decoration: BoxDecoration(
-        color: AppColors.imagePlaceholder,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      alignment: Alignment.center,
-      child: Icon(
-        iconForProduct(product.type),
-        size: 72,
-        color: AppColors.textSecondary.withValues(alpha: 0.6),
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(20),
+      child: SizedBox(
+        height: 280,
+        width: double.infinity,
+        child: ProductImage(
+          imageUrl: product.imageUrl,
+          type: product.type,
+          iconSize: 72,
+        ),
       ),
     );
   }

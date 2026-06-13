@@ -28,6 +28,8 @@ class Product(Base):
     subtype: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    # Object key (e.g. "products/<uuid>.jpg") in the media bucket — NOT a URL.
+    # Serialization turns it into a short-lived presigned GET URL.
     image_url: Mapped[str] = mapped_column(String(512), nullable=False, default="")
     # Denormalized rating aggregates, kept in sync on review creation under a
     # row lock (see services.create_review) so listings avoid a per-row join.

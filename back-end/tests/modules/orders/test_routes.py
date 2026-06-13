@@ -1,6 +1,8 @@
 import uuid
+from decimal import Decimal
 
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.products.models import Product
 
@@ -90,3 +92,38 @@ class TestRebuy:
     ) -> None:
         r = await client.post(f"/api/orders/{uuid.uuid4()}/rebuy", headers=auth_headers)
         assert r.status_code == 404
+
+
+class TestOrderImagePresign:
+    async def test_create_order_item_image_url_is_presigned(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        db_session: AsyncSession,
+        created_user,
+    ) -> None:
+        from app.modules.cart import services as cart_services
+        from app.modules.cart.schemas import CartItemIn
+
+        product = Product(
+            name="Produto com imagem",
+            type="Livro",
+            subtype="Mat",
+            description="",
+            price=Decimal("50.00"),
+            image_url="products/test-order-presign.png",
+        )
+        db_session.add(product)
+        await db_session.commit()
+        await db_session.refresh(product)
+
+        await cart_services.add_item(
+            db_session, created_user.id, CartItemIn(product_id=product.id, quantity=1)
+        )
+
+        r = await client.post("/api/orders", json={"payment_method": "PIX"}, headers=auth_headers)
+        assert r.status_code == 201, r.text
+        items = r.json()["items"]
+        assert len(items) == 1
+        image_url = items[0]["image_url"]
+        assert "X-Amz-Signature" in image_url or "X-Amz-Credential" in image_url

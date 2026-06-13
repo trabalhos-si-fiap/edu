@@ -74,6 +74,17 @@ async def list_reviews(
     return items, total
 
 
+async def set_product_image(
+    session: AsyncSession, product_id: uuid.UUID, *, image_key: str
+) -> Product:
+    product = await get_product(session, product_id)
+    product.image_url = image_key
+    await session.commit()
+    await session.refresh(product)
+    logger.info("products: image set product={} key={}", product_id, image_key)
+    return product
+
+
 async def create_review(
     session: AsyncSession,
     product_id: uuid.UUID,

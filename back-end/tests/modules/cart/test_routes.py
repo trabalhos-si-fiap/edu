@@ -1,6 +1,8 @@
 import uuid
+from decimal import Decimal
 
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.products.models import Product
 
@@ -16,9 +18,7 @@ class TestAuthRequired:
 
 
 class TestCartFlow:
-    async def test_empty_cart(
-        self, client: AsyncClient, auth_headers: dict[str, str]
-    ) -> None:
+    async def test_empty_cart(self, client: AsyncClient, auth_headers: dict[str, str]) -> None:
         r = await client.get("/api/cart", headers=auth_headers)
         assert r.status_code == 200, r.text
         body = r.json()
@@ -88,9 +88,7 @@ class TestCartFlow:
             json={"product_id": str(product.id), "quantity": 3},
             headers=auth_headers,
         )
-        r = await client.delete(
-            f"/api/cart/items/{product.id}?quantity=1", headers=auth_headers
-        )
+        r = await client.delete(f"/api/cart/items/{product.id}?quantity=1", headers=auth_headers)
         assert r.status_code == 200
         assert r.json()["items"][0]["quantity"] == 2
 
@@ -104,7 +102,38 @@ class TestCartFlow:
         auth_headers: dict[str, str],
         seeded_products: list[Product],
     ) -> None:
-        r = await client.delete(
-            f"/api/cart/items/{seeded_products[0].id}", headers=auth_headers
-        )
+        r = await client.delete(f"/api/cart/items/{seeded_products[0].id}", headers=auth_headers)
         assert r.status_code == 404
+
+
+class TestCartImagePresign:
+    async def test_get_cart_item_image_url_is_presigned(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        db_session: AsyncSession,
+    ) -> None:
+        product = Product(
+            name="Produto com imagem",
+            type="Livro",
+            subtype="Mat",
+            description="",
+            price=Decimal("50.00"),
+            image_url="products/test-presign.png",
+        )
+        db_session.add(product)
+        await db_session.commit()
+        await db_session.refresh(product)
+
+        await client.post(
+            "/api/cart/items",
+            json={"product_id": str(product.id), "quantity": 1},
+            headers=auth_headers,
+        )
+
+        r = await client.get("/api/cart", headers=auth_headers)
+        assert r.status_code == 200, r.text
+        items = r.json()["items"]
+        assert len(items) == 1
+        image_url = items[0]["image_url"]
+        assert "X-Amz-Signature" in image_url or "X-Amz-Credential" in image_url

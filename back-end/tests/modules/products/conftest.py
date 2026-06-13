@@ -39,7 +39,7 @@ async def seeded_products(db_session: AsyncSession) -> list[Product]:
             subtype="Matemática",
             description="Cálculo diferencial e integral",
             price=Decimal("129.90"),
-            image_url="https://img/calc.png",
+            image_url="products/calc.png",
         ),
         Product(
             name="Física para Cientistas",

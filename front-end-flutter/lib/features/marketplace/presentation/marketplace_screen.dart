@@ -5,7 +5,7 @@ import 'package:edu_ia/features/components/nav_bar.dart';
 import 'package:edu_ia/features/marketplace/domain/product.dart';
 import 'package:edu_ia/features/marketplace/presentation/products_provider.dart';
 import 'package:edu_ia/features/marketplace/presentation/widgets/add_to_cart_button.dart';
-import 'package:edu_ia/features/marketplace/presentation/widgets/product_visuals.dart';
+import 'package:edu_ia/features/marketplace/presentation/widgets/product_image.dart';
 import 'package:edu_ia/features/marketplace/presentation/widgets/rating_stars.dart';
 import 'package:edu_ia/features/marketplace/presentation/widgets/review_item.dart';
 import 'package:flutter/material.dart';
@@ -391,15 +391,9 @@ class _ProductCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(10),
               child: AspectRatio(
                 aspectRatio: 1,
-                child: Container(
-                  color: AppColors.imagePlaceholder,
-                  child: Center(
-                    child: Icon(
-                      iconForProduct(product.type),
-                      size: 48,
-                      color: AppColors.textSecondary.withValues(alpha: 0.6),
-                    ),
-                  ),
+                child: ProductImage(
+                  imageUrl: product.imageUrl,
+                  type: product.type,
                 ),
               ),
             ),
