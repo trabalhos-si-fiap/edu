@@ -4,6 +4,7 @@ import 'package:edu_ia/core/theme/app_colors.dart';
 import 'package:edu_ia/core/utils/currency.dart';
 import 'package:edu_ia/features/cart/data/cart_store.dart';
 import 'package:edu_ia/features/cart/domain/cart_item.dart';
+import 'package:edu_ia/features/marketplace/data/checkout_service.dart';
 import 'package:edu_ia/features/marketplace/presentation/widgets/product_visuals.dart';
 import 'package:edu_ia/features/marketplace/presentation/widgets/rating_stars.dart';
 import 'package:edu_ia/features/payment/data/payment_store.dart';
@@ -220,8 +221,24 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     );
   }
 
-  void _placeOrder(PaymentMethod method) {
-    context.read<CartStore>().clear();
+  Future<void> _placeOrder(PaymentMethod method) async {
+    final cart = context.read<CartStore>();
+    final items = cart.items;
+    if (items.isEmpty) return;
+
+    try {
+      await CheckoutService().placeOrder(
+        items: items,
+        paymentMethod: _paymentTitle(method),
+      );
+    } on CheckoutException catch (e) {
+      if (mounted) _snack(e.message);
+      return;
+    }
+
+    if (!mounted) return;
+    cart.clear();
+
     switch (method.type) {
       case PaymentMethodType.pix:
         _showCopyCodeDialog(
