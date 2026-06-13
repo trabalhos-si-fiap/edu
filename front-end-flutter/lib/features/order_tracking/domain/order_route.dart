@@ -55,7 +55,7 @@ class OrderRoute {
     distanceText: (json['distance_text'] as String?) ?? '',
     distanceKm: (json['distance_km'] as num?)?.toDouble() ?? 0,
     durationText: (json['duration_text'] as String?) ?? '',
-    durationMinutes: (json['duration_minutes'] as int?) ?? 0,
+    durationMinutes: (json['duration_minutes'] as num?)?.toInt() ?? 0,
   );
 
   /// The route geometry, decoded from the encoded [polyline].

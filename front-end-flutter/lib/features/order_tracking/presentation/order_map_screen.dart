@@ -71,9 +71,14 @@ class _RouteMap extends StatelessWidget {
     return GoogleMap(
       initialCameraPosition: CameraPosition(target: origin, zoom: 10),
       onMapCreated: (controller) {
-        controller.animateCamera(
-          CameraUpdate.newLatLngBounds(_bounds(origin, destination), 64),
-        );
+        // Defer to the next frame: at onMapCreated time the map can still have
+        // zero size on Android, which makes newLatLngBounds throw and leaves the
+        // camera on the origin-only initial position.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          controller.animateCamera(
+            CameraUpdate.newLatLngBounds(_bounds(origin, destination), 64),
+          );
+        });
       },
       markers: {
         Marker(
