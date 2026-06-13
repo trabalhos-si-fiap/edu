@@ -1,6 +1,11 @@
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.modules.auth.models import User
+from app.modules.notifications import services
 
 _BASE = "/api/notifications/devices"
+_LIST = "/api/notifications"
 
 
 class TestAuthRequired:
@@ -62,3 +67,39 @@ class TestDelete:
     ) -> None:
         r = await client.delete(f"{_BASE}/nope", headers=auth_headers)
         assert r.status_code == 404
+
+
+class TestListNotifications:
+    async def test_requires_auth(self, client: AsyncClient) -> None:
+        r = await client.get(_LIST)
+        assert r.status_code == 401
+
+    async def test_returns_owner_notifications_newest_first(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        created_user: User,
+        db_session: AsyncSession,
+    ) -> None:
+        await services.create_notification(db_session, created_user.id, "old", "x")
+        await services.create_notification(
+            db_session, created_user.id, "new", "y", {"type": "order_status"}
+        )
+
+        r = await client.get(_LIST, headers=auth_headers)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert [n["title"] for n in body] == ["new", "old"]
+        assert body[0]["data"] == {"type": "order_status"}
+        assert body[0]["read_at"] is None
+
+    async def test_does_not_leak_other_users(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        other_user: User,
+        db_session: AsyncSession,
+    ) -> None:
+        await services.create_notification(db_session, other_user.id, "theirs", "x")
+        r = await client.get(_LIST, headers=auth_headers)
+        assert r.json() == []
