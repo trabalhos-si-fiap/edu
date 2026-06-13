@@ -42,9 +42,15 @@ services:
       - rabbitmq_data:/var/lib/rabbitmq
     ports:
       - "${RABBITMQ_PORT_EXTERNAL:-5672}:5672"         # Porta do protocolo AMQP
-      - "${RABBITMQ_UI_PORT_EXTERNAL:-15672}:15672"   # Painel de Controle (Login padrão: guest/guest)
+      - "${RABBITMQ_UI_PORT_EXTERNAL:-15672}:15672"   # Painel de Controle
     env_file:
       - .env
+    environment:
+      # The image reads RABBITMQ_DEFAULT_USER/PASS (not RABBITMQ_USER/PASSWORD),
+      # so map the project vars onto the names it expects. Only applied when the
+      # data volume is first initialised — see start-here docs to reset.
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-edu}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-edu}
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "check_running"]
       interval: 10s
