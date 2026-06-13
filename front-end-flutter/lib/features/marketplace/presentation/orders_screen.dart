@@ -1,9 +1,28 @@
 import 'package:edu_ia/core/theme/app_colors.dart';
 import 'package:edu_ia/features/components/nav_bar.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../domain/order_summary.dart';
+import 'orders_provider.dart';
+
+/// Entrada de rota da tela "Seus pedidos". Cria o [OrdersProvider] e dispara o
+/// carregamento inicial; a UI vive em [OrdersView] para facilitar testes.
 class OrdersScreen extends StatelessWidget {
   const OrdersScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return ChangeNotifierProvider(
+      create: (_) => OrdersProvider()..load(),
+      child: const OrdersView(),
+    );
+  }
+}
+
+/// Corpo da tela "Seus pedidos". Espera um [OrdersProvider] já disponível.
+class OrdersView extends StatelessWidget {
+  const OrdersView({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -36,38 +55,22 @@ class OrdersScreen extends StatelessWidget {
           ],
         ),
         body: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Seus pedidos',
-                  style: TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.textPrimary,
-                    letterSpacing: -0.5,
-                  ),
-                ),
-                const SizedBox(height: 20),
-                const _ActiveOrderCard(
-                  orderId: 'EDU-882910',
-                  total: 'R\$242',
-                  purchaseDate: '22 de abril, 2026',
-                  estimatedDelivery: '27/04',
-                  currentStep: _OrderStep.transit,
-                  locationInfo: 'Atualmente no Centro de Distribuição em Cajamar',
-                ),
-                const SizedBox(height: 20),
-                const _DeliveredOrderCard(
-                  orderId: '#EDU-881204',
-                  date: '12 de setembro, 2023',
-                  itemsCount: 4,
-                  total: 'R\$ 128,00',
-                ),
-              ],
-            ),
+          child: Consumer<OrdersProvider>(
+            builder: (context, provider, _) {
+              switch (provider.state) {
+                case OrdersViewState.loading:
+                  return const Center(
+                    child: CircularProgressIndicator(color: AppColors.purple),
+                  );
+                case OrdersViewState.error:
+                  return _ErrorView(
+                    message: provider.errorMessage ?? 'Erro desconhecido.',
+                    onRetry: provider.load,
+                  );
+                case OrdersViewState.success:
+                  return _OrdersList(provider: provider);
+              }
+            },
           ),
         ),
       ),
@@ -75,24 +78,167 @@ class OrdersScreen extends StatelessWidget {
   }
 }
 
-enum _OrderStep { picking, transit, delivered }
+class _OrdersList extends StatelessWidget {
+  const _OrdersList({required this.provider});
+
+  final OrdersProvider provider;
+
+  @override
+  Widget build(BuildContext context) {
+    return RefreshIndicator(
+      color: AppColors.purple,
+      onRefresh: provider.load,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Seus pedidos',
+              style: TextStyle(
+                fontSize: 32,
+                fontWeight: FontWeight.w800,
+                color: AppColors.textPrimary,
+                letterSpacing: -0.5,
+              ),
+            ),
+            const SizedBox(height: 20),
+            if (provider.isEmpty)
+              const _EmptyState()
+            else ...[
+              for (final order in provider.activeOrders) ...[
+                _ActiveOrderCard(order: order),
+                const SizedBox(height: 20),
+              ],
+              for (final order in provider.deliveredOrders) ...[
+                _DeliveredOrderCard(order: order),
+                const SizedBox(height: 20),
+              ],
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Identificador curto e legível derivado do UUID do pedido.
+String _shortId(String id) {
+  final trimmed = id.replaceAll('-', '');
+  final slice = trimmed.length >= 8 ? trimmed.substring(0, 8) : trimmed;
+  return slice.toUpperCase();
+}
+
+class _ErrorView extends StatelessWidget {
+  const _ErrorView({required this.message, required this.onRetry});
+
+  final String message;
+  final Future<void> Function() onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            'Não foi possível carregar seus pedidos.',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: 16),
+          TextButton(
+            onPressed: onRetry,
+            child: const Text(
+              'Tentar novamente',
+              style: TextStyle(color: AppColors.purple),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  const _EmptyState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 48),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 64,
+              height: 64,
+              decoration: const BoxDecoration(
+                color: Color(0xFFEDE0FF),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.shopping_bag_outlined,
+                color: AppColors.purple,
+                size: 30,
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Você ainda não tem pedidos',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Quando você comprar na loja, seus pedidos aparecerão aqui.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: () =>
+                  Navigator.pushReplacementNamed(context, '/marketplace'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.purple,
+                foregroundColor: AppColors.white,
+                elevation: 0,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              child: const Text(
+                'Ir para a loja',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 class _ActiveOrderCard extends StatelessWidget {
-  final String orderId;
-  final String total;
-  final String purchaseDate;
-  final String estimatedDelivery;
-  final _OrderStep currentStep;
-  final String locationInfo;
+  const _ActiveOrderCard({required this.order});
 
-  const _ActiveOrderCard({
-    required this.orderId,
-    required this.total,
-    required this.purchaseDate,
-    required this.estimatedDelivery,
-    required this.currentStep,
-    required this.locationInfo,
-  });
+  final OrderSummary order;
 
   @override
   Widget build(BuildContext context) {
@@ -137,7 +283,7 @@ class _ActiveOrderCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Pedido #$orderId',
+                      'Pedido #${_shortId(order.id)}',
                       style: const TextStyle(
                         fontSize: 22,
                         fontWeight: FontWeight.w800,
@@ -147,7 +293,7 @@ class _ActiveOrderCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Compra realizada em $purchaseDate',
+                      'Compra realizada em ${formatOrderDate(order.createdAt)}',
                       style: const TextStyle(
                         fontSize: 13,
                         color: AppColors.textSecondary,
@@ -169,7 +315,7 @@ class _ActiveOrderCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    total,
+                    formatOrderTotal(order.total),
                     style: const TextStyle(
                       fontSize: 26,
                       fontWeight: FontWeight.w800,
@@ -181,7 +327,7 @@ class _ActiveOrderCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 24),
-          _OrderStepper(currentStep: currentStep),
+          _OrderStepper(currentIdx: order.stepIndex),
           const SizedBox(height: 20),
           Container(
             padding: const EdgeInsets.all(14),
@@ -202,21 +348,20 @@ class _ActiveOrderCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Entrega estimada: $estimatedDelivery',
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w800,
-                          color: AppColors.textPrimary,
+                      const Text(
+                        'Status atual',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: AppColors.textSecondary,
                         ),
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        locationInfo,
+                        order.statusLabel,
                         style: const TextStyle(
-                          fontSize: 13,
-                          color: AppColors.textSecondary,
-                          height: 1.4,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.textPrimary,
                         ),
                       ),
                     ],
@@ -232,7 +377,7 @@ class _ActiveOrderCard extends StatelessWidget {
               onPressed: () => Navigator.pushNamed(
                 context,
                 '/order-tracking',
-                arguments: orderId,
+                arguments: order.id,
               ),
               icon: const Icon(Icons.local_shipping_outlined, size: 20),
               label: const Text(
@@ -277,19 +422,18 @@ class _ActiveOrderCard extends StatelessWidget {
 }
 
 class _OrderStepper extends StatelessWidget {
-  final _OrderStep currentStep;
+  const _OrderStepper({required this.currentIdx});
 
-  const _OrderStepper({required this.currentStep});
+  /// Índice da etapa atual: 0 = Separação, 1 = Trânsito, 2 = Entregue.
+  final int currentIdx;
 
   @override
   Widget build(BuildContext context) {
     final steps = [
-      ('Separação', Icons.check, _OrderStep.picking),
-      ('Trânsito', Icons.local_shipping, _OrderStep.transit),
-      ('Entregue', Icons.home_outlined, _OrderStep.delivered),
+      ('Separação', Icons.check),
+      ('Trânsito', Icons.local_shipping),
+      ('Entregue', Icons.home_outlined),
     ];
-
-    int currentIdx = currentStep.index;
 
     return Row(
       children: [
@@ -362,17 +506,9 @@ class _OrderStepper extends StatelessWidget {
 }
 
 class _DeliveredOrderCard extends StatelessWidget {
-  final String orderId;
-  final String date;
-  final int itemsCount;
-  final String total;
+  const _DeliveredOrderCard({required this.order});
 
-  const _DeliveredOrderCard({
-    required this.orderId,
-    required this.date,
-    required this.itemsCount,
-    required this.total,
-  });
+  final OrderSummary order;
 
   @override
   Widget build(BuildContext context) {
@@ -393,7 +529,7 @@ class _DeliveredOrderCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Pedido $orderId',
+                      'Pedido #${_shortId(order.id)}',
                       style: const TextStyle(
                         fontSize: 17,
                         fontWeight: FontWeight.w800,
@@ -402,7 +538,7 @@ class _DeliveredOrderCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      date,
+                      formatOrderDate(order.createdAt),
                       style: const TextStyle(
                         fontSize: 13,
                         color: AppColors.textSecondary,
@@ -435,34 +571,14 @@ class _DeliveredOrderCard extends StatelessWidget {
           const SizedBox(height: 16),
           Row(
             children: [
-              _ItemThumb(icon: Icons.tablet_mac, color: const Color(0xFF1F2A3D)),
-              const SizedBox(width: 6),
-              _ItemThumb(icon: Icons.menu_book, color: const Color(0xFFE5E7EB)),
-              const SizedBox(width: 6),
-              Container(
-                width: 44,
-                height: 44,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE5E7EB),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Text(
-                  '+2',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-              ),
+              ..._buildThumbs(order.items),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '$itemsCount itens no pedido',
+                      '${order.totalQuantity} itens no pedido',
                       style: const TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w800,
@@ -471,7 +587,7 @@ class _DeliveredOrderCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      'Total: $total',
+                      'Total: ${formatOrderTotal(order.total)}',
                       style: const TextStyle(
                         fontSize: 13,
                         color: AppColors.textSecondary,
@@ -534,28 +650,74 @@ class _DeliveredOrderCard extends StatelessWidget {
       ),
     );
   }
+
+  /// Até 3 miniaturas dos itens; um chip "+N" cobre o excedente.
+  List<Widget> _buildThumbs(List<OrderItemSummary> items) {
+    const maxThumbs = 3;
+    final visible = items.take(maxThumbs).toList();
+    final overflow = items.length - visible.length;
+
+    final thumbs = <Widget>[];
+    for (var i = 0; i < visible.length; i++) {
+      if (i > 0) thumbs.add(const SizedBox(width: 6));
+      thumbs.add(_ItemThumb(item: visible[i]));
+    }
+    if (overflow > 0) {
+      thumbs.add(const SizedBox(width: 6));
+      thumbs.add(
+        Container(
+          width: 44,
+          height: 44,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: const Color(0xFFE5E7EB),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            '+$overflow',
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textPrimary,
+            ),
+          ),
+        ),
+      );
+    }
+    return thumbs;
+  }
 }
 
 class _ItemThumb extends StatelessWidget {
-  final IconData icon;
-  final Color color;
+  const _ItemThumb({required this.item});
 
-  const _ItemThumb({required this.icon, required this.color});
+  final OrderItemSummary item;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: 44,
       height: 44,
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
-        color: color,
+        color: const Color(0xFFE5E7EB),
         borderRadius: BorderRadius.circular(8),
       ),
-      child: Icon(
-        icon,
-        size: 20,
-        color: AppColors.white.withValues(alpha: 0.85),
-      ),
+      child: item.imageUrl.isEmpty
+          ? const Icon(
+              Icons.menu_book,
+              size: 20,
+              color: AppColors.textSecondary,
+            )
+          : Image.network(
+              item.imageUrl,
+              fit: BoxFit.cover,
+              errorBuilder: (_, _, _) => const Icon(
+                Icons.menu_book,
+                size: 20,
+                color: AppColors.textSecondary,
+              ),
+            ),
     );
   }
 }

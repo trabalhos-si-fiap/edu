@@ -1,7 +1,7 @@
 import 'package:edu_ia/core/theme/app_colors.dart';
 import 'package:edu_ia/core/utils/currency.dart';
 import 'package:edu_ia/features/cart/data/cart_store.dart';
-import 'package:edu_ia/features/marketplace/data/products_api.dart';
+import 'package:edu_ia/features/marketplace/data/product_service.dart';
 import 'package:edu_ia/features/marketplace/domain/product.dart';
 import 'package:edu_ia/features/marketplace/presentation/widgets/add_to_cart_button.dart';
 import 'package:edu_ia/features/marketplace/presentation/widgets/product_image.dart';
@@ -11,7 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 /// Detalhe do produto. Portado de edu-kt `ProductDetailScreen`.
-/// Recebe o produto via `Navigator.pushNamed(arguments: product)`.
+/// Recebe um objeto `Product` via `Navigator.pushNamed(arguments: product)`.
 class ProductDetailScreen extends StatelessWidget {
   const ProductDetailScreen({super.key});
 
@@ -48,42 +48,20 @@ class ProductDetailScreen extends StatelessWidget {
 
 class _ProductContent extends StatefulWidget {
   final Product product;
+
   const _ProductContent({required this.product});
+
   @override
   State<_ProductContent> createState() => _ProductContentState();
 }
 
 class _ProductContentState extends State<_ProductContent> {
-  final ProductsApi _api = ProductsApi();
-  bool _loadingReviews = true;
-  String? _reviewsError;
-  List<Review> _reviews = const [];
+  late final Future<List<Review>> _reviewsFuture;
 
   @override
   void initState() {
     super.initState();
-    _loadReviews();
-  }
-
-  Future<void> _loadReviews() async {
-    setState(() {
-      _loadingReviews = true;
-      _reviewsError = null;
-    });
-    try {
-      final r = await _api.reviews(widget.product.id);
-      if (!mounted) return;
-      setState(() {
-        _reviews = r;
-        _loadingReviews = false;
-      });
-    } on ProductsException catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _reviewsError = e.message;
-        _loadingReviews = false;
-      });
-    }
+    _reviewsFuture = ProductService().fetchReviews(widget.product.id);
   }
 
   @override
@@ -172,32 +150,50 @@ class _ProductContentState extends State<_ProductContent> {
             ),
           ),
           const SizedBox(height: 12),
-          if (_loadingReviews)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 16),
-              child: Center(child: CircularProgressIndicator()),
-            )
-          else if (_reviewsError != null)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Text(
-                _reviewsError!,
-                style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
-              ),
-            )
-          else if (_reviews.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 8),
-              child: Text(
-                'Ainda não há avaliações.',
-                style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
-              ),
-            )
-          else
-            for (final review in _reviews) ...[
-              ReviewItem(review: review),
-              const SizedBox(height: 10),
-            ],
+          FutureBuilder<List<Review>>(
+            future: _reviewsFuture,
+            builder: (context, snapshot) {
+              final reviews = snapshot.data ?? const <Review>[];
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 8),
+                  child: Text(
+                    'Carregando avaliações...',
+                    style:
+                        TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                  ),
+                );
+              }
+              if (snapshot.hasError) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 8),
+                  child: Text(
+                    'Não foi possível carregar as avaliações.',
+                    style:
+                        TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                  ),
+                );
+              }
+              if (reviews.isEmpty) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 8),
+                  child: Text(
+                    'Ainda não há avaliações.',
+                    style:
+                        TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                  ),
+                );
+              }
+              return Column(
+                children: [
+                  for (final review in reviews) ...[
+                    ReviewItem(review: review),
+                    const SizedBox(height: 10),
+                  ],
+                ],
+              );
+            },
+          ),
           const SizedBox(height: 24),
         ],
       ),
@@ -207,6 +203,7 @@ class _ProductContentState extends State<_ProductContent> {
 
 class _HeroImage extends StatelessWidget {
   final Product product;
+
   const _HeroImage({required this.product});
 
   @override

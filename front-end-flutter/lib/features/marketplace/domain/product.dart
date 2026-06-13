@@ -1,7 +1,5 @@
-/// Produto do marketplace. Portado de edu-kt `Product`.
-///
-/// No edu-kt o preço vinha como `String` da API; aqui (dados mockados) usamos
-/// `double` para permitir cálculo de subtotais/totais no carrinho.
+/// Produto do marketplace. Espelha `ProductOut` do backend: `id` é UUID
+/// (string), `price` chega como string decimal ("49.90").
 class Product {
   final String id;
   final String name;
@@ -27,13 +25,13 @@ class Product {
 
   factory Product.fromJson(Map<String, dynamic> json) {
     return Product(
-      id: json['id'] as String,
-      name: json['name'] as String? ?? '',
-      type: json['type'] as String? ?? '',
-      subtype: json['subtype'] as String? ?? '',
-      description: json['description'] as String? ?? '',
+      id: (json['id'] as String?) ?? '',
+      name: (json['name'] as String?) ?? '',
+      type: (json['type'] as String?) ?? '',
+      subtype: (json['subtype'] as String?) ?? '',
+      description: (json['description'] as String?) ?? '',
       price: double.tryParse('${json['price']}') ?? 0.0,
-      imageUrl: json['image_url'] as String? ?? '',
+      imageUrl: (json['image_url'] as String?) ?? '',
       ratingAvg: (json['rating_avg'] as num?)?.toDouble() ?? 0.0,
       ratingCount: (json['rating_count'] as num?)?.toInt() ?? 0,
     );
@@ -44,7 +42,8 @@ class Product {
       subtype.trim().isNotEmpty ? subtype.toUpperCase() : type.toUpperCase();
 }
 
-/// Avaliação de um produto. Portado de edu-kt `Review`.
+/// Avaliação de um produto. Espelha `ReviewOut` do backend (`id` UUID,
+/// `created_at` ISO-8601).
 class Review {
   final String id;
   final String author;
@@ -62,11 +61,11 @@ class Review {
 
   factory Review.fromJson(Map<String, dynamic> json) {
     return Review(
-      id: json['id'] as String,
-      author: json['author'] as String? ?? '',
+      id: (json['id'] as String?) ?? '',
+      author: (json['author'] as String?) ?? '',
       rating: (json['rating'] as num?)?.toInt() ?? 0,
-      comment: json['comment'] as String? ?? '',
-      createdAt: json['created_at'] as String? ?? '',
+      comment: (json['comment'] as String?) ?? '',
+      createdAt: (json['created_at'] as String?) ?? '',
     );
   }
 }

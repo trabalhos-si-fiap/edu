@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
-import '../../data/products_api.dart';
+import '../../data/product_service.dart';
 import '../../domain/product.dart';
 import 'rating_stars.dart';
 
@@ -70,6 +70,7 @@ class ReviewItem extends StatelessWidget {
 /// Bottom sheet de avaliações de um produto. Portado de edu-kt
 /// `ReviewsBottomSheet`.
 void showReviewsBottomSheet(BuildContext context, Product product) {
+  final reviewsFuture = ProductService().fetchReviews(product.id);
   showModalBottomSheet<void>(
     context: context,
     backgroundColor: AppColors.white,
@@ -119,45 +120,48 @@ void showReviewsBottomSheet(BuildContext context, Product product) {
                 starSize: 18,
               ),
               const SizedBox(height: 16),
-              Flexible(
-                child: FutureBuilder<List<Review>>(
-                  future: ProductsApi().reviews(product.id),
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 24),
-                        child: Center(child: CircularProgressIndicator()),
-                      );
-                    }
-                    if (snapshot.hasError) {
-                      return const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 24),
-                        child: Text(
-                          'Não foi possível carregar as avaliações.',
-                          style: TextStyle(color: AppColors.textSecondary),
-                        ),
-                      );
-                    }
-                    final reviews = snapshot.data ?? const <Review>[];
-                    if (reviews.isEmpty) {
-                      return const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 24),
-                        child: Text(
-                          'Este produto ainda não possui avaliações.',
-                          style: TextStyle(color: AppColors.textSecondary),
-                        ),
-                      );
-                    }
-                    return ListView.separated(
+              FutureBuilder<List<Review>>(
+                future: reviewsFuture,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 24),
+                      child: Center(
+                        child: CircularProgressIndicator(
+                            color: AppColors.purple),
+                      ),
+                    );
+                  }
+                  if (snapshot.hasError) {
+                    return const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 24),
+                      child: Text(
+                        'Não foi possível carregar as avaliações.',
+                        style: TextStyle(color: AppColors.textSecondary),
+                      ),
+                    );
+                  }
+                  final reviews = snapshot.data ?? const <Review>[];
+                  if (reviews.isEmpty) {
+                    return const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 24),
+                      child: Text(
+                        'Este produto ainda não possui avaliações.',
+                        style: TextStyle(color: AppColors.textSecondary),
+                      ),
+                    );
+                  }
+                  return Flexible(
+                    child: ListView.separated(
                       shrinkWrap: true,
                       padding: EdgeInsets.zero,
                       itemCount: reviews.length,
                       separatorBuilder: (context, index) =>
                           const SizedBox(height: 10),
-                      itemBuilder: (context, i) => ReviewItem(review: reviews[i]),
-                    );
-                  },
-                ),
+                      itemBuilder: (_, i) => ReviewItem(review: reviews[i]),
+                    ),
+                  );
+                },
               ),
             ],
           ),
