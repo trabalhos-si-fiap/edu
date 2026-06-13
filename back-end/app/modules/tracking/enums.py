@@ -1,15 +1,12 @@
 from enum import StrEnum
 
 
-class OrderStatus(StrEnum):
-    """Lifecycle of a delivery as shown on the tracking screen."""
+class TrackingStepStatus(StrEnum):
+    """State of each step in the tracking timeline (matches the Flutter app)."""
 
-    PLACED = "placed"
-    CONFIRMED = "confirmed"
-    PREPARING = "preparing"
-    OUT_FOR_DELIVERY = "out_for_delivery"
-    DELIVERED = "delivered"
-    CANCELLED = "cancelled"
+    DONE = "done"
+    CURRENT = "current"
+    PENDING = "pending"
 
 
 class TrafficLevel(StrEnum):

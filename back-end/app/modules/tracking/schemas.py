@@ -1,15 +1,61 @@
-import uuid
 from datetime import datetime
-from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
-from app.modules.tracking.enums import OrderStatus, RouteStatus, TrafficLevel
+from app.modules.tracking.enums import RouteStatus, TrackingStepStatus, TrafficLevel
 
 # Geographic bounds used to reject impossible coordinates at the edge of the
 # system (security rule #4 — every input is bounded).
 _LAT_MIN, _LAT_MAX = -90.0, 90.0
 _LNG_MIN, _LNG_MAX = -180.0, 180.0
+
+
+# --- Order tracking screen ---------------------------------------------------
+# These mirror, field for field, the JSON the Flutter `OrderModel.fromJson`
+# expects (lib/features/order_tracking/domain/order_model.dart). The contract
+# is owned by the app; the backend conforms to it.
+
+
+class TrackingStepOut(BaseModel):
+    """A single step of the order progress (e.g. Processed, In transit)."""
+
+    code: str = Field(..., max_length=40, description="Stable step id used by the app for icons.")
+    title: str = Field(..., max_length=80)
+    status: TrackingStepStatus
+    timestamp: datetime | None = None
+
+
+class TrackingLocationOut(BaseModel):
+    """Last known location of the parcel."""
+
+    name: str = Field(..., max_length=120)
+    city: str = Field(..., max_length=80)
+    state: str = Field(..., max_length=2)
+    updated_at: datetime | None = None
+
+
+class KitItemOut(BaseModel):
+    """An item included in the order/kit."""
+
+    name: str = Field(..., max_length=160)
+    subtitle: str | None = Field(default=None, max_length=160)
+
+
+class OrderTrackingOut(BaseModel):
+    """Full payload rendered by the order-tracking screen."""
+
+    id: str = Field(..., max_length=64)
+    headline: str = Field(..., max_length=120)
+    description: str = Field(..., max_length=400)
+    estimated_arrival: datetime
+    steps: list[TrackingStepOut]
+    location: TrackingLocationOut
+    kit: list[KitItemOut]
+    carrier: str = Field(..., max_length=120)
+    map_url: str | None = Field(default=None, max_length=512)
+
+
+# --- Route prediction (POST /orders/{id}/predict-eta) ------------------------
 
 
 class GeoPoint(BaseModel):
@@ -20,76 +66,16 @@ class GeoPoint(BaseModel):
 
 
 class CourierLocationIn(BaseModel):
-    """Current position of the courier, sent by the mobile app to ask for an ETA."""
+    """Current position of the courier, sent by the app to ask for an ETA."""
 
     model_config = ConfigDict(extra="forbid")
 
     latitude: float = Field(
-        ...,
-        ge=_LAT_MIN,
-        le=_LAT_MAX,
-        description="Courier current latitude in decimal degrees.",
+        ..., ge=_LAT_MIN, le=_LAT_MAX, description="Courier current latitude in decimal degrees."
     )
     longitude: float = Field(
-        ...,
-        ge=_LNG_MIN,
-        le=_LNG_MAX,
-        description="Courier current longitude in decimal degrees.",
+        ..., ge=_LNG_MIN, le=_LNG_MAX, description="Courier current longitude in decimal degrees."
     )
-
-
-class DeliveryAddress(BaseModel):
-    """Destination where the order must be delivered."""
-
-    label: str = Field(..., max_length=60)
-    street: str = Field(..., max_length=160)
-    number: str = Field(..., max_length=20)
-    complement: str = Field(default="", max_length=80)
-    district: str = Field(..., max_length=80)
-    city: str = Field(..., max_length=80)
-    state: str = Field(..., max_length=2)
-    zip_code: str = Field(..., max_length=9)
-    location: GeoPoint
-
-
-class TrackingEvent(BaseModel):
-    """A single entry in the order's tracking timeline."""
-
-    status: OrderStatus
-    description: str = Field(..., max_length=200)
-    occurred_at: datetime
-
-
-class OrderTrackingItem(BaseModel):
-    """An item line as displayed on the tracking screen."""
-
-    product_id: uuid.UUID
-    product_name: str = Field(..., max_length=160)
-    quantity: int = Field(..., ge=1)
-    unit_price: Decimal
-    image_url: str = Field(default="", max_length=512)
-
-    @field_serializer("unit_price")
-    def _price_as_string(self, value: Decimal) -> str:
-        return f"{value:.2f}"
-
-
-class OrderTrackingOut(BaseModel):
-    """Full payload needed to render the order-tracking screen."""
-
-    order_id: uuid.UUID
-    current_status: OrderStatus
-    total: Decimal
-    courier_name: str = Field(..., max_length=120)
-    items: list[OrderTrackingItem]
-    events: list[TrackingEvent]
-    destination: DeliveryAddress
-    placed_at: datetime
-    estimated_delivery_at: datetime | None = None
-
-    @field_serializer("total")
-    def _total_as_string(self, value: Decimal) -> str:
-        return f"{value:.2f}"
 
 
 class ETAPredictionOut(BaseModel):
@@ -99,10 +85,14 @@ class ETAPredictionOut(BaseModel):
     eta_text: str = Field(..., description='Human-friendly ETA, e.g. "15 min".')
     distance_km: float = Field(..., ge=0, description="Estimated travelled distance in km.")
     straight_line_distance_km: float = Field(
-        ..., ge=0, description="Great-circle distance courier→destination in km."
+        ..., ge=0, description="Great-circle distance courier->destination in km."
     )
     average_speed_kmh: float = Field(..., gt=0)
     traffic_level: TrafficLevel
     route_status: RouteStatus
     courier_location: GeoPoint
     destination_location: GeoPoint
+
+    @field_serializer("distance_km", "straight_line_distance_km", "average_speed_kmh")
+    def _round(self, value: float) -> float:
+        return round(value, 3)
