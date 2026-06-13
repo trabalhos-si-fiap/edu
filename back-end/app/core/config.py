@@ -47,5 +47,14 @@ class Settings(BaseSettings):
     TRACKING_AVERAGE_SPEED_KMH: float = 30.0
     TRACKING_URBAN_ROUTE_FACTOR: float = 1.4
 
+    # Google Maps Platform key used server-side to call the Directions API for
+    # the order-route map. Lives in back-end/.env; never sent to the client.
+    # (Spelling matches the key the operator created in .env.)
+    GOOGLE_MAPS_API_PLATAFORM: str | None = None
+    # Time-to-live for a cached order route. Origin and destination are fixed
+    # per order, so the route is stable — cache it to avoid repeat Directions
+    # calls (and cost).
+    TRACKING_ROUTE_CACHE_TTL_SECONDS: int = 21600  # 6 hours
+
 
 settings = Settings()

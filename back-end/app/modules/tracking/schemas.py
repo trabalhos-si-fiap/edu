@@ -55,6 +55,33 @@ class OrderTrackingOut(BaseModel):
     map_url: str | None = Field(default=None, max_length=512)
 
 
+# --- Order route map (GET /orders/{id}/route) --------------------------------
+
+
+class RoutePoint(BaseModel):
+    """A named endpoint of the delivery route (origin or destination)."""
+
+    label: str = Field(..., max_length=120)
+    latitude: float = Field(..., ge=_LAT_MIN, le=_LAT_MAX)
+    longitude: float = Field(..., ge=_LNG_MIN, le=_LNG_MAX)
+
+
+class RouteOut(BaseModel):
+    """Street route between the distribution center and the order destination."""
+
+    origin: RoutePoint
+    destination: RoutePoint
+    polyline: str = Field(..., description="Google overview_polyline (encoded).")
+    distance_text: str = Field(..., max_length=40)
+    distance_km: float = Field(..., ge=0)
+    duration_text: str = Field(..., max_length=40)
+    duration_minutes: int = Field(..., ge=0)
+
+    @field_serializer("distance_km")
+    def _round_distance(self, value: float) -> float:
+        return round(value, 3)
+
+
 # --- Route prediction (POST /orders/{id}/predict-eta) ------------------------
 
 
