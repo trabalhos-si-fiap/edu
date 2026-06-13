@@ -14,6 +14,7 @@ import '../../../../core/theme/app_colors.dart';
 /// é async); o chamador carrega o ícone uma vez e reusa.
 Future<BitmapDescriptor> truckMarkerBitmap({
   double size = 120,
+  double displayWidth = 46,
   Color iconColor = AppColors.white,
   Color backgroundColor = AppColors.purple,
 }) async {
@@ -44,5 +45,10 @@ Future<BitmapDescriptor> truckMarkerBitmap({
 
   final image = await recorder.endRecording().toImage(size.toInt(), size.toInt());
   final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
-  return BitmapDescriptor.bytes(bytes!.buffer.asUint8List());
+  // Render at high resolution (size) but display at displayWidth logical px so
+  // the marker stays sharp yet proportional to the default destination pin.
+  return BitmapDescriptor.bytes(
+    bytes!.buffer.asUint8List(),
+    width: displayWidth,
+  );
 }
