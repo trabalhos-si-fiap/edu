@@ -49,6 +49,22 @@ async def seeded_products(db_session: AsyncSession) -> list[Product]:
     return products
 
 
+@pytest.fixture(autouse=True)
+def captured_pipeline_kickoffs(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
+    """Stop checkout from hitting the broker and capture the status-pipeline
+    kickoff. Autouse so every test that creates an order stays offline; the
+    trigger test reads the captured calls."""
+    from app.modules.orders import tasks
+
+    calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        tasks.advance_order_status_task,
+        "delay",
+        lambda order_id, to_status: calls.append((order_id, to_status)),
+    )
+    return calls
+
+
 @pytest.fixture
 async def filled_cart(
     db_session: AsyncSession, created_user: User, seeded_products: list[Product]
