@@ -25,3 +25,14 @@ class DeviceTokenOut(BaseModel):
     platform: DevicePlatform
     created_at: datetime
     updated_at: datetime
+
+
+class NotificationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    title: str
+    body: str
+    data: dict[str, str] | None = None
+    read_at: datetime | None = None
+    created_at: datetime

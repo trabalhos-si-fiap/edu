@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import firebase
 from app.modules.notifications.exceptions import DeviceTokenNotFound
-from app.modules.notifications.models import DeviceToken
+from app.modules.notifications.models import DeviceToken, Notification
 from app.modules.notifications.schemas import DeviceTokenIn
 
 
@@ -58,6 +58,52 @@ async def _purge_tokens(session: AsyncSession, tokens: list[str]) -> None:
         return
     await session.execute(delete(DeviceToken).where(DeviceToken.token.in_(tokens)))
     await session.commit()
+
+
+async def create_notification(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    title: str,
+    body: str,
+    data: dict[str, str] | None = None,
+) -> Notification:
+    """Persist a single notification for a user's in-app history."""
+    notification = Notification(user_id=user_id, title=title, body=body, data=data)
+    session.add(notification)
+    await session.commit()
+    await session.refresh(notification)
+    return notification
+
+
+async def list_notifications(
+    session: AsyncSession, user_id: uuid.UUID, *, limit: int, offset: int
+) -> list[Notification]:
+    stmt = (
+        select(Notification)
+        .where(Notification.user_id == user_id)
+        .order_by(Notification.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    return list((await session.execute(stmt)).scalars().all())
+
+
+async def notify_user(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    title: str,
+    body: str,
+    data: dict[str, str] | None = None,
+) -> Notification:
+    """Record a notification and best-effort deliver it as a push.
+
+    Persistence is unconditional: the in-app history must survive even when the
+    user has no device token (or FCM delivery fails), so we always store first
+    and only then attempt the push.
+    """
+    notification = await create_notification(session, user_id, title, body, data)
+    await send_push_to_user(session, user_id, title, body, data)
+    return notification
 
 
 async def send_push_to_user(
