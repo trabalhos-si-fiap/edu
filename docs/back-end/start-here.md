@@ -282,7 +282,11 @@ def send_welcome_email(user_id: str) -> None:
     ...
 ```
 
-O `autodiscover_tasks(["app.modules"])` do `celery_app.py` acha sozinho, desde que o arquivo se chame `tasks.py`.
+O `celery_app.py` faz autodiscovery sozinho, desde que o arquivo se chame
+`tasks.py`: ele **enumera os subpacotes** de `app/modules/` e passa cada um
+(`app.modules.orders`, `app.modules.notifications`, …) para
+`autodiscover_tasks`. Não use `autodiscover_tasks(["app.modules"])` — isso só
+procura `app.modules.tasks` e **não registra nada** dos submódulos.
 
 ---
 
@@ -437,7 +441,11 @@ Mutação de quantidade é serializada com lock na linha do carrinho.
 | POST | `/orders` | checkout: monta pedido do carrinho e **esvazia** numa transação com lock; body opcional `{payment_method:str}` |
 | POST | `/orders/{id}/rebuy` | recompõe o carrinho a partir do pedido, retorna o `Cart` |
 
-Itens do pedido **snapshotam** o preço pago (registro histórico imutável).
+Itens do pedido **snapshotam** o preço pago (registro histórico imutável). Cada
+pedido tem um campo **`status`** (`OrderStatus`: `pending → confirmed →
+separating → out_for_delivery → delivered`), exposto no `OrderOut`. O checkout
+cria o pedido como `pending` e dispara o **pipeline de status** (§16), que o faz
+avançar sozinho disparando notificações a cada etapa.
 
 ### `payment_methods` (`/api/payment-methods`)
 | Método | Rota | Descrição |
@@ -458,7 +466,21 @@ Itens do pedido **snapshotam** o preço pago (registro histórico imutável).
 | POST | `/support` | envia mensagem, retorna a lista atualizada |
 
 ### `notifications` (`/api/notifications`)
-Registro de device tokens e envio de push via FCM (worker Celery).
+Device tokens FCM + **histórico de notificações persistido**.
+
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| GET | `/notifications?limit&offset` | histórico do usuário (mais recente primeiro) |
+| POST | `/notifications/devices` | registra o token FCM deste device (idempotente, reassina dono) |
+| DELETE | `/notifications/devices/{token}` | remove o token (204) |
+
+Toda notificação é **persistida sempre** (tabela `notifications_notifications`),
+mesmo que o usuário não tenha device token ou que o push falhe — o histórico
+in-app nunca fica incompleto. O fluxo de envio é `notify_user()` →
+`create_notification()` (persiste) → `send_push_to_user()` (push best-effort via
+`core/firebase.py`, que isola o Admin SDK e purga tokens inválidos). O Flutter lê
+`GET /notifications` e o `data` carrega o payload de deep-link (ex.:
+`{"type":"order_status","order_id":…,"status":…}`).
 
 ### `tracking` (`/api/orders`)
 Superfície de **leitura/derivação** sobre pedidos: detalhe de rastreio, predição
@@ -525,5 +547,61 @@ novo insere 0). Exposto como `seed_products(session)` (testável, em
 make back-seed
 # ou: docker compose exec api uv run python -m app.seeds.products
 ```
+
+---
+
+## 16. Pipeline de status de pedido + notificações
+
+Cadeia de eventos assíncrona que avança o `status` de um pedido e notifica o
+dono a cada etapa. É o caso de uso real de push do app — e o modelo de
+referência para qualquer máquina de estados orientada a Celery aqui.
+
+### 16.1 Máquina de estados (`orders/lifecycle.py`)
+Progressão **forward-only**: `pending → confirmed → separating →
+out_for_delivery → delivered`. `pending` é o estado transitório recém-criado;
+`delivered` é terminal. Cada status (exceto `pending`) tem um texto pt-BR de
+notificação. Helpers: `next_status()` e `can_advance_to(current, target)` (só o
+sucessor imediato).
+
+### 16.2 A task (`orders/tasks.py` → `orders.advance_order_status`)
+1. O checkout (`create_order_from_cart`) cria o pedido como `pending` e
+   enfileira `advance_order_status.delay(order_id, "confirmed")`.
+2. A task move **um** passo via `services.advance_order_status()`:
+   `SELECT ... FOR UPDATE` na linha do pedido, avança só se `can_advance_to`,
+   `commit`, e então `notifications.notify_user()` (persiste + push).
+3. Se avançou e o novo status não é terminal, **reagenda a si mesma** para o
+   próximo passo com `apply_async(countdown=random(10..30))`.
+
+**Atômica** (regra de segurança #3: row-lock + read→write→commit) e
+**idempotente** (regra #10): um replay encontra o pedido já no/depois do
+`to_status`, `can_advance_to` retorna `False`, a task é no-op e **não reagenda** —
+a cadeia nunca bifurca nem notifica em dobro.
+
+> **Demo:** os timers de 10–30s simulam o tempo de logística real. Em produção,
+> as transições viriam de eventos do serviço de logística (webhook/mensageria),
+> não de timers. Trocar a fonte do evento não muda a máquina de estados.
+
+### 16.3 Config (`core/config.py`)
+`ORDER_STATUS_MIN_DELAY_SECONDS` (10), `ORDER_STATUS_MAX_DELAY_SECONDS` (30),
+`ORDER_STATUS_TASK_TIME_LIMIT` (30), `ORDER_STATUS_TASK_SOFT_TIME_LIMIT` (25).
+Envio FCM: `FIREBASE_CREDENTIALS_PATH`, `FCM_SEND_TIME_LIMIT`,
+`FCM_SEND_SOFT_TIME_LIMIT`.
+
+### 16.4 Pré-requisito operacional
+O **worker Celery precisa estar de pé** (`make back-up` já sobe; isoladamente
+`docker compose up -d worker`) — sem ele o pedido fica em `pending`. Verifique as
+tasks registradas com:
+
+```bash
+docker compose exec worker celery -A app.core.celery_app.celery_app inspect registered
+# deve listar orders.advance_order_status e notifications.send_push_to_user
+```
+
+> **RabbitMQ:** o broker provisiona o usuário do `.env`
+> (`RABBITMQ_USER`/`RABBITMQ_PASSWORD`) via `RABBITMQ_DEFAULT_USER/PASS` no
+> compose, **apenas na primeira inicialização do volume** `rabbitmq_data`. Se o
+> volume foi criado antes desse mapeamento existir, o worker leva
+> `AccessRefused (403)`: recrie o volume (`docker compose down -v` em dev) ou
+> crie o usuário à mão (`rabbitmqctl add_user … && set_permissions`).
 
 ---
