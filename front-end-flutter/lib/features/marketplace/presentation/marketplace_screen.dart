@@ -2,10 +2,10 @@ import 'package:edu_ia/core/theme/app_colors.dart';
 import 'package:edu_ia/core/utils/currency.dart';
 import 'package:edu_ia/features/cart/data/cart_store.dart';
 import 'package:edu_ia/features/components/nav_bar.dart';
-import 'package:edu_ia/features/marketplace/data/mock_marketplace.dart';
+import 'package:edu_ia/features/marketplace/data/products_api.dart';
 import 'package:edu_ia/features/marketplace/domain/product.dart';
 import 'package:edu_ia/features/marketplace/presentation/widgets/add_to_cart_button.dart';
-import 'package:edu_ia/features/marketplace/presentation/widgets/product_visuals.dart';
+import 'package:edu_ia/features/marketplace/presentation/widgets/product_image.dart';
 import 'package:edu_ia/features/marketplace/presentation/widgets/rating_stars.dart';
 import 'package:edu_ia/features/marketplace/presentation/widgets/review_item.dart';
 import 'package:flutter/material.dart';
@@ -19,15 +19,42 @@ class MarketplaceScreen extends StatefulWidget {
 }
 
 class _MarketplaceScreenState extends State<MarketplaceScreen> {
+  final ProductsApi _api = ProductsApi();
   final TextEditingController _searchController = TextEditingController();
+
+  bool _loading = true;
+  String? _error;
+  List<Product> _products = const [];
+
   String _query = '';
   String? _selectedType;
 
-  late final List<String> _types = mockProducts
-      .map((p) => p.type)
-      .where((t) => t.isNotEmpty)
-      .toSet()
-      .toList();
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final p = await _api.list(limit: 100);
+      if (!mounted) return;
+      setState(() {
+        _products = p;
+        _loading = false;
+      });
+    } on ProductsException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.message;
+        _loading = false;
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -35,9 +62,15 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
     super.dispose();
   }
 
+  List<String> get _types => _products
+      .map((p) => p.type)
+      .where((t) => t.isNotEmpty)
+      .toSet()
+      .toList();
+
   List<Product> get _filtered {
     final q = _query.trim().toLowerCase();
-    return mockProducts.where((p) {
+    return _products.where((p) {
       final matchesType = _selectedType == null || p.type == _selectedType;
       final matchesQuery =
           q.isEmpty ||
@@ -49,7 +82,6 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final filtered = _filtered;
     return Container(
       decoration: const BoxDecoration(gradient: AppColors.headerGradient),
       child: Scaffold(
@@ -68,73 +100,130 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                 selected: _selectedType,
                 onSelected: (t) => setState(() => _selectedType = t),
               ),
-              Expanded(
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    const padding = 24.0;
-                    const spacing = 12.0;
-                    final cellWidth =
-                        (constraints.maxWidth - padding * 2 - spacing) / 2;
-                    // Altura = imagem quadrada + bloco de conteúdo (textos
-                    // limitados + botão), com folga.
-                    final extent = cellWidth + 252;
-                    return CustomScrollView(
-                      slivers: [
-                        const SliverToBoxAdapter(
-                          child: Padding(
-                            padding: EdgeInsets.fromLTRB(
-                              padding,
-                              padding,
-                              padding,
-                              16,
-                            ),
-                            child: Text(
-                              'EduMarketplace',
-                              style: TextStyle(
-                                fontSize: 32,
-                                fontWeight: FontWeight.w800,
-                                color: AppColors.textPrimary,
-                                letterSpacing: -0.5,
-                              ),
-                            ),
-                          ),
-                        ),
-                        if (filtered.isEmpty)
-                          SliverToBoxAdapter(child: _EmptyResult(query: _query))
-                        else
-                          SliverPadding(
-                            padding: const EdgeInsets.fromLTRB(
-                              padding,
-                              0,
-                              padding,
-                              24,
-                            ),
-                            sliver: SliverGrid(
-                              gridDelegate:
-                                  SliverGridDelegateWithFixedCrossAxisCount(
-                                    crossAxisCount: 2,
-                                    crossAxisSpacing: spacing,
-                                    mainAxisSpacing: 16,
-                                    mainAxisExtent: extent,
-                                  ),
-                              delegate: SliverChildBuilderDelegate(
-                                (context, i) =>
-                                    _ProductCard(product: filtered[i]),
-                                childCount: filtered.length,
-                              ),
-                            ),
-                          ),
-                      ],
-                    );
-                  },
-                ),
-              ),
+              Expanded(child: _body()),
             ],
           ),
         ),
         bottomNavigationBar: const NavBar(
           mode: NavBarMode.store,
           currentIndex: 3,
+        ),
+      ),
+    );
+  }
+
+  Widget _body() {
+    if (_loading) {
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.purple),
+      );
+    }
+    if (_error != null) {
+      return _ErrorState(message: _error!, onRetry: _load);
+    }
+    final filtered = _filtered;
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          const padding = 24.0;
+          const spacing = 12.0;
+          final cellWidth =
+              (constraints.maxWidth - padding * 2 - spacing) / 2;
+          // Altura = imagem quadrada + bloco de conteúdo (textos
+          // limitados + botão), com folga.
+          final extent = cellWidth + 252;
+          return CustomScrollView(
+            slivers: [
+              const SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    padding,
+                    padding,
+                    padding,
+                    16,
+                  ),
+                  child: Text(
+                    'EduMarketplace',
+                    style: TextStyle(
+                      fontSize: 32,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.textPrimary,
+                      letterSpacing: -0.5,
+                    ),
+                  ),
+                ),
+              ),
+              if (filtered.isEmpty)
+                SliverToBoxAdapter(child: _EmptyResult(query: _query))
+              else
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(
+                    padding,
+                    0,
+                    padding,
+                    24,
+                  ),
+                  sliver: SliverGrid(
+                    gridDelegate:
+                        SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          crossAxisSpacing: spacing,
+                          mainAxisSpacing: 16,
+                          mainAxisExtent: extent,
+                        ),
+                    delegate: SliverChildBuilderDelegate(
+                      (context, i) => _ProductCard(product: filtered[i]),
+                      childCount: filtered.length,
+                    ),
+                  ),
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _ErrorState extends StatelessWidget {
+  const _ErrorState({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.cloud_off,
+              size: 40,
+              color: AppColors.textSecondary,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 14,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 16),
+            OutlinedButton(
+              onPressed: onRetry,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.purple,
+                side: const BorderSide(color: AppColors.purple),
+              ),
+              child: const Text('Tentar novamente'),
+            ),
+          ],
         ),
       ),
     );
@@ -351,7 +440,7 @@ class _ProductCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: () =>
-          Navigator.pushNamed(context, '/product', arguments: product.id),
+          Navigator.pushNamed(context, '/product', arguments: product),
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
@@ -372,15 +461,9 @@ class _ProductCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(10),
               child: AspectRatio(
                 aspectRatio: 1,
-                child: Container(
-                  color: AppColors.imagePlaceholder,
-                  child: Center(
-                    child: Icon(
-                      iconForProduct(product.type),
-                      size: 48,
-                      color: AppColors.textSecondary.withValues(alpha: 0.6),
-                    ),
-                  ),
+                child: ProductImage(
+                  imageUrl: product.imageUrl,
+                  type: product.type,
                 ),
               ),
             ),
