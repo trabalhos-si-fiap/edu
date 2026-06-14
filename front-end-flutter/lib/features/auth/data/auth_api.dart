@@ -167,6 +167,12 @@ class AuthApi {
     }
   }
 
+  /// Ends the session locally: drops the JWT pair and the cached profile data.
+  Future<void> logout() async {
+    await _tokenStore.clear();
+    await _sessionStore.clear();
+  }
+
   /// Saves the JWT pair and caches the user's display name from an
   /// `AuthResponse` body (`{user, tokens}`).
   Future<void> _persistAuth(Map<String, dynamic> body) async {

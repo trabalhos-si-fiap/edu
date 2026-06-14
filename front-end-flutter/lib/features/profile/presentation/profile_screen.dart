@@ -93,13 +93,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   _SettingsItem(Icons.help_outline, 'Help & Support'),
                   _SettingsItem(Icons.verified_user_outlined, 'Privacy Policy'),
                 ],
-                trailing: _LogoutTile(onTap: () {
+                trailing: _LogoutTile(onTap: () async {
+                  final navigator = Navigator.of(context);
                   context.read<CartStore>().reset();
-                  Navigator.pushNamedAndRemoveUntil(
-                    context,
-                    '/login',
-                    (_) => false,
-                  );
+                  await _authApi.logout();
+                  navigator.pushNamedAndRemoveUntil('/login', (_) => false);
                 }),
               ),
             ],
