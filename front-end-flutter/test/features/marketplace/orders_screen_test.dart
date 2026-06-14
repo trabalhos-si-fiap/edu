@@ -57,6 +57,10 @@ void main() {
     expect(find.text(r'R$ 242,00'), findsOneWidget);
     expect(find.text('Saiu para entrega'), findsOneWidget);
     expect(find.text('Rastrear pedido'), findsOneWidget);
+
+    // Active order => the provider started a polling timer; dispose it within
+    // the test body so no timer is left pending when the tree is torn down.
+    provider.dispose();
   });
 
   testWidgets('renders a delivered order card', (tester) async {

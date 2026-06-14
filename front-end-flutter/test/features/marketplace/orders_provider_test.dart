@@ -74,4 +74,59 @@ void main() {
     expect(provider.state, OrdersViewState.success);
     expect(provider.isEmpty, isTrue);
   });
+
+  test('polls while an order is active, reflecting status transitions', () async {
+    var calls = 0;
+    // Order 'a' advances separating -> out_for_delivery -> delivered over polls.
+    final service = _FakeService(
+      onFetch: () async {
+        calls++;
+        final status = calls < 2
+            ? OrderSummaryStatus.separating
+            : calls < 3
+            ? OrderSummaryStatus.outForDelivery
+            : OrderSummaryStatus.delivered;
+        return [_order('a', status)];
+      },
+    );
+    final provider = OrdersProvider(
+      service: service,
+      pollInterval: const Duration(milliseconds: 20),
+    );
+
+    await provider.load(); // call #1: separating (active -> starts polling)
+    expect(provider.activeOrders, hasLength(1));
+
+    // Let polling run through the transitions to delivered.
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+
+    expect(provider.orders.single.status, OrderSummaryStatus.delivered);
+    expect(provider.activeOrders, isEmpty);
+
+    // Once delivered, polling stops — no further calls.
+    final callsAtDelivery = calls;
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+    expect(calls, callsAtDelivery);
+    provider.dispose();
+  });
+
+  test('does not poll when every order is already delivered', () async {
+    var calls = 0;
+    final service = _FakeService(
+      onFetch: () async {
+        calls++;
+        return [_order('a', OrderSummaryStatus.delivered)];
+      },
+    );
+    final provider = OrdersProvider(
+      service: service,
+      pollInterval: const Duration(milliseconds: 20),
+    );
+
+    await provider.load(); // call #1, all delivered -> no polling scheduled
+
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+    expect(calls, 1);
+    provider.dispose();
+  });
 }
