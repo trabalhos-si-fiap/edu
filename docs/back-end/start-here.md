@@ -216,8 +216,13 @@ Pontos importantes:
   `R2_*` comentadas (como vem no `.env.example`) e use o MinIO.
 - **Presigned URL e o device:** a URL é assinada com `R2_PUBLIC_ENDPOINT_URL` (ou
   `R2_ENDPOINT_URL` se não definido). Com MinIO em dev, o host `minio:9000` não é
-  alcançável pelo celular/emulador — aponte `R2_PUBLIC_ENDPOINT_URL` para um endereço
-  que o device consiga acessar.
+  alcançável pelo celular/emulador — por isso o `make back-up` detecta o IP da LAN
+  do host (o mesmo `HOST_IP` do `make front`) e injeta `R2_PUBLIC_ENDPOINT_URL` via
+  docker-compose. Resultado: as imagens carregam no emulador, no simulador e em
+  devices físicos sem nenhuma configuração manual (fallback para `10.0.2.2` quando
+  o `HOST_IP` não é detectado). A chave de cache da presigned URL no Redis é
+  scopeada pelo endpoint, então trocar de IP/rede gera URLs novas na hora — sem
+  precisar de flush manual do cache.
 
 Detalhes de design: `docs/superpowers/specs/2026-06-13-marketplace-product-photos-design.md`.
 
