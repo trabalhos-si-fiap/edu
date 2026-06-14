@@ -1,4 +1,6 @@
+import 'package:edu_ia/features/cart/data/cart_service.dart';
 import 'package:edu_ia/features/cart/data/cart_store.dart';
+import 'package:edu_ia/features/cart/domain/cart_item.dart';
 import 'package:edu_ia/features/marketplace/data/product_service.dart';
 import 'package:edu_ia/features/marketplace/domain/product.dart';
 import 'package:edu_ia/features/marketplace/presentation/marketplace_screen.dart';
@@ -17,9 +19,16 @@ class _FakeService extends ProductService {
   ];
 }
 
+class _EmptyCartService extends CartService {
+  @override
+  Future<List<CartItem>> fetch() async => <CartItem>[];
+}
+
 Widget _harness(ProductsProvider provider) => MultiProvider(
       providers: [
-        ChangeNotifierProvider<CartStore>(create: (_) => CartStore()),
+        ChangeNotifierProvider<CartStore>(
+          create: (_) => CartStore(service: _EmptyCartService()),
+        ),
         ChangeNotifierProvider<ProductsProvider>.value(value: provider),
       ],
       child: const MaterialApp(home: MarketplaceView()),

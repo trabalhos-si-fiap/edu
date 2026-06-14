@@ -36,6 +36,18 @@ class _MarketplaceViewState extends State<MarketplaceView> {
   final TextEditingController _searchController = TextEditingController();
 
   @override
+  void initState() {
+    super.initState();
+    // CartStore.load() calls notifyListeners() before its first await, so
+    // calling it directly here would fire setState during build. Defer to the
+    // post-frame callback (the widget may be disposed before it runs, hence
+    // the mounted guard).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<CartStore>().load();
+    });
+  }
+
+  @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
