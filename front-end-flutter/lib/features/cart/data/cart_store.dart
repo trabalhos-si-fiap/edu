@@ -2,16 +2,23 @@ import 'package:flutter/foundation.dart';
 
 import '../../marketplace/domain/product.dart';
 import '../domain/cart_item.dart';
+import 'cart_service.dart';
 
-/// Estado do carrinho compartilhado entre marketplace, detalhe e checkout.
+/// Estado do carrinho, com o backend como fonte da verdade.
 ///
-/// Portado do `CartViewModel` do edu-kt. Exposto na árvore via
-/// `ChangeNotifierProvider` (pacote `provider`); as telas leem com
-/// `context.watch<CartStore>()` (rebuild) ou `context.read<CartStore>()` (ações).
+/// Exposto na árvore via `ChangeNotifierProvider`. As mutações são otimistas:
+/// o estado local muda na hora (UI instantânea) e a escrita no backend acontece
+/// em segundo plano (write-through). Em caso de falha, o estado é ressincronizado
+/// a partir do servidor (`load(force: true)`) e [errorMessage] é preenchido.
 class CartStore extends ChangeNotifier {
-  CartStore();
+  CartStore({CartService? service}) : _service = service ?? CartService();
 
+  final CartService _service;
   final List<CartItem> _items = [];
+  bool _loaded = false;
+
+  bool isLoading = false;
+  String? errorMessage;
 
   List<CartItem> get items => List.unmodifiable(_items);
   bool get isEmpty => _items.isEmpty;
@@ -20,6 +27,27 @@ class CartStore extends ChangeNotifier {
 
   int _indexOf(String productId) =>
       _items.indexWhere((i) => i.product.id == productId);
+
+  /// Carrega o carrinho do backend. Roda uma vez por sessão; use [force] para
+  /// recarregar (ex.: ressincronização após falha de escrita).
+  Future<void> load({bool force = false}) async {
+    if (_loaded && !force) return;
+    isLoading = true;
+    notifyListeners();
+    try {
+      final items = await _service.fetch();
+      _items
+        ..clear()
+        ..addAll(items);
+      _loaded = true;
+      errorMessage = null;
+    } on CartException catch (e) {
+      errorMessage = e.message;
+    } finally {
+      isLoading = false;
+      notifyListeners();
+    }
+  }
 
   void add(Product product, [int quantity = 1]) {
     final idx = _indexOf(product.id);
@@ -31,6 +59,7 @@ class CartStore extends ChangeNotifier {
       _items.add(CartItem(product: product, quantity: quantity));
     }
     notifyListeners();
+    _sync(() => _service.addItem(product.id, quantity));
   }
 
   void decrement(String productId) {
@@ -43,6 +72,7 @@ class CartStore extends ChangeNotifier {
       _items[idx] = _items[idx].copyWith(quantity: next);
     }
     notifyListeners();
+    _sync(() => _service.removeItem(productId, quantity: 1));
   }
 
   void removeAll(String productId) {
@@ -50,11 +80,36 @@ class CartStore extends ChangeNotifier {
     if (idx < 0) return;
     _items.removeAt(idx);
     notifyListeners();
+    _sync(() => _service.removeItem(productId));
   }
 
+  /// Zera o estado local. Usado após o checkout — o `POST /orders` já esvaziou
+  /// o carrinho no servidor, então não há chamada de API aqui.
   void clear() {
     if (_items.isEmpty) return;
     _items.clear();
     notifyListeners();
+  }
+
+  /// Limpa o estado local e a marca de carregamento (ex.: no logout).
+  void reset() {
+    _items.clear();
+    _loaded = false;
+    errorMessage = null;
+    notifyListeners();
+  }
+
+  /// Dispara a escrita no backend; em sucesso, mantém o estado otimista. Em
+  /// falha, ressincroniza do servidor e preenche [errorMessage]. A mensagem é
+  /// definida *depois* do resync porque `load` zera [errorMessage] no sucesso.
+  Future<void> _sync(Future<List<CartItem>> Function() op) async {
+    try {
+      await op();
+      errorMessage = null;
+    } on CartException catch (e) {
+      await load(force: true);
+      errorMessage = e.message;
+      notifyListeners();
+    }
   }
 }
