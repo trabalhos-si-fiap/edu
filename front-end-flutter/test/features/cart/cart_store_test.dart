@@ -133,4 +133,35 @@ void main() {
     expect(cart.totalQuantity, 1);
     expect(cart.items, hasLength(1));
   });
+
+  test('writes are serialized in tap order', () async {
+    final service = _FakeCartService();
+    final cart = CartStore(service: service);
+
+    cart.add(_p('a'));
+    cart.add(_p('b'));
+    cart.removeAll('a');
+
+    await pumpEventQueue();
+
+    expect(service.calls, ['addItem:a:1', 'addItem:b:1', 'removeItem:a:all']);
+  });
+
+  test('reset clears items, loaded flag and error', () async {
+    final service = _FakeCartService()
+      ..serverItems = [CartItem(product: _p('z'), quantity: 2)];
+    final cart = CartStore(service: service);
+
+    await cart.load();
+    expect(cart.isEmpty, isFalse);
+    expect(service.calls, ['fetch']);
+
+    cart.reset();
+
+    expect(cart.isEmpty, isTrue);
+
+    // _loaded was cleared — next load() must refetch.
+    await cart.load();
+    expect(service.calls, ['fetch', 'fetch']);
+  });
 }

@@ -17,6 +17,10 @@ class CartStore extends ChangeNotifier {
   final List<CartItem> _items = [];
   bool _loaded = false;
 
+  // Escritas no backend são serializadas: uma de cada vez, na ordem dos taps,
+  // evitando corrida entre POST/DELETE concorrentes.
+  Future<void> _writes = Future<void>.value();
+
   bool _isLoading = false;
   String? _errorMessage;
 
@@ -62,7 +66,7 @@ class CartStore extends ChangeNotifier {
       _items.add(CartItem(product: product, quantity: quantity));
     }
     notifyListeners();
-    _sync(() => _service.addItem(product.id, quantity));
+    _enqueue(() => _service.addItem(product.id, quantity));
   }
 
   void decrement(String productId) {
@@ -75,7 +79,7 @@ class CartStore extends ChangeNotifier {
       _items[idx] = _items[idx].copyWith(quantity: next);
     }
     notifyListeners();
-    _sync(() => _service.removeItem(productId, quantity: 1));
+    _enqueue(() => _service.removeItem(productId, quantity: 1));
   }
 
   void removeAll(String productId) {
@@ -83,7 +87,7 @@ class CartStore extends ChangeNotifier {
     if (idx < 0) return;
     _items.removeAt(idx);
     notifyListeners();
-    _sync(() => _service.removeItem(productId));
+    _enqueue(() => _service.removeItem(productId));
   }
 
   /// Zera o estado local. Usado após o checkout — o `POST /orders` já esvaziou
@@ -102,9 +106,16 @@ class CartStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Enfileira uma operação de escrita para execução serializada.
+  void _enqueue(Future<List<CartItem>> Function() op) {
+    _writes = _writes.then((_) => _sync(op)).catchError((_) {});
+  }
+
   /// Dispara a escrita no backend; em sucesso, mantém o estado otimista. Em
   /// falha, ressincroniza do servidor e preenche [errorMessage]. A mensagem é
   /// definida *depois* do resync porque `load` zera [errorMessage] no sucesso.
+  /// Trade-off: em caso de falha, o carrinho é ressincronizado do servidor
+  /// (fonte da verdade), o que pode descartar taps recentes não sincronizados.
   Future<void> _sync(Future<List<CartItem>> Function() op) async {
     try {
       await op();
