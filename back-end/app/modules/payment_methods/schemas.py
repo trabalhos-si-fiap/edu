@@ -23,6 +23,8 @@ class PaymentMethodIn(BaseModel):
 
     @model_validator(mode="after")
     def _require_fields_by_type(self) -> "PaymentMethodIn":
+        # PIX and boleto carry no stored data — the payment code is generated at
+        # checkout — so only credit cards have required display fields.
         if self.type is PaymentMethodType.CREDIT_CARD:
             missing = [
                 name
@@ -31,8 +33,6 @@ class PaymentMethodIn(BaseModel):
             ]
             if missing:
                 raise ValueError(f"credit_card requires: {', '.join(missing)}")
-        elif self.type is PaymentMethodType.PIX and not self.pix_key:
-            raise ValueError("pix requires pix_key")
         return self
 
 

@@ -1,6 +1,34 @@
 /// Tipos de método de pagamento. Portado de edu-kt `PaymentMethodType`.
 enum PaymentMethodType { creditCard, pix, boleto }
 
+/// Valor em snake_case usado pelo backend (`PaymentMethodType` em
+/// `back-end/app/modules/payment_methods/enums.py`).
+extension PaymentMethodTypeApi on PaymentMethodType {
+  String get apiValue {
+    switch (this) {
+      case PaymentMethodType.creditCard:
+        return 'credit_card';
+      case PaymentMethodType.pix:
+        return 'pix';
+      case PaymentMethodType.boleto:
+        return 'boleto';
+    }
+  }
+}
+
+PaymentMethodType _typeFromApi(String value) {
+  switch (value) {
+    case 'credit_card':
+      return PaymentMethodType.creditCard;
+    case 'pix':
+      return PaymentMethodType.pix;
+    case 'boleto':
+      return PaymentMethodType.boleto;
+    default:
+      return PaymentMethodType.creditCard;
+  }
+}
+
 /// Método de pagamento salvo. Portado de edu-kt `PaymentMethod`.
 class PaymentMethod {
   final String id;
@@ -10,7 +38,6 @@ class PaymentMethod {
   final String? cardBrand;
   final String? cardholderName;
   final String? cardExpiry; // MMYY
-  final String? cardholderTaxId;
   final String? pixKey;
 
   const PaymentMethod({
@@ -21,9 +48,24 @@ class PaymentMethod {
     this.cardBrand,
     this.cardholderName,
     this.cardExpiry,
-    this.cardholderTaxId,
     this.pixKey,
   });
+
+  /// Espelha o schema `PaymentMethodOut` do backend
+  /// (`back-end/app/modules/payment_methods/schemas.py`); o `id` é o UUID
+  /// retornado pela API e `card_expiry` vem como MMYY.
+  factory PaymentMethod.fromJson(Map<String, dynamic> json) {
+    return PaymentMethod(
+      id: json['id'] as String,
+      type: _typeFromApi(json['type'] as String),
+      isDefault: (json['is_default'] as bool?) ?? false,
+      cardLast4: json['card_last4'] as String?,
+      cardBrand: json['card_brand'] as String?,
+      cardholderName: json['cardholder_name'] as String?,
+      cardExpiry: json['card_expiry'] as String?,
+      pixKey: json['pix_key'] as String?,
+    );
+  }
 
   PaymentMethod copyWith({
     String? id,
@@ -32,7 +74,6 @@ class PaymentMethod {
     String? cardBrand,
     String? cardholderName,
     String? cardExpiry,
-    String? cardholderTaxId,
     String? pixKey,
   }) {
     return PaymentMethod(
@@ -43,7 +84,6 @@ class PaymentMethod {
       cardBrand: cardBrand ?? this.cardBrand,
       cardholderName: cardholderName ?? this.cardholderName,
       cardExpiry: cardExpiry ?? this.cardExpiry,
-      cardholderTaxId: cardholderTaxId ?? this.cardholderTaxId,
       pixKey: pixKey ?? this.pixKey,
     );
   }

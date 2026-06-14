@@ -7,9 +7,9 @@ import 'package:edu_ia/features/cart/domain/cart_item.dart';
 import 'package:edu_ia/features/marketplace/data/checkout_service.dart';
 import 'package:edu_ia/features/marketplace/presentation/widgets/product_visuals.dart';
 import 'package:edu_ia/features/marketplace/presentation/widgets/rating_stars.dart';
-import 'package:edu_ia/features/payment/data/payment_store.dart';
+import 'package:edu_ia/features/payment/data/payment_methods_api.dart';
 import 'package:edu_ia/features/payment/domain/payment_method.dart';
-import 'package:edu_ia/features/profile/data/mock_addresses.dart';
+import 'package:edu_ia/features/profile/data/addresses_api.dart';
 import 'package:edu_ia/features/profile/domain/address.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -25,19 +25,60 @@ class CheckoutScreen extends StatefulWidget {
 }
 
 class _CheckoutScreenState extends State<CheckoutScreen> {
+  final _addressesApi = AddressesApi();
+  final _paymentApi = PaymentMethodsApi();
+
   String? _selectedPaymentId;
   String? _selectedAddressId;
 
-  final List<Address> _addresses = mockAddresses;
+  bool _loading = true;
+  String? _error;
+  List<Address> _addresses = const [];
+  List<PaymentMethod> _methods = const [];
 
   @override
   void initState() {
     super.initState();
-    if (_addresses.isNotEmpty) {
-      final favorite = _addresses.where((a) => a.isFavorite);
-      _selectedAddressId =
-          (favorite.isNotEmpty ? favorite.first : _addresses.first).id;
+    _load();
+  }
+
+  /// Carrega endereços e métodos de pagamento do backend em paralelo.
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final results = await Future.wait([
+        _addressesApi.list(),
+        _paymentApi.list(),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _addresses = results[0] as List<Address>;
+        _methods = results[1] as List<PaymentMethod>;
+        _selectedAddressId = _defaultAddressId(_addresses);
+        _loading = false;
+      });
+    } on AddressException catch (e) {
+      _onLoadError(e.message);
+    } on PaymentMethodException catch (e) {
+      _onLoadError(e.message);
     }
+  }
+
+  void _onLoadError(String message) {
+    if (!mounted) return;
+    setState(() {
+      _error = message;
+      _loading = false;
+    });
+  }
+
+  String? _defaultAddressId(List<Address> addresses) {
+    if (addresses.isEmpty) return null;
+    final favorite = addresses.where((a) => a.isFavorite);
+    return (favorite.isNotEmpty ? favorite.first : addresses.first).id;
   }
 
   Address? get _selectedAddress {
@@ -45,6 +86,29 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       if (a.id == _selectedAddressId) return a;
     }
     return null;
+  }
+
+  /// Abre o cadastro de endereço e recarrega ao voltar (o form retorna `true`
+  /// quando salva).
+  Future<void> _openAddressForm() async {
+    final saved = await Navigator.pushNamed(context, '/address-form');
+    if (saved == true) await _load();
+  }
+
+  /// Abre o cadastro de método de pagamento e recarrega ao voltar.
+  Future<void> _openPaymentForm() async {
+    final saved = await Navigator.pushNamed(context, '/add-payment-method');
+    if (saved == true) await _load();
+  }
+
+  Future<void> _setDefaultPayment(PaymentMethod method) async {
+    if (method.isDefault) return;
+    try {
+      await _paymentApi.setDefault(method.id);
+      await _load();
+    } on PaymentMethodException catch (e) {
+      if (mounted) _snack(e.message);
+    }
   }
 
   /// Id de pagamento efetivo: o selecionado pelo usuário se ainda existir,
@@ -82,96 +146,89 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             ),
           ),
         ),
-        body: Builder(
-          builder: (context) {
-            final cart = context.watch<CartStore>();
-            final methods = context.watch<PaymentStore>().methods;
-            final effectivePaymentId = _effectivePaymentId(methods);
-
-            return Column(
-              children: [
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Revisão do Carrinho',
-                          style: TextStyle(
-                            fontSize: 26,
-                            fontWeight: FontWeight.w800,
-                            color: AppColors.textPrimary,
-                            letterSpacing: -0.5,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        const Text(
-                          'Confirme os itens selecionados',
-                          style: TextStyle(
-                            fontSize: 15,
-                            color: AppColors.textSecondary,
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        _CartSection(cart: cart),
-                        const SizedBox(height: 32),
-                        const _SectionTitle('Endereço de Entrega'),
-                        const SizedBox(height: 16),
-                        _AddressSection(
-                          addresses: _addresses,
-                          selectedId: _selectedAddressId,
-                          onSelect: (id) =>
-                              setState(() => _selectedAddressId = id),
-                        ),
-                        const SizedBox(height: 32),
-                        const _SectionTitle('Método de Pagamento'),
-                        const SizedBox(height: 16),
-                        _PaymentSection(
-                          methods: methods,
-                          selectedId: effectivePaymentId,
-                          onSelect: (id) =>
-                              setState(() => _selectedPaymentId = id),
-                          onEdit: (id) => Navigator.pushNamed(
-                            context,
-                            '/add-payment-method',
-                            arguments: id,
-                          ),
-                          onDelete: _confirmDelete,
-                          onToggleDefault: (m) {
-                            if (!m.isDefault) {
-                              context.read<PaymentStore>().setDefault(m.id);
-                            }
-                          },
-                          onAdd: () => Navigator.pushNamed(
-                            context,
-                            '/add-payment-method',
-                          ),
-                        ),
-                        const SizedBox(height: 24),
-                      ],
-                    ),
-                  ),
-                ),
-                _BottomBar(
-                  total: cart.total,
-                  showTotal: !cart.isEmpty,
-                  enabled: _canFinalize(cart, effectivePaymentId),
-                  onFinalize: () =>
-                      _onFinalizePressed(cart, methods, effectivePaymentId),
-                ),
-              ],
-            );
-          },
-        ),
+        body: _body(),
       ),
     );
   }
 
-  bool _addressOk() => _addresses.isEmpty || _selectedAddressId != null;
+  Widget _body() {
+    if (_loading) {
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.purple),
+      );
+    }
+    if (_error != null) {
+      return _CheckoutErrorState(message: _error!, onRetry: _load);
+    }
+
+    final cart = context.watch<CartStore>();
+    final effectivePaymentId = _effectivePaymentId(_methods);
+
+    return Column(
+      children: [
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Revisão do Carrinho',
+                  style: TextStyle(
+                    fontSize: 26,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.textPrimary,
+                    letterSpacing: -0.5,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Confirme os itens selecionados',
+                  style: TextStyle(
+                    fontSize: 15,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                _CartSection(cart: cart),
+                const SizedBox(height: 32),
+                const _SectionTitle('Endereço de Entrega'),
+                const SizedBox(height: 16),
+                _AddressSection(
+                  addresses: _addresses,
+                  selectedId: _selectedAddressId,
+                  onSelect: (id) => setState(() => _selectedAddressId = id),
+                  onAdd: _openAddressForm,
+                ),
+                const SizedBox(height: 32),
+                const _SectionTitle('Método de Pagamento'),
+                const SizedBox(height: 16),
+                _PaymentSection(
+                  methods: _methods,
+                  selectedId: effectivePaymentId,
+                  onSelect: (id) => setState(() => _selectedPaymentId = id),
+                  onDelete: _confirmDelete,
+                  onToggleDefault: _setDefaultPayment,
+                  onAdd: _openPaymentForm,
+                ),
+                const SizedBox(height: 24),
+              ],
+            ),
+          ),
+        ),
+        _BottomBar(
+          total: cart.total,
+          showTotal: !cart.isEmpty,
+          enabled: _canFinalize(cart, effectivePaymentId),
+          onFinalize: () =>
+              _onFinalizePressed(cart, _methods, effectivePaymentId),
+        ),
+      ],
+    );
+  }
 
   bool _canFinalize(CartStore cart, String? paymentId) =>
-      !cart.isEmpty && paymentId != null && _addressOk();
+      !cart.isEmpty && paymentId != null && _selectedAddress != null;
 
   void _onFinalizePressed(
     CartStore cart,
@@ -353,8 +410,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           ),
           TextButton(
             onPressed: () {
-              context.read<PaymentStore>().delete(method.id);
               Navigator.pop(dialogContext);
+              _deletePayment(method);
             },
             child: const Text(
               'Remover',
@@ -364,6 +421,15 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _deletePayment(PaymentMethod method) async {
+    try {
+      await _paymentApi.delete(method.id);
+      await _load();
+    } on PaymentMethodException catch (e) {
+      if (mounted) _snack(e.message);
+    }
   }
 
   void _snack(String message) {
@@ -712,19 +778,22 @@ class _AddressSection extends StatelessWidget {
   final List<Address> addresses;
   final String? selectedId;
   final ValueChanged<String> onSelect;
+  final VoidCallback onAdd;
 
   const _AddressSection({
     required this.addresses,
     required this.selectedId,
     required this.onSelect,
+    required this.onAdd,
   });
 
   @override
   Widget build(BuildContext context) {
     if (addresses.isEmpty) {
-      return const Text(
-        'Você ainda não cadastrou nenhum endereço. Cadastre em Perfil > Endereços.',
-        style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
+      return _EmptyCadastro(
+        icon: Icons.location_off_outlined,
+        message: 'Sem endereço cadastrado.',
+        onAdd: onAdd,
       );
     }
     return Column(
@@ -750,7 +819,6 @@ class _PaymentSection extends StatelessWidget {
   final List<PaymentMethod> methods;
   final String? selectedId;
   final ValueChanged<String> onSelect;
-  final ValueChanged<String> onEdit;
   final ValueChanged<PaymentMethod> onDelete;
   final ValueChanged<PaymentMethod> onToggleDefault;
   final VoidCallback onAdd;
@@ -759,7 +827,6 @@ class _PaymentSection extends StatelessWidget {
     required this.methods,
     required this.selectedId,
     required this.onSelect,
-    required this.onEdit,
     required this.onDelete,
     required this.onToggleDefault,
     required this.onAdd,
@@ -767,31 +834,25 @@ class _PaymentSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (methods.isEmpty) {
+      return _EmptyCadastro(
+        icon: Icons.credit_card_off_outlined,
+        message: 'Sem método de pagamento cadastrado.',
+        onAdd: onAdd,
+      );
+    }
     return Column(
       children: [
-        if (methods.isEmpty)
-          const Align(
-            alignment: Alignment.centerLeft,
-            child: Padding(
-              padding: EdgeInsets.only(bottom: 12),
-              child: Text(
-                'Você ainda não cadastrou nenhum método de pagamento.',
-                style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
-              ),
-            ),
-          )
-        else
-          for (var i = 0; i < methods.length; i++) ...[
-            if (i > 0) const SizedBox(height: 12),
-            _PaymentMethodCard(
-              method: methods[i],
-              selected: selectedId == methods[i].id,
-              onTap: () => onSelect(methods[i].id),
-              onEdit: () => onEdit(methods[i].id),
-              onDelete: () => onDelete(methods[i]),
-              onToggleDefault: () => onToggleDefault(methods[i]),
-            ),
-          ],
+        for (var i = 0; i < methods.length; i++) ...[
+          if (i > 0) const SizedBox(height: 12),
+          _PaymentMethodCard(
+            method: methods[i],
+            selected: selectedId == methods[i].id,
+            onTap: () => onSelect(methods[i].id),
+            onDelete: () => onDelete(methods[i]),
+            onToggleDefault: () => onToggleDefault(methods[i]),
+          ),
+        ],
         const SizedBox(height: 12),
         _AddPaymentButton(onTap: onAdd),
       ],
@@ -803,7 +864,6 @@ class _PaymentMethodCard extends StatelessWidget {
   final PaymentMethod method;
   final bool selected;
   final VoidCallback onTap;
-  final VoidCallback onEdit;
   final VoidCallback onDelete;
   final VoidCallback onToggleDefault;
 
@@ -811,7 +871,6 @@ class _PaymentMethodCard extends StatelessWidget {
     required this.method,
     required this.selected,
     required this.onTap,
-    required this.onEdit,
     required this.onDelete,
     required this.onToggleDefault,
   });
@@ -938,12 +997,6 @@ class _PaymentMethodCard extends StatelessWidget {
                       : AppColors.textSecondary,
                   tooltip: 'Definir como padrão',
                   onTap: onToggleDefault,
-                ),
-                _ActionIcon(
-                  icon: Icons.edit_outlined,
-                  color: AppColors.textSecondary,
-                  tooltip: 'Editar',
-                  onTap: onEdit,
                 ),
                 _ActionIcon(
                   icon: Icons.delete_outline,
@@ -1097,6 +1150,103 @@ class _SelectableCard extends StatelessWidget {
                   color: AppColors.white,
                 ),
               ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Estado vazio de endereço/pagamento: mensagem "Sem ... cadastrado." + ação
+/// "Adicionar" que leva direto à tela de cadastro correspondente.
+class _EmptyCadastro extends StatelessWidget {
+  final IconData icon;
+  final String message;
+  final VoidCallback onAdd;
+
+  const _EmptyCadastro({
+    required this.icon,
+    required this.message,
+    required this.onAdd,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onAdd,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.inputFill,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: AppColors.textSecondary),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text.rich(
+                TextSpan(
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: AppColors.textSecondary,
+                  ),
+                  children: [
+                    TextSpan(text: '$message '),
+                    const TextSpan(
+                      text: 'Adicionar',
+                      style: TextStyle(
+                        color: AppColors.purple,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const Icon(
+              Icons.chevron_right,
+              color: AppColors.purple,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Estado de erro de carregamento do checkout com ação de "Tentar novamente".
+class _CheckoutErrorState extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+
+  const _CheckoutErrorState({required this.message, required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.cloud_off, size: 40, color: AppColors.textSecondary),
+            const SizedBox(height: 12),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 14, color: AppColors.textPrimary),
+            ),
+            const SizedBox(height: 16),
+            OutlinedButton(
+              onPressed: onRetry,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.purple,
+                side: const BorderSide(color: AppColors.purple),
+              ),
+              child: const Text('Tentar novamente'),
+            ),
           ],
         ),
       ),
