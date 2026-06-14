@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../../../core/network/api_config.dart';
+import '../../../core/network/app_http.dart';
 import '../../../core/network/token_store.dart';
 import '../domain/support_message.dart';
 
@@ -23,7 +24,7 @@ class SupportException implements Exception {
 /// autenticado. O envio aceita `200` e `201` como sucesso.
 class SupportService {
   SupportService({http.Client? client, TokenStore? tokenStore})
-    : _client = client ?? http.Client(),
+    : _client = client ?? appAuthClient,
       _tokenStore = tokenStore ?? TokenStore();
 
   final http.Client _client;

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../../../core/network/api_config.dart';
+import '../../../core/network/app_http.dart';
 import '../../../core/network/token_store.dart';
 import '../domain/product.dart';
 
@@ -17,7 +18,7 @@ class ProductException implements Exception {
 /// Cliente HTTP do catálogo (`GET /products`, `GET /products/{id}/reviews`).
 class ProductService {
   ProductService({http.Client? client, TokenStore? tokenStore})
-    : _client = client ?? http.Client(),
+    : _client = client ?? appAuthClient,
       _tokenStore = tokenStore ?? TokenStore();
 
   final http.Client _client;

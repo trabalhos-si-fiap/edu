@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../../../core/network/api_config.dart';
+import '../../../core/network/app_http.dart';
 import '../../../core/network/token_store.dart';
 import '../../marketplace/domain/product.dart';
 import '../domain/cart_item.dart';
@@ -19,7 +20,7 @@ class CartException implements Exception {
 /// carrinho completo como o servidor o vê, mapeado para [CartItem].
 class CartService {
   CartService({http.Client? client, TokenStore? tokenStore})
-    : _client = client ?? http.Client(),
+    : _client = client ?? appAuthClient,
       _tokenStore = tokenStore ?? TokenStore();
 
   final http.Client _client;

@@ -13,6 +13,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'core/network/app_http.dart';
 import 'core/theme/app_theme.dart';
 import 'features/cart/data/cart_store.dart';
 import 'features/payment/data/payment_store.dart';
@@ -66,6 +67,7 @@ class _MyAppState extends State<MyApp> {
       ],
       child: MaterialApp(
         title: 'Edu IA',
+        navigatorKey: rootNavigatorKey,
         debugShowCheckedModeBanner: false,
         theme: AppTheme.light,
         initialRoute: '/login',

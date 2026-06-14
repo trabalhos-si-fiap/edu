@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../../../core/network/api_config.dart';
+import '../../../core/network/app_http.dart';
 import '../../../core/network/token_store.dart';
 import '../domain/order_model.dart';
 
@@ -28,7 +29,7 @@ class OrderService {
     http.Client? client,
     TokenStore? tokenStore,
     this.useMock = false,
-  }) : _client = client ?? http.Client(),
+  }) : _client = client ?? appAuthClient,
        _tokenStore = tokenStore ?? TokenStore();
 
   final http.Client _client;
