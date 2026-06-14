@@ -102,6 +102,71 @@ class AuthApi {
     await _persistAuth(jsonDecode(res.body) as Map<String, dynamic>);
   }
 
+  /// Requests a password reset code via `POST /auth/password-reset/request`.
+  ///
+  /// The backend always responds 200 (anti-enumeration), so a successful
+  /// return reveals nothing about whether the email exists.
+  Future<void> requestPasswordReset({required String email}) async {
+    final http.Response res;
+    try {
+      res = await _client.post(
+        Uri.parse('${ApiConfig.baseUrl}/auth/password-reset/request'),
+        headers: const {'Content-Type': 'application/json'},
+        body: jsonEncode({'email': email}),
+      );
+    } on Exception {
+      throw AuthException('Não foi possível conectar ao servidor');
+    }
+
+    if (res.statusCode == 429) {
+      throw AuthException('Muitas tentativas. Tente novamente mais tarde');
+    }
+    if (res.statusCode == 422) {
+      throw AuthException('Verifique os dados informados');
+    }
+    if (res.statusCode != 200) {
+      throw AuthException(
+        'Falha ao solicitar o código (código ${res.statusCode})',
+      );
+    }
+  }
+
+  /// Confirms a reset code and sets a new password via
+  /// `POST /auth/password-reset/confirm`. The backend returns a generic 400 for
+  /// any verification failure (wrong/expired/locked code, unknown email).
+  Future<void> confirmPasswordReset({
+    required String email,
+    required String code,
+    required String newPassword,
+  }) async {
+    final http.Response res;
+    try {
+      res = await _client.post(
+        Uri.parse('${ApiConfig.baseUrl}/auth/password-reset/confirm'),
+        headers: const {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'email': email,
+          'code': code,
+          'new_password': newPassword,
+        }),
+      );
+    } on Exception {
+      throw AuthException('Não foi possível conectar ao servidor');
+    }
+
+    if (res.statusCode == 400) {
+      throw AuthException('Código inválido ou expirado');
+    }
+    if (res.statusCode == 422) {
+      throw AuthException('Verifique os dados informados');
+    }
+    if (res.statusCode != 200) {
+      throw AuthException(
+        'Falha ao redefinir a senha (código ${res.statusCode})',
+      );
+    }
+  }
+
   /// Saves the JWT pair and caches the user's display name from an
   /// `AuthResponse` body (`{user, tokens}`).
   Future<void> _persistAuth(Map<String, dynamic> body) async {
