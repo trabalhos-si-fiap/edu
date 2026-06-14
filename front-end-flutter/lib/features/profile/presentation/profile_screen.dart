@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../auth/data/auth_api.dart';
+import '../../cart/data/cart_store.dart';
 import '../../components/nav_bar.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -92,6 +94,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   _SettingsItem(Icons.verified_user_outlined, 'Privacy Policy'),
                 ],
                 trailing: _LogoutTile(onTap: () {
+                  context.read<CartStore>().reset();
                   Navigator.pushNamedAndRemoveUntil(
                     context,
                     '/login',
