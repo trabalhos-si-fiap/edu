@@ -24,3 +24,7 @@ class RateLimitExceeded(AuthError):
     def __init__(self, retry_after: int) -> None:
         super().__init__(f"Too many attempts, retry after {retry_after}s")
         self.retry_after = retry_after
+
+
+class InvalidResetCode(AuthError):
+    """Password reset code was missing, expired, wrong, or attempts were exhausted."""
