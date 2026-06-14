@@ -22,6 +22,8 @@ import 'features/auth/presentation/logistics_login_screen.dart';
 import 'features/logistics/presentation/logistics_dashboard_screen.dart';
 import 'features/logistics/presentation/order_picking_screen.dart';
 import 'features/auth/presentation/register_screen.dart';
+import 'features/auth/presentation/forgot_password_screen.dart';
+import 'features/auth/presentation/reset_password_screen.dart';
 import 'features/home/presentation/home_screen.dart';
 import 'features/profile/presentation/profile_screen.dart';
 import 'features/profile/presentation/addresses_screen.dart';
@@ -70,6 +72,8 @@ class _MyAppState extends State<MyApp> {
           '/logistics-dashboard': (_) => const LogisticsDashboardScreen(),
           '/logistics-picking': (_) => const OrderPickingScreen(),
           '/register': (_) => const RegisterScreen(),
+          '/forgot-password': (_) => ForgotPasswordScreen(),
+          '/reset-password': (_) => ResetPasswordScreen(),
           '/home': (_) => const HomeScreen(),
           '/profile': (_) => const ProfileScreen(),
           '/addresses': (_) => const AddressesScreen(),
