@@ -37,7 +37,7 @@ class ProductDetailScreen extends StatelessWidget {
         ),
         body: product == null
             ? const _ProductError()
-            : _ProductContent(product: product),
+            : ProductDetailView(product: product),
         bottomNavigationBar: product == null
             ? null
             : _AddToCartBar(product: product),
@@ -46,22 +46,25 @@ class ProductDetailScreen extends StatelessWidget {
   }
 }
 
-class _ProductContent extends StatefulWidget {
+/// UI testável do detalhe do produto; `service` pode ser injetado em testes.
+class ProductDetailView extends StatefulWidget {
   final Product product;
+  final ProductService? service;
 
-  const _ProductContent({required this.product});
+  const ProductDetailView({super.key, required this.product, this.service});
 
   @override
-  State<_ProductContent> createState() => _ProductContentState();
+  State<ProductDetailView> createState() => _ProductDetailViewState();
 }
 
-class _ProductContentState extends State<_ProductContent> {
+class _ProductDetailViewState extends State<ProductDetailView> {
   late final Future<List<Review>> _reviewsFuture;
 
   @override
   void initState() {
     super.initState();
-    _reviewsFuture = ProductService().fetchReviews(widget.product.id);
+    _reviewsFuture =
+        (widget.service ?? ProductService()).fetchReviews(widget.product.id);
   }
 
   @override
