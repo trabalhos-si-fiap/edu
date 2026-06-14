@@ -194,17 +194,32 @@ async def seed_products(session: AsyncSession, *, storage: "ObjectStorage | None
     """Insert any missing catalog products (and their sample reviews).
 
     Returns the number of products inserted. Existing products (matched by
-    name) are left untouched, so this is safe to run repeatedly.
+    name) are not re-inserted, so this is safe to run repeatedly.
 
     When storage is provided, a deterministic solid-color PNG placeholder is
     generated and uploaded for each newly inserted product, and image_url is
-    set to the resulting object key.
+    set to the resulting object key. Existing products whose image_url is still
+    empty (e.g. seeded before the storage wiring) are backfilled the same way;
+    products that already have an image are never overwritten.
     """
-    existing_names = set((await session.execute(select(Product.name))).scalars().all())
+    existing = {p.name: p for p in (await session.execute(select(Product))).scalars().all()}
+
+    def _seed_image(index: int) -> tuple[str, tuple[int, int, int]]:
+        key = f"products/seed-{index}.png"
+        color = ((index * 53) % 256, (index * 97) % 256, (index * 151) % 256)
+        return key, color
 
     inserted = 0
     for index, data in enumerate(SEED_PRODUCTS):
-        if data["name"] in existing_names:
+        if data["name"] in existing:
+            # Already present (matched by name) — backfill a placeholder image
+            # for rows that predate the storage wiring, but never overwrite an
+            # image that's already set. Keeps the seed safe to re-run.
+            current = existing[data["name"]]
+            if storage is not None and not current.image_url:
+                key, color = _seed_image(index)
+                await storage.put_object(key, _solid_png(400, 400, color), "image/png")
+                current.image_url = key
             continue
         product = Product(
             name=data["name"],
@@ -226,8 +241,7 @@ async def seed_products(session: AsyncSession, *, storage: "ObjectStorage | None
                 )
             )
         if storage is not None:
-            key = f"products/seed-{index}.png"
-            color = ((index * 53) % 256, (index * 97) % 256, (index * 151) % 256)
+            key, color = _seed_image(index)
             await storage.put_object(key, _solid_png(400, 400, color), "image/png")
             product.image_url = key
         session.add(product)

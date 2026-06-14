@@ -74,3 +74,36 @@ async def test_seed_uploads_image_and_sets_key_when_storage_given(
         await db_session.execute(select(Product).where(Product.name == SEED_PRODUCTS[0]["name"]))
     ).scalar_one()
     assert product.image_url.startswith("products/seed-")
+
+
+async def test_seed_backfills_images_for_existing_products_without_one(
+    db_session: AsyncSession,
+) -> None:
+    # Products inserted before the storage wiring have an empty image_url.
+    # Re-running with storage must backfill them instead of skipping (the
+    # idempotent name match must not leave them imageless forever).
+    await seed_products(db_session)
+    product = (
+        await db_session.execute(select(Product).where(Product.name == SEED_PRODUCTS[0]["name"]))
+    ).scalar_one()
+    assert product.image_url == ""
+
+    storage = _RecordingStorage()
+    inserted = await seed_products(db_session, storage=storage)
+    assert inserted == 0  # nothing new inserted
+    assert len(storage.puts) == len(SEED_PRODUCTS)  # but every product got an image
+
+    await db_session.refresh(product)
+    assert product.image_url.startswith("products/seed-")
+
+
+async def test_seed_does_not_overwrite_existing_images(
+    db_session: AsyncSession,
+) -> None:
+    storage = _RecordingStorage()
+    await seed_products(db_session, storage=storage)
+
+    # A second run with storage must not re-upload images that already exist.
+    storage2 = _RecordingStorage()
+    await seed_products(db_session, storage=storage2)
+    assert storage2.puts == []
