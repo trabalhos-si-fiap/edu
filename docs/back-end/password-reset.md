@@ -70,6 +70,12 @@ Padrão **Ports & Adapters**: o domínio depende de uma abstração (`EmailSende
 - **`ResendEmailAdapter`** — `POST https://api.resend.com/emails` via `httpx`, header `Authorization: Bearer <key>`. Levanta `EmailDeliveryError` em status ≥ 400. Aceita um `httpx.AsyncClient` injetado (testes usam `httpx.MockTransport`).
 - **`get_email_sender()`** — factory; **único** ponto que lê `EMAIL_BACKEND`/`RESEND_API_KEY`/`EMAIL_FROM`.
 
+### Provedor escolhido: Resend (free tier)
+
+O provedor de envio é o **[Resend](https://resend.com)**, rodando no **free tier** — suficiente para o contexto acadêmico/demo deste projeto e com DX enxuta (API HTTP simples + verificação de domínio via DNS). Os limites do plano gratuito (ex.: cota mensal de e-mails, número de domínios verificados) devem ser conferidos no painel da Resend, pois variam com o tempo.
+
+Como o domínio depende apenas da porta `EmailSender`, a escolha do Resend é um **detalhe de infraestrutura trocável**: migrar para outro provedor (SES, Postmark, etc.) é escrever um novo adapter e mudar `EMAIL_BACKEND`, sem tocar no código de domínio. O domínio de envio verificado em produção é `svemlab.com` (DNS na Cloudflare); em dev/teste usa-se o `ConsoleEmailAdapter`, que não envia nada real.
+
 ---
 
 ## 4. Fluxo OTP
