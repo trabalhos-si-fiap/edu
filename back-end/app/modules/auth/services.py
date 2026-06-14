@@ -118,9 +118,7 @@ async def _get_user_by_email(session: AsyncSession, email: str) -> User | None:
     return (await session.execute(stmt)).scalar_one_or_none()
 
 
-async def request_password_reset(
-    session: AsyncSession, redis: aioredis.Redis, email: str
-) -> None:
+async def request_password_reset(session: AsyncSession, redis: aioredis.Redis, email: str) -> None:
     """Generate and dispatch a reset code. Silent no-op if the email is unknown
     (anti-enumeration: the route always responds 200 regardless)."""
     user = await _get_user_by_email(session, email)
