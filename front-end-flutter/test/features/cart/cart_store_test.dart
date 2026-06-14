@@ -113,4 +113,24 @@ void main() {
     expect(cart.isEmpty, isTrue);
     expect(service.calls, isEmpty);
   });
+
+  test('successful write keeps optimistic state (does not adopt server response)',
+      () async {
+    // serverItems is empty — a divergent snapshot from what the optimistic
+    // mutation produces. If _sync adopted the server response on success, the
+    // cart would become empty after the write.
+    final service = _FakeCartService()
+      ..serverItems = []
+      ..failMutations = false;
+    final cart = CartStore(service: service);
+
+    cart.add(_p('a'));
+    expect(cart.totalQuantity, 1); // optimistic state
+
+    await pumpEventQueue(); // let _sync complete
+
+    // Must still reflect optimistic state, NOT the empty serverItems snapshot.
+    expect(cart.totalQuantity, 1);
+    expect(cart.items, hasLength(1));
+  });
 }

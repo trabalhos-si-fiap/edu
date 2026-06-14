@@ -17,8 +17,11 @@ class CartStore extends ChangeNotifier {
   final List<CartItem> _items = [];
   bool _loaded = false;
 
-  bool isLoading = false;
-  String? errorMessage;
+  bool _isLoading = false;
+  String? _errorMessage;
+
+  bool get isLoading => _isLoading;
+  String? get errorMessage => _errorMessage;
 
   List<CartItem> get items => List.unmodifiable(_items);
   bool get isEmpty => _items.isEmpty;
@@ -32,7 +35,7 @@ class CartStore extends ChangeNotifier {
   /// recarregar (ex.: ressincronização após falha de escrita).
   Future<void> load({bool force = false}) async {
     if (_loaded && !force) return;
-    isLoading = true;
+    _isLoading = true;
     notifyListeners();
     try {
       final items = await _service.fetch();
@@ -40,11 +43,11 @@ class CartStore extends ChangeNotifier {
         ..clear()
         ..addAll(items);
       _loaded = true;
-      errorMessage = null;
+      _errorMessage = null;
     } on CartException catch (e) {
-      errorMessage = e.message;
+      _errorMessage = e.message;
     } finally {
-      isLoading = false;
+      _isLoading = false;
       notifyListeners();
     }
   }
@@ -95,7 +98,7 @@ class CartStore extends ChangeNotifier {
   void reset() {
     _items.clear();
     _loaded = false;
-    errorMessage = null;
+    _errorMessage = null;
     notifyListeners();
   }
 
@@ -105,10 +108,10 @@ class CartStore extends ChangeNotifier {
   Future<void> _sync(Future<List<CartItem>> Function() op) async {
     try {
       await op();
-      errorMessage = null;
+      _errorMessage = null;
     } on CartException catch (e) {
       await load(force: true);
-      errorMessage = e.message;
+      _errorMessage = e.message;
       notifyListeners();
     }
   }
