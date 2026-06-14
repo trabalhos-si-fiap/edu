@@ -8,12 +8,26 @@ from app.modules.auth.models import User
 
 
 def test_user_admin_hides_password_hash():
+    # Hidden in the list, the detail page, AND the form — a leak on any of the
+    # three would expose the bcrypt hash to anyone with a session.
     assert "password_hash" not in views.UserAdmin.column_list
+    assert "password_hash" not in views.UserAdmin().get_details_columns()
     assert "password_hash" in views.UserAdmin.form_excluded_columns
 
 
 def test_device_token_admin_hides_token_value():
     assert "token" not in views.DeviceTokenAdmin.column_list
+    assert "token" not in views.DeviceTokenAdmin().get_details_columns()
+    assert "token" in views.DeviceTokenAdmin.form_excluded_columns
+
+
+def test_payment_method_admin_hides_pii():
+    # pix_key / cardholder_name / card_expiry are PII — never in detail or form.
+    details = views.PaymentMethodAdmin().get_details_columns()
+    for field in ("pix_key", "cardholder_name", "card_expiry"):
+        assert field not in views.PaymentMethodAdmin.column_list
+        assert field not in details
+        assert field in views.PaymentMethodAdmin.form_excluded_columns
 
 
 async def test_user_form_has_virtual_password_field():

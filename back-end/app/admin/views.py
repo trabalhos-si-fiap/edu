@@ -31,7 +31,8 @@ class UserAdmin(ModelView, model=User):
     ]
     column_searchable_list: ClassVar[list[str]] = ["name", "email"]
     column_sortable_list: ClassVar[list[str]] = ["name", "email", "created_at"]
-    # password_hash NUNCA é renderizado nem editável diretamente.
+    # password_hash NUNCA é renderizado (lista nem detalhe) nem editável.
+    column_details_exclude_list: ClassVar[list[str]] = ["password_hash"]
     form_excluded_columns: ClassVar[list[str]] = ["password_hash", "created_at", "updated_at"]
 
     async def scaffold_form(self, rules=None):
@@ -127,8 +128,8 @@ class CartItemAdmin(ModelView, model=CartItem):
 class PaymentMethodAdmin(ModelView, model=PaymentMethod):
     name = "Forma de pagamento"
     name_plural = "Formas de pagamento"
-    # Só dados mascarados de cartão. pix_key (PII) e cardholder_name ficam de
-    # fora da listagem de propósito — não reexpor sem justificativa.
+    # Só dados mascarados de cartão. pix_key (PII), cardholder_name e card_expiry
+    # ficam fora da lista, do detalhe E do form — não reexpor sem justificativa.
     column_list: ClassVar[list[str]] = [
         "id",
         "user_id",
@@ -139,14 +140,19 @@ class PaymentMethodAdmin(ModelView, model=PaymentMethod):
         "created_at",
     ]
     column_sortable_list: ClassVar[list[str]] = ["type", "created_at"]
+    _sensitive: ClassVar[list[str]] = ["pix_key", "cardholder_name", "card_expiry"]
+    column_details_exclude_list: ClassVar[list[str]] = _sensitive
+    form_excluded_columns: ClassVar[list[str]] = _sensitive
 
 
 class DeviceTokenAdmin(ModelView, model=DeviceToken):
     name = "Token de dispositivo"
     name_plural = "Tokens de dispositivo"
-    # O valor do token é sensível — exibimos só metadados, nunca o token.
+    # O valor do token é sensível — só metadados, nunca o token (lista, detalhe ou form).
     column_list: ClassVar[list[str]] = ["id", "user_id", "platform", "created_at", "updated_at"]
     column_sortable_list: ClassVar[list[str]] = ["platform", "created_at"]
+    column_details_exclude_list: ClassVar[list[str]] = ["token"]
+    form_excluded_columns: ClassVar[list[str]] = ["token"]
 
 
 class NotificationAdmin(ModelView, model=Notification):
