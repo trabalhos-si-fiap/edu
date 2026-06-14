@@ -41,6 +41,6 @@ def credit_card(**overrides: object) -> dict[str, object]:
 
 
 def pix(**overrides: object) -> dict[str, object]:
-    base: dict[str, object] = {"type": "pix", "pix_key": "maria@example.com"}
+    base: dict[str, object] = {"type": "pix"}
     base.update(overrides)
     return base

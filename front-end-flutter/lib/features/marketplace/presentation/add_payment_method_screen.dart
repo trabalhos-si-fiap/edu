@@ -1,13 +1,13 @@
 import 'package:edu_ia/core/theme/app_colors.dart';
-import 'package:edu_ia/features/payment/data/payment_store.dart';
+import 'package:edu_ia/features/payment/data/payment_methods_api.dart';
 import 'package:edu_ia/features/payment/domain/payment_method.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:provider/provider.dart';
 
-/// Adiciona ou edita um método de pagamento. Portado de edu-kt
-/// `AddPaymentMethodScreen`. O id do método a editar chega via route arguments
-/// (String); ausente significa criação.
+/// Cadastra um método de pagamento. Portado de edu-kt `AddPaymentMethodScreen`.
+/// Persiste em `POST /payment-methods` e retorna `true` ao chamador (checkout)
+/// para que ele recarregue a lista. O backend não suporta editar campos de um
+/// método existente — apenas criar, definir padrão e remover.
 class AddPaymentMethodScreen extends StatefulWidget {
   const AddPaymentMethodScreen({super.key});
 
@@ -18,6 +18,8 @@ class AddPaymentMethodScreen extends StatefulWidget {
 enum _PaymentType { creditCard, pix, boleto }
 
 class _AddPaymentMethodScreenState extends State<AddPaymentMethodScreen> {
+  final _api = PaymentMethodsApi();
+
   _PaymentType _selected = _PaymentType.creditCard;
 
   final _cardNumberController = TextEditingController();
@@ -27,32 +29,7 @@ class _AddPaymentMethodScreenState extends State<AddPaymentMethodScreen> {
   final _taxIdController = TextEditingController();
 
   bool _saveAsDefault = false;
-
-  String? _editingId;
-  String? _existingLast4;
-  String? _existingBrand;
-  bool _prefilled = false;
-
-  bool get _isEditing => _editingId != null;
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (_prefilled) return;
-    _prefilled = true;
-    final id = ModalRoute.of(context)?.settings.arguments as String?;
-    if (id == null) return;
-    final existing = context.read<PaymentStore>().byId(id);
-    if (existing == null) return;
-    _editingId = id;
-    _selected = _typeToUi(existing.type);
-    _cardNameController.text = existing.cardholderName ?? '';
-    _expiryController.text = _formatExpiry(existing.cardExpiry ?? '');
-    _taxIdController.text = _formatTaxId(existing.cardholderTaxId ?? '');
-    _saveAsDefault = existing.isDefault;
-    _existingLast4 = existing.cardLast4;
-    _existingBrand = existing.cardBrand;
-  }
+  bool _saving = false;
 
   @override
   void dispose() {
@@ -64,76 +41,84 @@ class _AddPaymentMethodScreenState extends State<AddPaymentMethodScreen> {
     super.dispose();
   }
 
-  void _submit() {
-    final error = _selected == _PaymentType.creditCard ? _validateCard() : null;
+  Future<void> _submit() async {
+    if (_saving) return;
+    final error = _validate();
     if (error != null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error)));
+      _snack(error);
       return;
     }
 
-    final method = _buildMethod();
-    final paymentStore = context.read<PaymentStore>();
-    if (_isEditing) {
-      paymentStore.update(method, makeDefault: _saveAsDefault);
-    } else {
-      paymentStore.add(method, makeDefault: _saveAsDefault);
+    setState(() => _saving = true);
+    try {
+      await _api.create(_buildInput());
+    } on PaymentMethodException catch (e) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      _snack(e.message);
+      return;
     }
 
-    Navigator.pop(context);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          _isEditing ? 'Método atualizado' : 'Método de pagamento adicionado',
-        ),
-      ),
-    );
+    if (!mounted) return;
+    Navigator.pop(context, true);
+    _snack('Método de pagamento adicionado');
   }
 
-  PaymentMethod _buildMethod() {
-    final id = _editingId ?? '';
+  PaymentMethodInput _buildInput() {
     switch (_selected) {
       case _PaymentType.creditCard:
         final digits = _cardNumberController.text.replaceAll(' ', '');
-        final last4 = digits.isNotEmpty
-            ? digits.substring(digits.length - 4)
-            : _existingLast4;
-        final brand = digits.isNotEmpty
-            ? brandFromNumber(digits)
-            : _existingBrand;
-        return PaymentMethod(
-          id: id,
+        return PaymentMethodInput(
           type: PaymentMethodType.creditCard,
-          cardLast4: last4,
-          cardBrand: brand,
-          cardholderName: _cardNameController.text,
+          isDefault: _saveAsDefault,
+          cardLast4: digits.substring(digits.length - 4),
+          cardBrand: brandFromNumber(digits),
+          cardholderName: _cardNameController.text.trim(),
           cardExpiry: _expiryController.text.replaceAll('/', ''),
-          cardholderTaxId: _taxIdController.text.replaceAll(RegExp(r'\D'), ''),
         );
       case _PaymentType.pix:
-        return PaymentMethod(id: id, type: PaymentMethodType.pix);
+        return PaymentMethodInput(
+          type: PaymentMethodType.pix,
+          isDefault: _saveAsDefault,
+        );
       case _PaymentType.boleto:
-        return PaymentMethod(id: id, type: PaymentMethodType.boleto);
+        return PaymentMethodInput(
+          type: PaymentMethodType.boleto,
+          isDefault: _saveAsDefault,
+        );
     }
   }
 
-  /// Validação portada de `validateCreditCardForm` do edu-kt.
+  String? _validate() {
+    switch (_selected) {
+      case _PaymentType.creditCard:
+        return _validateCard();
+      case _PaymentType.pix:
+      case _PaymentType.boleto:
+        return null;
+    }
+  }
+
+  /// Validação portada de `validateCreditCardForm` do edu-kt. O número completo
+  /// e o CVV são validados localmente e nunca enviados ao backend (apenas os
+  /// últimos 4 dígitos e a bandeira persistem).
   String? _validateCard() {
     final numberDigits = _cardNumberController.text.replaceAll(' ', '');
-    final numberProvided = numberDigits.isNotEmpty;
-    // Ao editar, o número pode ficar em branco (mantém o cartão atual).
-    if (!_isEditing || numberProvided) {
-      if (numberDigits.length < 13 || numberDigits.length > 19) {
-        return 'Número de cartão inválido';
-      }
-      if (_cvvController.text.length < 3) return 'CVV inválido';
+    if (numberDigits.length < 13 || numberDigits.length > 19) {
+      return 'Número de cartão inválido';
     }
+    if (_cvvController.text.length < 3) return 'CVV inválido';
     if (_cardNameController.text.trim().isEmpty) return 'Informe o nome';
     if (!_isValidExpiry(_expiryController.text)) return 'Validade inválida';
     final tax = _taxIdController.text.replaceAll(RegExp(r'\D'), '');
     if (tax.length != 11 && tax.length != 14) return 'CPF/CNPJ inválido';
     return null;
+  }
+
+  void _snack(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   bool _isValidExpiry(String text) {
@@ -157,9 +142,9 @@ class _AddPaymentMethodScreenState extends State<AddPaymentMethodScreen> {
             icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
           ),
           centerTitle: true,
-          title: Text(
-            _isEditing ? 'Editar Método' : 'Adicionar Método',
-            style: const TextStyle(
+          title: const Text(
+            'Adicionar Método',
+            style: TextStyle(
               color: AppColors.textPrimary,
               fontSize: 18,
               fontWeight: FontWeight.w800,
@@ -198,23 +183,38 @@ class _AddPaymentMethodScreenState extends State<AddPaymentMethodScreen> {
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed: _submit,
+                    onPressed: _saving ? null : _submit,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.purple,
                       foregroundColor: AppColors.white,
+                      disabledBackgroundColor: AppColors.purple.withValues(
+                        alpha: 0.4,
+                      ),
+                      disabledForegroundColor: AppColors.white.withValues(
+                        alpha: 0.8,
+                      ),
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       elevation: 0,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
                     ),
-                    child: Text(
-                      _isEditing ? 'Salvar alterações' : 'Salvar método',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
+                    child: _saving
+                        ? const SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: AppColors.white,
+                            ),
+                          )
+                        : const Text(
+                            'Salvar método',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -246,16 +246,6 @@ class _AddPaymentMethodScreenState extends State<AddPaymentMethodScreen> {
 
   List<Widget> _cardFields() {
     return [
-      if (_isEditing && _existingLast4 != null) ...[
-        _InfoBox(
-          background: AppColors.inputFill,
-          contentColor: AppColors.textSecondary,
-          icon: Icons.credit_card,
-          message:
-              'Cartão atual final $_existingLast4. Informe um novo número apenas se quiser substituir.',
-        ),
-        const SizedBox(height: 12),
-      ],
       _LabeledField(
         label: 'Número do cartão',
         child: TextField(
@@ -373,27 +363,6 @@ class _AddPaymentMethodScreenState extends State<AddPaymentMethodScreen> {
       ),
     );
   }
-}
-
-// ---------------------------------------------------------------------------
-// Formatação de prefill (MMYY -> MM/AA, dígitos -> CPF/CNPJ).
-// ---------------------------------------------------------------------------
-
-String _formatExpiry(String mmYY) {
-  if (mmYY.length != 4) return mmYY;
-  return '${mmYY.substring(0, 2)}/${mmYY.substring(2)}';
-}
-
-String _formatTaxId(String digits) {
-  if (digits.length == 11) {
-    return '${digits.substring(0, 3)}.${digits.substring(3, 6)}.'
-        '${digits.substring(6, 9)}-${digits.substring(9)}';
-  }
-  if (digits.length == 14) {
-    return '${digits.substring(0, 2)}.${digits.substring(2, 5)}.'
-        '${digits.substring(5, 8)}/${digits.substring(8, 12)}-${digits.substring(12)}';
-  }
-  return digits;
 }
 
 class _TypeSelector extends StatelessWidget {
@@ -648,16 +617,5 @@ class _TaxIdFormatter extends TextInputFormatter {
       text: text,
       selection: TextSelection.collapsed(offset: text.length),
     );
-  }
-}
-
-_PaymentType _typeToUi(PaymentMethodType type) {
-  switch (type) {
-    case PaymentMethodType.creditCard:
-      return _PaymentType.creditCard;
-    case PaymentMethodType.pix:
-      return _PaymentType.pix;
-    case PaymentMethodType.boleto:
-      return _PaymentType.boleto;
   }
 }

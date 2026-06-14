@@ -69,20 +69,15 @@ class TestCreate:
         )
         assert r.status_code == 422
 
-    async def test_pix_requires_key(
-        self, client: AsyncClient, auth_headers: dict[str, str]
-    ) -> None:
-        r = await client.post(
-            "/api/payment-methods", json={"type": "pix"}, headers=auth_headers
-        )
-        assert r.status_code == 422
-
     async def test_pix_happy_path(
         self, client: AsyncClient, auth_headers: dict[str, str]
     ) -> None:
+        # PIX carries no stored data — the payment code is generated at checkout.
         r = await client.post("/api/payment-methods", json=pix(), headers=auth_headers)
         assert r.status_code == 201, r.text
-        assert r.json()["pix_key"] == "maria@example.com"
+        body = r.json()
+        assert body["type"] == "pix"
+        assert body["pix_key"] is None
 
     async def test_second_default_unsets_first(
         self, client: AsyncClient, auth_headers: dict[str, str]

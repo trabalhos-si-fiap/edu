@@ -16,7 +16,6 @@ import 'package:provider/provider.dart';
 import 'core/network/app_http.dart';
 import 'core/theme/app_theme.dart';
 import 'features/cart/data/cart_store.dart';
-import 'features/payment/data/payment_store.dart';
 import 'features/notifications/data/messaging_service.dart';
 import 'features/auth/presentation/login_screen.dart';
 import 'features/auth/presentation/logistics_login_screen.dart';
@@ -63,7 +62,6 @@ class _MyAppState extends State<MyApp> {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => CartStore()),
-        ChangeNotifierProvider(create: (_) => PaymentStore()),
       ],
       child: MaterialApp(
         title: 'Edu IA',
