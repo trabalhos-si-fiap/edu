@@ -1,7 +1,13 @@
 import pytest
 import redis.asyncio as aioredis
 
-from app.core.media import ImageValidationError, presigned_image_url, validate_image_bytes
+from app.core.config import settings
+from app.core.media import (
+    ImageValidationError,
+    _public_endpoint,
+    presigned_image_url,
+    validate_image_bytes,
+)
 from app.core.storage import ObjectStorage
 
 # Magic-byte headers.
@@ -50,7 +56,30 @@ async def test_presigned_image_url_is_cached(redis_client: aioredis.Redis) -> No
     storage = ObjectStorage()
     key = "products/cache-me.png"
     first = await presigned_image_url(key, storage=storage, redis=redis_client)
-    cached = await redis_client.get(f"presign:{key}")
+    cached = await redis_client.get(f"presign:{_public_endpoint()}:{key}")
     assert cached == first
     second = await presigned_image_url(key, storage=storage, redis=redis_client)
     assert second == first
+
+
+async def test_presign_cache_is_scoped_to_endpoint(
+    redis_client: aioredis.Redis,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Changing the public endpoint (e.g. a new host LAN IP) must use a fresh
+    # cache key, so a stale URL signed for the old host is never reused.
+    storage = ObjectStorage()
+    key = "products/scoped.png"
+
+    monkeypatch.setattr(settings, "R2_PUBLIC_ENDPOINT_URL", "http://10.0.2.2:9000")
+    first = await presigned_image_url(key, storage=storage, redis=redis_client)
+    first_cache_key = f"presign:{_public_endpoint()}:{key}"
+
+    monkeypatch.setattr(settings, "R2_PUBLIC_ENDPOINT_URL", "http://192.168.1.50:9000")
+    second_cache_key = f"presign:{_public_endpoint()}:{key}"
+    second = await presigned_image_url(key, storage=storage, redis=redis_client)
+
+    assert first_cache_key != second_cache_key
+    assert await redis_client.get(first_cache_key) == first
+    assert await redis_client.get(second_cache_key) == second
+    assert first != second
