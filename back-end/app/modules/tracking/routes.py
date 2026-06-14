@@ -2,10 +2,13 @@ from typing import Annotated
 
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Path, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.database import get_session
 from app.core.redis_client import get_redis
 from app.modules.auth.dependencies import get_current_user
 from app.modules.auth.models import User
+from app.modules.orders.exceptions import OrderNotFound
 from app.modules.tracking import services
 from app.modules.tracking.exceptions import RouteUnavailable
 from app.modules.tracking.schemas import (
@@ -29,9 +32,15 @@ OrderId = Annotated[str, Path(min_length=1, max_length=64)]
 async def get_order_tracking(
     order_id: OrderId,
     user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
 ) -> OrderTrackingOut:
     """Return every detail needed to render the order-tracking screen."""
-    return await services.get_order_tracking(user.id, order_id)
+    try:
+        return await services.get_order_tracking(session, user.id, order_id)
+    except OrderNotFound as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Pedido não encontrado"
+        ) from exc
 
 
 @router.post("/{order_id}/predict-eta", response_model=ETAPredictionOut)
