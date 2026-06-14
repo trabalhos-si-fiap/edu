@@ -2,24 +2,100 @@
 
 App mobile educacional construido com Flutter, parte do ecossistema Edu IA.
 
-## Quick Start
+## Como Rodar
 
-```bash
-# Na raiz do projeto (estuda_app/)
-make front            # roda no dispositivo padrao
-make front-web        # roda no Chrome
-make front-linux      # roda no Linux desktop
-make front-analyze    # analise estatica
-make front-test       # testes
-make front-clean      # limpar build
-```
+Resumo: **(1)** instale o toolchain, **(2)** suba o backend, **(3)** gere a
+config do Firebase, **(4)** rode o app apontando o `API_BASE_URL` certo para a
+sua plataforma. Os passos abaixo detalham cada um.
 
-Ou diretamente:
+### 1. Pré-requisitos
+
+| Ferramenta | Para quê | Como |
+|---|---|---|
+| **Flutter SDK** | Build do app (todas as plataformas) | <https://flutter.dev/setup> — depois rode `flutter doctor` |
+| **Docker + Docker Compose** | Backend local (API, Postgres, Redis, RabbitMQ) | <https://docs.docker.com/get-docker/> |
+| **Firebase/FlutterFire CLI** | Notificações push (FCM) | Veja [firebase_setup.md](../docs/front-end/firebase_setup.md) |
+| Xcode + CocoaPods | Rodar no **iOS/macOS** (apenas macOS) | `xcode-select --install`; `sudo gem install cocoapods` |
+| Android SDK / Android Studio | Rodar no **Android** | Vem com o Android Studio; `flutter doctor` valida |
+
+Rode `flutter doctor` e resolva o que estiver marcado antes de continuar.
 
 ```bash
 cd front-end-flutter
-flutter run
+flutter pub get          # baixa as dependências do pubspec
 ```
+
+### 2. Suba o backend
+
+O app precisa da API rodando. Na raiz do repositório:
+
+```bash
+make back-up             # sobe postgres, redis, rabbitmq, api, worker
+make back-migrate        # aplica as migrações do banco (primeira vez)
+make back-seed           # (opcional) popula o catálogo de produtos
+```
+
+A API fica publicada em `http://localhost:8000` (porta `API_PORT_EXTERNAL` do
+`back-end/.env`, default **8000**). Confira os logs com `make back-logs`.
+
+### 3. Configure o Firebase
+
+A config do Firebase (com API keys) **não é versionada** — gere a sua antes do
+primeiro run. Resumo:
+
+```bash
+cd front-end-flutter
+flutterfire configure --platforms=android,ios,macos
+```
+
+Passo a passo completo, alternativa manual e templates `*.example` em
+[firebase_setup.md](../docs/front-end/firebase_setup.md).
+
+### 4. Rode o app
+
+⚠️ **O endereço da API muda por plataforma.** O default
+([api_config.dart](lib/core/network/api_config.dart)) é `http://10.0.2.2:8000/api`
+(alias do **emulador Android** para o host). Em outras plataformas, passe o
+endereço certo via `--dart-define=API_BASE_URL=...`:
+
+| Plataforma | API_BASE_URL | Comando |
+|---|---|---|
+| **Emulador Android** | `http://10.0.2.2:8000/api` (default) | `make front` ou `flutter run` |
+| **Simulador iOS** | `http://localhost:8000/api` | `flutter run -d <sim> --dart-define=API_BASE_URL=http://localhost:8000/api` |
+| **Dispositivo físico (Wi-Fi)** | `http://SEU_IP_LAN:8000/api` | `make front` (auto-detecta o IP da LAN) |
+| **Dispositivo USB (Android)** | `http://localhost:8000/api` via `adb reverse` | `make front-device` |
+| **Chrome / Web** | `http://localhost:8000/api` | `flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:8000/api` |
+| **Desktop (macOS/Linux)** | `http://localhost:8000/api` | `flutter run -d macos` / `make front-linux` |
+
+> A porta deve bater com a `API_PORT_EXTERNAL` do `back-end/.env` (default 8000).
+> Guia detalhado de iOS (simulador, device, troubleshooting):
+> [running_ios.md](../docs/front-end/running_ios.md).
+
+#### Atalhos do Makefile (raiz do projeto)
+
+```bash
+make front            # roda em device/emulador (auto-detecta IP da LAN p/ Wi-Fi)
+make front-device     # roda em celular USB (adb reverse → localhost:8000)
+make front-web        # roda no Chrome
+make front-linux      # roda no Linux desktop
+make front-devices    # lista devices/emuladores disponíveis
+make front-analyze    # análise estática (flutter analyze)
+make front-test       # testes (flutter test)
+make front-clean      # limpa artefatos de build
+```
+
+Para escolher um device específico manualmente: `flutter devices` lista os ids,
+e `flutter run -d <id>` seleciona um.
+
+### Troubleshooting rápido
+
+| Sintoma | Causa | Correção |
+|---|---|---|
+| "Não foi possível conectar ao servidor" no login/cadastro | `API_BASE_URL` errado para a plataforma | Use a tabela acima; confirme `make back-up` |
+| App não abre a Home após login | (corrigido) push token bloqueava a navegação | `syncToken()` é best-effort — veja [messaging_service.dart](lib/features/notifications/data/messaging_service.dart) |
+| Erro de build: `firebase_options.dart` não encontrado | Firebase não configurado | Rode `flutterfire configure` — [firebase_setup.md](../docs/front-end/firebase_setup.md) |
+| `APNS token has not been received` (iOS) | Simulador iOS não tem APNS | Esperado e ignorado; use device físico para push real |
+| Erros de CocoaPods (iOS/macOS) | CocoaPods ausente/desatualizado | `sudo gem install cocoapods`; `cd ios && pod install` |
 
 ## Estrutura do Projeto
 
@@ -150,6 +226,8 @@ Navegacao via `Navigator` com rotas nomeadas definidas em `main.dart`:
 - [Arquitetura e Guidelines](docs/archtecture.md) -- Padroes de codigo, arquitetura feature-first, convencoes
 - [Guia de Estilo Visual](docs/visual_guide.md) -- Padroes de UI, componentes reutilizaveis, layout
 - [Modulo Marketplace](../docs/front-end/marketplace.md) -- Loja, produto, carrinho e pagamento (modelos, stores, telas)
+- [Setup do Firebase](../docs/front-end/firebase_setup.md) -- Config do FCM, templates `*.example`, chaves fora do git
+- [Rodando no iOS](../docs/front-end/running_ios.md) -- Simulador/device, `API_BASE_URL` por plataforma, troubleshooting
 
 ## Dependencias
 
