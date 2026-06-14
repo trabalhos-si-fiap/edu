@@ -20,3 +20,12 @@ no-git/
 # Firebase service account (Admin SDK) — segredo, nunca versionar
 **/firebase-service-account*.json
 secrets/
+
+# Firebase client config gerado por `flutterfire configure` — contém API keys.
+# Nunca versionar; cada dev/ambiente gera o seu. Há templates *.example commitados.
+# Setup: docs/front-end/firebase_setup.md
+front-end-flutter/lib/firebase_options.dart
+front-end-flutter/firebase.json
+front-end-flutter/android/app/google-services.json
+**/GoogleService-Info.plist
+!**/GoogleService-Info.plist.example

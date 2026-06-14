@@ -1,0 +1,30 @@
+{
+  "_comment": "TEMPLATE — copy to google-services.json and fill with your project's values, or download it from the Firebase console / regenerate via `flutterfire configure`. The real file contains an API key and is gitignored. See docs/front-end/firebase_setup.md.",
+  "project_info": {
+    "project_number": "YOUR_SENDER_ID",
+    "project_id": "your-project-id",
+    "storage_bucket": "your-project-id.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "YOUR_ANDROID_APP_ID",
+        "android_client_info": {
+          "package_name": "br.com.fiap.estuda_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "YOUR_ANDROID_API_KEY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
