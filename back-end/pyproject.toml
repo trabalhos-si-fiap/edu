@@ -23,6 +23,7 @@ dependencies = [
     "aioboto3>=15.5.0",
     "sqladmin>=0.27.2",
     "itsdangerous>=2.2.0",
+    "wtforms<3.2",
 ]
 
 [dependency-groups]

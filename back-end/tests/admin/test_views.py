@@ -2,9 +2,23 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 import wtforms
+from sqladmin.widgets import BooleanInputWidget
 
 from app.admin import views
 from app.modules.auth.models import User
+
+
+def test_boolean_field_renders_with_sqladmin_widget():
+    # Regression: sqladmin 0.27.2's BooleanInputWidget subclasses the *base*
+    # wtforms Input, whose __call__ reads self.validation_attrs. That attribute
+    # only exists on the base class in wtforms < 3.2; with wtforms 3.2 the User
+    # edit/create form (is_active/is_verified/is_admin checkboxes) raises
+    # AttributeError and the page 500s. This guards the pinned combination.
+    class _F(wtforms.Form):
+        flag = wtforms.BooleanField(widget=BooleanInputWidget())
+
+    html = str(_F().flag())
+    assert 'type="checkbox"' in html
 
 
 def test_user_admin_hides_password_hash():
