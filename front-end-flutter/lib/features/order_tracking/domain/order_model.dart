@@ -179,4 +179,11 @@ class OrderModel {
     }
     return null;
   }
+
+  /// `true` quando o pedido chegou ao fim do fluxo (entregue). A tela usa isso
+  /// para parar o polling — não há mais transições de status a aguardar.
+  bool get isDelivered =>
+      steps.isNotEmpty &&
+      steps.last.code == 'delivered' &&
+      steps.last.status == OrderStepStatus.done;
 }

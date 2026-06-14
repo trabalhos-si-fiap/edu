@@ -44,11 +44,14 @@ class _TrackingStepTile extends StatelessWidget {
   const _TrackingStepTile({required this.step, required this.isLast});
 
   /// Mapeia o `code` do model para o ícone, mantendo o model agnóstico de UI.
+  /// Os códigos espelham o ciclo de vida do pedido no backend (OrderStatus).
   IconData get _icon {
     switch (step.code) {
-      case 'processed':
+      case 'confirmed':
+        return Icons.check_circle_outline;
+      case 'separating':
         return Icons.inventory_2_outlined;
-      case 'in_transit':
+      case 'out_for_delivery':
         return Icons.local_shipping;
       case 'delivered':
         return Icons.location_on_outlined;
