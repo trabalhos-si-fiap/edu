@@ -73,7 +73,7 @@ front-test: ## Run Flutter tests
 
 # ── Backend ───────────────────────────────────────────────
 
-.PHONY: back-up back-down back-logs back-sh back-test back-test-e2e back-lint back-format back-migrate back-seed back-revision back-sync
+.PHONY: back-up back-down back-logs back-sh back-test back-test-host back-test-e2e back-lint back-format back-migrate back-seed back-revision back-sync
 
 back-up: ## Start backend stack (postgres, redis, rabbitmq, api, worker)
 	@echo "→ R2_PUBLIC_ENDPOINT_URL host: $(if $(HOST_IP),$(HOST_IP),10.0.2.2 (emulator fallback — set HOST_IP for physical devices))"
@@ -90,6 +90,13 @@ back-sh: ## Open shell inside api container
 
 back-test: ## Run backend unit + integration tests inside the container (excludes e2e)
 	cd $(BACK_DIR) && $(COMPOSE) exec api uv run pytest
+
+back-test-host: ## Run backend tests on the host (points DB/Redis/MinIO at the exposed ports; stack must be up)
+	cd $(BACK_DIR) && \
+		DATABASE_URL_TEST="postgresql+asyncpg://edu:edu@localhost:5433/edu_test" \
+		REDIS_URL_TEST="redis://:edu@localhost:6380/15" \
+		R2_ENDPOINT_URL="http://localhost:9000" \
+		uv run pytest $(ARGS)
 
 back-test-e2e: ## Run e2e tests against the live stack (stack must be up via back-up)
 	cd $(BACK_DIR) && $(COMPOSE) exec -e E2E_BASE_URL=http://localhost:8000 api uv run pytest -m e2e tests/e2e/
