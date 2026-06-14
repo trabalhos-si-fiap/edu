@@ -35,6 +35,10 @@ void main() {
     await tester.tap(find.text('Enviar código'));
     await tester.pump(); // setState(_submitting = true), request starts
     await tester.pump(); // request resolves, snackbar + navigation scheduled
+    expect(
+      find.text('Se o e-mail existir, enviamos um código.'),
+      findsOneWidget,
+    );
     await tester.pumpAndSettle(); // finish the route transition
 
     expect(find.text('reset-screen'), findsOneWidget);
