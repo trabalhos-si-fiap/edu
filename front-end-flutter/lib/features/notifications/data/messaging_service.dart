@@ -27,15 +27,34 @@ class MessagingService {
     importance: Importance.high,
   );
 
-  /// One-time setup: call once at startup, before any login.
+    /// One-time setup: call once at startup, before any login.
   Future<void> init() async {
+    // 1. Solicita a permissão do usuário
     await _messaging.requestPermission();
 
-    await _local.initialize(
-      settings: const InitializationSettings(
-        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
-      ),
+    // 2. Configurações para o Android
+    const AndroidInitializationSettings initializationSettingsAndroid =
+        AndroidInitializationSettings('@mipmap/ic_launcher');
+
+    // 3. Configurações para o iOS (Darwin)
+    const DarwinInitializationSettings initializationSettingsDarwin =
+        DarwinInitializationSettings(
+      requestAlertPermission: true,
+      requestBadgePermission: true,
+      requestSoundPermission: true,
     );
+
+    // 4. Cria o objeto unificado contendo as configurações de ambas as plataformas
+    const InitializationSettings initializationSettings = InitializationSettings(
+      android: initializationSettingsAndroid,
+      iOS: initializationSettingsDarwin, // <--- Evita o erro em tempo de execução no iOS
+    );
+
+    // 5. Inicializa passando o parâmetro nomeado obrigatório 'settings'
+    await _local.initialize(
+      settings: initializationSettings, // <--- Resolve o erro de compilação do Dart
+    );
+
     await _local
         .resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin
@@ -49,10 +68,21 @@ class MessagingService {
 
   /// Registers the current device token with the backend. Call right after a
   /// successful login, once a JWT is available.
+  ///
+  /// Best-effort: push registration must never block the auth flow. On
+  /// platforms without push delivery (e.g. the iOS Simulator, which has no
+  /// APNS token) `getToken()` throws — we swallow any failure so callers can
+  /// navigate regardless.
   Future<void> syncToken() async {
-    final token = await _messaging.getToken();
-    if (token != null) {
-      await _api.registerDevice(token);
+    try {
+      final token = await _messaging.getToken();
+      if (token != null) {
+        await _api.registerDevice(token);
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('MessagingService.syncToken skipped: $e');
+      }
     }
   }
 
