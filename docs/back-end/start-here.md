@@ -514,17 +514,19 @@ in-app nunca fica incompleto. O fluxo de envio é `notify_user()` →
 
 ### `tracking` (`/api/orders`)
 Superfície de **leitura/derivação** sobre pedidos: detalhe de rastreio, predição
-de ETA e a rota do mapa. Dados do pedido ainda **mockados** (sem persistência);
-quando o storage real entrar, só os builders privados de `services.py` mudam.
+de ETA e a rota do mapa. O rastreio lê o **status real do pedido**: carrega o
+`Order` do dono (`OrderNotFound → 404`) e o `tracking/builders.py` deriva a linha
+do tempo a partir do `OrderStatus` atual e dos `items` (kit). Só a geometria de
+ETA/rota segue mockada até a integração de endereços.
 
 | Método | Rota | Descrição |
 |--------|------|-----------|
-| GET | `/orders/{id}/tracking` | payload da tela de rastreio (etapas, localização, kit) |
+| GET | `/orders/{id}/tracking` | payload da tela de rastreio derivado do status real (etapas, localização, kit) |
 | POST | `/orders/{id}/predict-eta` | estima o tempo restante a partir da posição do entregador (Haversine + fator urbano + trânsito) |
 | GET | `/orders/{id}/route` | rota real por ruas origem→destino para o mapa embutido |
 
-`order_id` é uma string opaca **limitada** (`Path(min_length=1, max_length=64)`,
-ex.: `ED-99420`), não UUID. Os três endpoints exigem `Depends(get_current_user)`.
+`/tracking` recebe o **UUID** do pedido (id não-UUID ou de outro usuário → 404,
+indistinguível de inexistente). Os três endpoints exigem `Depends(get_current_user)`.
 
 **`GET /orders/{id}/route`** (módulo de mapa do app):
 - Chama a **Google Directions API** server-side via `httpx`

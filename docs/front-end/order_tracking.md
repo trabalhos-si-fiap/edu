@@ -6,8 +6,11 @@ rota real** entre o Centro de Distribuição e o endereço do pedido.
 
 > O módulo consome a API real do back-end FastAPI (`GET /orders/{id}/tracking` e
 > `GET /orders/{id}/route`). Cada serviço aceita `useMock: true` para desenvolver
-> a tela sem backend/chave. Os dados do pedido ainda são **mockados no servidor**
-> (sem persistência); o contrato já é o definitivo.
+> a tela sem backend/chave. A linha do tempo reflete o **status real do pedido**
+> (ciclo de vida `confirmed → separating → out_for_delivery → delivered`); o
+> `OrderProvider` faz **polling** do endpoint enquanto o pedido não foi entregue,
+> reagindo às transições disparadas pelo pipeline de status. A geometria do mapa
+> (origem/destino/rota) segue mockada até a integração de endereços.
 
 ---
 
