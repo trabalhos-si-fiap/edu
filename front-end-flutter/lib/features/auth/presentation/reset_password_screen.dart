@@ -26,6 +26,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   bool _obscurePassword = true;
   bool _obscureConfirm = true;
   bool _submitting = false;
+  bool _resending = false;
   int _cooldown = _cooldownStart;
   Timer? _timer;
 
@@ -105,6 +106,8 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   }
 
   Future<void> _handleResend() async {
+    if (_resending) return;
+    setState(() => _resending = true);
     try {
       await widget.authApi.requestPasswordReset(email: _emailArg());
       if (!mounted) return;
@@ -118,6 +121,8 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(e.message)));
+    } finally {
+      if (mounted) setState(() => _resending = false);
     }
   }
 
@@ -243,7 +248,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
             const SizedBox(height: 12),
             Center(
               child: TextButton(
-                onPressed: _cooldown > 0 ? null : _handleResend,
+                onPressed: (_cooldown > 0 || _resending) ? null : _handleResend,
                 child: Text(
                   _cooldown > 0
                       ? 'Reenviar em ${_cooldown}s'

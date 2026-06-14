@@ -98,4 +98,44 @@ void main() {
 
     expect(find.text('login-screen'), findsOneWidget);
   });
+
+  testWidgets('re-enables resend after the cooldown and resends',
+      (tester) async {
+    var requests = 0;
+    final api = AuthApi(client: MockClient((req) async {
+      if (req.url.path.endsWith('/auth/password-reset/request')) requests++;
+      return http.Response('', 200);
+    }));
+    await tester.pumpWidget(_harness(api));
+    await tester.pump();
+
+    // Advance through the 60s cooldown.
+    await tester.pump(const Duration(seconds: 60));
+
+    final resend = find.widgetWithText(TextButton, 'Reenviar código');
+    expect(resend, findsOneWidget);
+    expect(tester.widget<TextButton>(resend).onPressed, isNotNull);
+
+    await tester.ensureVisible(resend);
+    await tester.tap(resend);
+    await tester.pump(); // _resending = true, request starts
+    await tester.pump(); // request resolves, snackbar + cooldown restart
+
+    expect(requests, 1);
+    expect(
+      find.text('Se o e-mail existir, enviamos um código.'),
+      findsOneWidget,
+    );
+    // Cooldown restarted -> button disabled again.
+    expect(
+      tester
+          .widget<TextButton>(
+            find.widgetWithText(TextButton, 'Reenviar em 60s'),
+          )
+          .onPressed,
+      isNull,
+    );
+
+    await tester.pump(const Duration(seconds: 60)); // drain restarted timer
+  });
 }
