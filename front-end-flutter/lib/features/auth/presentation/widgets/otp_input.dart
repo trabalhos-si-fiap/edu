@@ -62,29 +62,32 @@ class _OtpInputState extends State<OtpInput> {
 
   @override
   Widget build(BuildContext context) {
+    // Boxes share the available width evenly (with a small gap between them)
+    // instead of a fixed width, so the row never overflows on narrow screens.
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: List.generate(_length, (index) {
-        return SizedBox(
-          width: 48,
-          child: Focus(
-            skipTraversal: true,
-            canRequestFocus: false,
-            onKeyEvent: (node, event) => _onKey(index, event),
-            child: TextField(
-              controller: _controllers[index],
-              focusNode: _focusNodes[index],
-              textAlign: TextAlign.center,
-              keyboardType: TextInputType.number,
-              maxLength: 1,
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w700,
-                color: AppColors.textPrimary,
+        return Expanded(
+          child: Padding(
+            padding: EdgeInsets.only(left: index == 0 ? 0 : 8),
+            child: Focus(
+              skipTraversal: true,
+              canRequestFocus: false,
+              onKeyEvent: (node, event) => _onKey(index, event),
+              child: TextField(
+                controller: _controllers[index],
+                focusNode: _focusNodes[index],
+                textAlign: TextAlign.center,
+                keyboardType: TextInputType.number,
+                maxLength: 1,
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textPrimary,
+                ),
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                decoration: const InputDecoration(counterText: ''),
+                onChanged: (value) => _onChanged(index, value),
               ),
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              decoration: const InputDecoration(counterText: ''),
-              onChanged: (value) => _onChanged(index, value),
             ),
           ),
         );

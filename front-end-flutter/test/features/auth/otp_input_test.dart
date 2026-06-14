@@ -39,6 +39,27 @@ void main() {
     expect(second.focusNode!.hasFocus, isTrue);
   });
 
+  testWidgets('does not overflow on a narrow (360dp-equivalent) width',
+      (tester) async {
+    // On a 360dp-wide device the card's inner width is ~280px. Fixed-width
+    // boxes overflow here; the layout must adapt to the available width.
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 280,
+              child: OtpInput(onChanged: (_) {}),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(tester.takeException(), isNull);
+    expect(find.byType(TextField), findsNWidgets(6));
+  });
+
   testWidgets('backspace on an empty box clears and focuses the previous box',
       (tester) async {
     final emitted = <String>[];
