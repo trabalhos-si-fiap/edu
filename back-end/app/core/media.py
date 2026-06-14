@@ -14,6 +14,13 @@ _ALLOWED: dict[str, tuple[str, bytes]] = {
 }
 
 
+def _public_endpoint() -> str:
+    """The endpoint the presigned URL is signed against. Included in the cache
+    key so a changed endpoint (e.g. a new host LAN IP) yields a fresh key instead
+    of serving a stale URL."""
+    return settings.R2_PUBLIC_ENDPOINT_URL or settings.R2_ENDPOINT_URL
+
+
 class ImageValidationError(Exception):
     """Uploaded file is not an accepted image."""
 
@@ -48,7 +55,7 @@ async def presigned_image_url(
     image caching effective and avoids re-signing on every list request)."""
     if not key:
         return ""
-    cache_key = f"presign:{key}"
+    cache_key = f"presign:{_public_endpoint()}:{key}"
     cached = await redis.get(cache_key)
     if cached is not None:
         return cached
