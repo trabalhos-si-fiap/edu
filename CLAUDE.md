@@ -12,6 +12,7 @@ App educacional com Flutter (frontend) e Python + FastAPI (backend em microservi
 | | [docs/front-end/marketplace.md](docs/front-end/marketplace.md) | Modulo marketplace: loja, produto, carrinho, pagamento |
 | | [docs/front-end/order_tracking.md](docs/front-end/order_tracking.md) | Modulo order tracking: rastreio, mapa com rota (Google Maps) |
 | **Backend** | [docs/back-end/start-here.md](docs/back-end/start-here.md) | Setup, arquitetura, padroes, git versioning |
+| | [docs/back-end/password-reset.md](docs/back-end/password-reset.md) | Modulo password reset: OTP por e-mail, adapter de provedor (Resend/console) |
 
 ## Tech Stack
 
