@@ -223,12 +223,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
   Future<void> _placeOrder(PaymentMethod method) async {
     final cart = context.read<CartStore>();
-    final items = cart.items;
-    if (items.isEmpty) return;
+    if (cart.isEmpty) return;
 
     try {
       await CheckoutService().placeOrder(
-        items: items,
         paymentMethod: _paymentTitle(method),
       );
     } on CheckoutException catch (e) {
