@@ -161,7 +161,7 @@ Sempre que o Flutter precisar de dados de **mais de um** módulo, a rota vai em 
    ```bash
    make back-up
    ```
-   Isso inicia postgres, redis, rabbitmq, api e worker. O primeiro up faz o build da imagem (1–3 min).
+   Isso inicia postgres, redis, rabbitmq, api, worker e o **MinIO** (object storage de dev — veja §5.1). O primeiro up faz o build da imagem (1–3 min).
 
 3. **Confira o health**:
    ```bash
@@ -190,6 +190,36 @@ Sempre que o Flutter precisar de dados de **mais de um** módulo, a rota vai em 
 | RabbitMQ admin    | http://localhost:15673 (edu/edu) |
 | Postgres          | localhost:5433 (edu/edu)   |
 | Redis             | localhost:6380             |
+| MinIO (S3 API)    | http://localhost:9000      |
+| MinIO console     | http://localhost:9001 (edu/edu-secret) |
+
+---
+
+## 5.1 Object storage (R2 / MinIO)
+
+As imagens de produto ficam em **object storage S3-compatível**, acessado pela API
+via `aioboto3` (cliente em `app/core/storage.py`). O backend é agnóstico de
+provedor — só o endpoint e as credenciais mudam entre ambientes:
+
+| Ambiente | Backend | Como é configurado |
+| --- | --- | --- |
+| **Dev/test** | **MinIO** (sobe no compose, console em :9001) | Defaults do código já apontam para ele (`http://minio:9000`, bucket `edu-media`, `edu`/`edu-secret`). Nada a fazer. |
+| **Prod** | **Cloudflare R2** | Defina as `R2_*` no ambiente/secrets (veja `.env.example`). |
+
+Pontos importantes:
+
+- **O bucket é privado.** A leitura acontece sempre por **presigned GET URL** com
+  expiração (`MEDIA_PRESIGN_TTL_SECONDS`), memoizada no Redis. Nada de objeto público.
+- **A escolha do backend é decidida só pelas env vars `R2_*`.** Se você definir as
+  `R2_*` no seu `.env` apontando para o R2 real, o **dev passa a gravar no bucket de
+  produção** — mesmo com o container MinIO de pé e ocioso. Para dev isolado, deixe as
+  `R2_*` comentadas (como vem no `.env.example`) e use o MinIO.
+- **Presigned URL e o device:** a URL é assinada com `R2_PUBLIC_ENDPOINT_URL` (ou
+  `R2_ENDPOINT_URL` se não definido). Com MinIO em dev, o host `minio:9000` não é
+  alcançável pelo celular/emulador — aponte `R2_PUBLIC_ENDPOINT_URL` para um endereço
+  que o device consiga acessar.
+
+Detalhes de design: `docs/superpowers/specs/2026-06-13-marketplace-product-photos-design.md`.
 
 ---
 
