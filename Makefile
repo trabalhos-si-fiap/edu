@@ -5,6 +5,19 @@ COMPOSE = docker compose
 ADB = adb
 # Host port the API is published on (see back-end/.env API_PORT_EXTERNAL).
 API_PORT = 8001
+
+# Host LAN IP, auto-detected for the current OS (Linux or macOS). Every target
+# on the same Wi-Fi — physical iPhone/Android, iOS simulator, Android emulator,
+# desktop — can reach the host at this address, so a single `make front` works
+# everywhere. Override manually with: make front HOST_IP=192.168.x.y
+HOST_IP := $(shell \
+	if [ "$$(uname)" = "Darwin" ]; then \
+		ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null; \
+	else \
+		ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($$i=="src"){print $$(i+1); exit}}'; \
+	fi)
+HOST_API_URL = http://$(HOST_IP):$(API_PORT)/api
+
 # Base URL used by physical devices: adb reverse maps the device's localhost
 # back to the host over USB, so the app talks to http://localhost:$(API_PORT).
 DEVICE_API_URL = http://localhost:$(API_PORT)/api
@@ -13,8 +26,10 @@ DEVICE_API_URL = http://localhost:$(API_PORT)/api
 
 .PHONY: front front-web front-linux front-device adb-reverse front-devices front-analyze front-clean front-test
 
-front: ## Run Flutter app (default device)
-	cd $(FRONT_DIR) && $(FLUTTER) run
+front: ## Run Flutter app on any device over Wi-Fi (auto-detects host LAN IP)
+	@test -n "$(HOST_IP)" || { echo "Could not auto-detect the host LAN IP. Run: make front HOST_IP=192.168.x.y"; exit 1; }
+	@echo "→ API_BASE_URL=$(HOST_API_URL)"
+	cd $(FRONT_DIR) && $(FLUTTER) run --dart-define=API_BASE_URL=$(HOST_API_URL)
 
 adb-reverse: ## Forward host API port to a USB device (re-run after replugging)
 	$(ADB) reverse tcp:$(API_PORT) tcp:$(API_PORT)
