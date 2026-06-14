@@ -1,5 +1,6 @@
 import 'package:edu_ia/features/auth/presentation/widgets/otp_input.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Widget _harness(ValueChanged<String> onChanged) => MaterialApp(
@@ -36,5 +37,33 @@ void main() {
 
     final second = tester.widget<TextField>(boxes.at(1));
     expect(second.focusNode!.hasFocus, isTrue);
+  });
+
+  testWidgets('backspace on an empty box clears and focuses the previous box',
+      (tester) async {
+    final emitted = <String>[];
+    await tester.pumpWidget(_harness(emitted.add));
+
+    final boxes = find.byType(TextField);
+
+    // Type '1' into box 0 — focus auto-advances to box 1.
+    await tester.enterText(boxes.at(0), '1');
+    await tester.pump();
+
+    // Type '2' into box 1 — focus auto-advances to box 2.
+    await tester.enterText(boxes.at(1), '2');
+    await tester.pump();
+
+    // Box 2 is currently focused and empty. Send backspace.
+    await tester.sendKeyEvent(LogicalKeyboardKey.backspace);
+    await tester.pump();
+
+    // Box 1 should now have focus and its text should be cleared.
+    final box1 = tester.widget<TextField>(boxes.at(1));
+    expect(box1.focusNode!.hasFocus, isTrue);
+    expect(box1.controller!.text, isEmpty);
+
+    // The last onChanged emission should reflect only the digit in box 0.
+    expect(emitted.last, '1');
   });
 }
