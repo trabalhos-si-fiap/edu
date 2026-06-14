@@ -1,10 +1,26 @@
-FLUTTER = /home/elias/Documents/flutter/bin/flutter
 FRONT_DIR = front-end-flutter
 BACK_DIR = back-end
 COMPOSE = docker compose
 ADB = adb
-# Host port the API is published on (see back-end/.env API_PORT_EXTERNAL).
-API_PORT = 8001
+
+# Resolve the Flutter binary in an environment-agnostic way:
+#   1. honor an explicit override (env var or `make front FLUTTER=/path/to/flutter`)
+#   2. otherwise pick it up from PATH
+#   3. otherwise scan common install locations across Linux/macOS
+#   4. fall back to the literal `flutter` so the error message is obvious
+FLUTTER ?= $(shell \
+	command -v flutter 2>/dev/null || \
+	for p in "$$HOME/flutter/bin/flutter" "$$HOME/Documents/flutter/bin/flutter" \
+	         "$$HOME/development/flutter/bin/flutter" "$$HOME/fvm/default/bin/flutter" \
+	         "/opt/flutter/bin/flutter" "/usr/local/bin/flutter" "/snap/bin/flutter"; do \
+		[ -x "$$p" ] && { echo "$$p"; break; }; \
+	done)
+FLUTTER := $(or $(FLUTTER),flutter)
+
+# Host port the API is published on. Read from back-end/.env (API_PORT_EXTERNAL),
+# matching the docker-compose default of 8000. Override with: make front API_PORT=8000
+API_PORT := $(shell sed -n 's/^API_PORT_EXTERNAL=//p' $(BACK_DIR)/.env 2>/dev/null | tr -d '[:space:]')
+API_PORT := $(or $(API_PORT),8000)
 
 # Host LAN IP, auto-detected for the current OS (Linux or macOS). Every target
 # on the same Wi-Fi — physical iPhone/Android, iOS simulator, Android emulator,
