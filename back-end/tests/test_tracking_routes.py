@@ -2,14 +2,20 @@
 
 import uuid
 from collections.abc import AsyncIterator
+from datetime import date
+from decimal import Decimal
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.main import app
+from app.modules.auth import services as auth_services
 from app.modules.auth.dependencies import get_current_user
 from app.modules.auth.models import User
+from app.modules.auth.schemas import RegisterIn
+from app.modules.orders.models import Order, OrderItem
 from app.modules.tracking import directions
 from app.modules.tracking.directions import DirectionsResult
 
@@ -19,10 +25,9 @@ _ORDER_ID = "ED-99420"
 
 @pytest.fixture
 async def auth_client(client: AsyncClient) -> AsyncIterator[AsyncClient]:
-    """A client whose requests are authenticated as a fixed in-memory user.
+    """A client authenticated as a fixed in-memory user.
 
-    The tracking data is mocked, so a persisted user is unnecessary — we only
-    need ``get_current_user`` to resolve to a valid identity.
+    Used by the ETA/route endpoints, which don't query the order store.
     """
     user = User(id=uuid.uuid4(), is_active=True)
 
@@ -32,6 +37,55 @@ async def auth_client(client: AsyncClient) -> AsyncIterator[AsyncClient]:
     app.dependency_overrides[get_current_user] = _override_user
     yield client
     # conftest's `client` fixture clears overrides on teardown.
+
+
+@pytest.fixture
+async def db_user(db_session: AsyncSession) -> User:
+    return await auth_services.register(
+        db_session,
+        RegisterIn(
+            name="Maria Silva",
+            email="maria@example.com",
+            phone="11999998888",
+            birth_date=date(1995, 6, 15),
+            education_level="Vestibulando",
+            password="Secret!1",
+        ),
+    )
+
+
+@pytest.fixture
+async def tracked_order(db_session: AsyncSession, db_user: User) -> Order:
+    """A persisted, in-progress order owned by ``db_user``."""
+    order = Order(
+        user_id=db_user.id,
+        total=Decimal("100.00"),
+        payment_method="pix",
+        status="separating",
+        items=[
+            OrderItem(
+                product_id=uuid.uuid4(),
+                product_name="Apostila Ed. 5.0",
+                unit_price=Decimal("100.00"),
+                quantity=1,
+            )
+        ],
+    )
+    db_session.add(order)
+    await db_session.commit()
+    await db_session.refresh(order)
+    return order
+
+
+@pytest.fixture
+async def db_auth_client(client: AsyncClient, db_user: User) -> AsyncIterator[AsyncClient]:
+    """A client authenticated as the persisted ``db_user`` (owns ``tracked_order``)."""
+
+    async def _override_user() -> User:
+        return db_user
+
+    app.dependency_overrides[get_current_user] = _override_user
+    yield client
 
 
 async def test_get_order_tracking_requires_auth(client: AsyncClient) -> None:
@@ -47,8 +101,10 @@ async def test_predict_eta_requires_auth(client: AsyncClient) -> None:
     assert resp.status_code == 401
 
 
-async def test_get_order_tracking_matches_flutter_contract(auth_client: AsyncClient) -> None:
-    resp = await auth_client.get(f"/api/orders/{_ORDER_ID}/tracking")
+async def test_get_order_tracking_matches_flutter_contract(
+    db_auth_client: AsyncClient, tracked_order: Order
+) -> None:
+    resp = await db_auth_client.get(f"/api/orders/{tracked_order.id}/tracking")
     assert resp.status_code == 200
 
     body = resp.json()
@@ -64,16 +120,59 @@ async def test_get_order_tracking_matches_flutter_contract(auth_client: AsyncCli
         "carrier",
         "map_url",
     }
-    assert body["id"] == _ORDER_ID
+    assert body["id"] == str(tracked_order.id)
     assert body["carrier"]
+    # Timeline reflects the real status: 'separating' is the current step.
+    steps = {s["code"]: s["status"] for s in body["steps"]}
+    assert steps["separating"] == "current"
+    assert steps["confirmed"] == "done"
+    assert steps["out_for_delivery"] == "pending"
+    # Kit is the real order items.
+    assert [k["name"] for k in body["kit"]] == ["Apostila Ed. 5.0"]
 
-    steps = body["steps"]
-    assert {s["status"] for s in steps} <= {"done", "current", "pending"}
-    assert any(s["status"] == "current" for s in steps)
-    assert all({"code", "title", "status", "timestamp"} == set(s) for s in steps)
+    raw_steps = body["steps"]
+    assert {s["status"] for s in raw_steps} <= {"done", "current", "pending"}
+    assert all({"code", "title", "status", "timestamp"} == set(s) for s in raw_steps)
 
     assert set(body["location"]) == {"name", "city", "state", "updated_at"}
     assert all(set(item) == {"name", "subtitle"} for item in body["kit"])
+
+
+async def test_get_order_tracking_unknown_order_returns_404(db_auth_client: AsyncClient) -> None:
+    resp = await db_auth_client.get(f"/api/orders/{uuid.uuid4()}/tracking")
+    assert resp.status_code == 404
+
+
+async def test_get_order_tracking_malformed_id_returns_404(db_auth_client: AsyncClient) -> None:
+    # A non-UUID id (e.g. a legacy label) must 404, never 500.
+    resp = await db_auth_client.get(f"/api/orders/{_ORDER_ID}/tracking")
+    assert resp.status_code == 404
+
+
+async def test_get_order_tracking_other_users_order_returns_404(
+    db_auth_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    # An order owned by someone else must be indistinguishable from missing.
+    other = Order(
+        user_id=uuid.uuid4(),
+        total=Decimal("50.00"),
+        payment_method="pix",
+        status="confirmed",
+        items=[
+            OrderItem(
+                product_id=uuid.uuid4(),
+                product_name="X",
+                unit_price=Decimal("50.00"),
+                quantity=1,
+            )
+        ],
+    )
+    db_session.add(other)
+    await db_session.commit()
+    await db_session.refresh(other)
+
+    resp = await db_auth_client.get(f"/api/orders/{other.id}/tracking")
+    assert resp.status_code == 404
 
 
 async def test_predict_eta_happy_path(auth_client: AsyncClient) -> None:
