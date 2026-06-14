@@ -10,6 +10,7 @@ _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _PHONE_DIGITS_RE = re.compile(r"^\d{10,11}$")
 _SPECIAL_CHAR_RE = re.compile(r'[!@#$%^&*(),.?":{}|<>]')
 _DDMMYYYY_RE = re.compile(r"^(\d{2})/(\d{2})/(\d{4})$")
+_OTP_RE = re.compile(r"^\d{6}$")
 
 
 class RegisterIn(BaseModel):
@@ -133,3 +134,41 @@ class TokenPair(BaseModel):
 class AuthResponse(BaseModel):
     user: UserOut
     tokens: TokenPair
+
+
+class PasswordResetRequestIn(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    email: str = Field(max_length=254)
+
+    @field_validator("email")
+    @classmethod
+    def _lower(cls, v: str) -> str:
+        return v.lower()
+
+
+class PasswordResetConfirmIn(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    email: str = Field(max_length=254)
+    code: str = Field(min_length=6, max_length=6)
+    new_password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("email")
+    @classmethod
+    def _lower(cls, v: str) -> str:
+        return v.lower()
+
+    @field_validator("code")
+    @classmethod
+    def _six_digits(cls, v: str) -> str:
+        if not _OTP_RE.match(v):
+            raise ValueError("code must be exactly 6 digits")
+        return v
+
+    @field_validator("new_password")
+    @classmethod
+    def _password_policy(cls, v: str) -> str:
+        if not _SPECIAL_CHAR_RE.search(v):
+            raise ValueError("password must contain at least one special character")
+        return v

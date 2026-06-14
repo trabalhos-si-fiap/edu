@@ -33,6 +33,21 @@ class Settings(BaseSettings):
     LOGIN_RATE_LIMIT_ATTEMPTS: int = 5
     LOGIN_RATE_LIMIT_WINDOW_SECONDS: int = 900
 
+    # E-mail provider (Ports & Adapters). "console" loga e não envia nada real
+    # (dev/test); "resend" usa a API da Resend via RESEND_API_KEY. Trocar de
+    # provedor = novo adapter + esta variável, sem tocar no domínio.
+    EMAIL_BACKEND: str = "console"  # "console" | "resend"
+    RESEND_API_KEY: str | None = None
+    EMAIL_FROM: str = "Edu <no-reply@edu.app>"
+
+    # Password reset OTP. Código efêmero guardado (hasheado) no Redis.
+    PASSWORD_RESET_CODE_TTL_SECONDS: int = 600
+    PASSWORD_RESET_MAX_ATTEMPTS: int = 5
+    PASSWORD_RESET_REQUEST_RATE_LIMIT_ATTEMPTS: int = 5
+    PASSWORD_RESET_REQUEST_RATE_LIMIT_WINDOW_SECONDS: int = 900
+    EMAIL_SEND_TIME_LIMIT: int = 30
+    EMAIL_SEND_SOFT_TIME_LIMIT: int = 25
+
     # Path to the Firebase service account JSON used by the Admin SDK to send
     # push notifications. Mounted into the api/worker containers as a secret;
     # never commit the file itself (see project .gitignore).

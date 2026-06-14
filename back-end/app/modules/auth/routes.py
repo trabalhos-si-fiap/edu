@@ -11,15 +11,18 @@ from app.modules.auth.dependencies import get_current_user
 from app.modules.auth.exceptions import (
     EmailAlreadyRegistered,
     InvalidCredentials,
+    InvalidResetCode,
     InvalidToken,
     RateLimitExceeded,
     UserInactive,
 )
 from app.modules.auth.models import User
-from app.modules.auth.rate_limit import check_login_rate_limit
+from app.modules.auth.rate_limit import check_login_rate_limit, check_password_reset_rate_limit
 from app.modules.auth.schemas import (
     AuthResponse,
     LoginIn,
+    PasswordResetConfirmIn,
+    PasswordResetRequestIn,
     RefreshIn,
     RegisterIn,
     TokenPair,
@@ -121,3 +124,43 @@ async def logout(
     # MVP no-op: the client drops its tokens. Server-side revocation via a
     # Redis blocklist keyed by jti is a future enhancement — see the Auth TODOs.
     return {"detail": "ok"}
+
+
+@router.post("/password-reset/request")
+async def password_reset_request(
+    payload: PasswordResetRequestIn,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    redis: Annotated[aioredis.Redis, Depends(get_redis)],
+) -> dict[str, str]:
+    ip = request.client.host if request.client else "unknown"
+    try:
+        await check_password_reset_rate_limit(redis, ip=ip, email=payload.email)
+    except RateLimitExceeded as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many attempts",
+            headers={"Retry-After": str(exc.retry_after)},
+        ) from exc
+
+    await services.request_password_reset(session, redis, payload.email)
+    # Always 200 — never reveal whether the email exists (anti-enumeration).
+    return {"detail": "If the email exists, a reset code was sent."}
+
+
+@router.post("/password-reset/confirm")
+async def password_reset_confirm(
+    payload: PasswordResetConfirmIn,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    redis: Annotated[aioredis.Redis, Depends(get_redis)],
+) -> dict[str, str]:
+    try:
+        await services.confirm_password_reset(
+            session, redis, payload.email, payload.code, payload.new_password
+        )
+    except InvalidResetCode as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired code",
+        ) from exc
+    return {"detail": "Password updated."}
