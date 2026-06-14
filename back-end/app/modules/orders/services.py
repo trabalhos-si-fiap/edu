@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from loguru import logger
@@ -126,6 +127,7 @@ async def advance_order_status(
 
     user_id = order.user_id  # capture before commit
     order.status = to_status.value
+    order.status_updated_at = datetime.now(UTC)
     await session.commit()
 
     title, body = lifecycle.STATUS_NOTIFICATION[to_status]

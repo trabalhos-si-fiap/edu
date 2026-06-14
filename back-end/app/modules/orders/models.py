@@ -41,6 +41,11 @@ class Order(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+    # When the order last changed status. Powers the tracking timeline's "last
+    # update" timestamps; refreshed on every transition (see advance_order_status).
+    status_updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
     items: Mapped[list["OrderItem"]] = relationship(
         back_populates="order",
