@@ -1,3 +1,4 @@
+import re
 from typing import ClassVar
 
 import wtforms
@@ -12,6 +13,12 @@ from app.modules.orders.models import Order, OrderItem
 from app.modules.payment_methods.models import PaymentMethod
 from app.modules.products.models import Product, Review
 from app.modules.support.models import SupportMessage
+
+# Mirrors the registration password policy in app/modules/auth/schemas.py
+# (min 8 chars + at least one special character). Kept in sync by hand — the
+# admin form must not be a weaker door into the same auth_users table.
+_MIN_PASSWORD_LEN = 8
+_PASSWORD_SPECIAL_RE = re.compile(r'[!@#$%^&*(),.?":{}|<>]')
 
 
 class UserAdmin(ModelView, model=User):
@@ -37,15 +44,33 @@ class UserAdmin(ModelView, model=User):
 
     async def scaffold_form(self, rules=None):
         form_class = await super().scaffold_form(rules)
-        form_class.password = wtforms.PasswordField("Senha (em branco mantém a atual na edição)")
+        # Virtual fields: the real password_hash is never in the form. On edit,
+        # leaving both blank keeps the current password.
+        form_class.password = wtforms.PasswordField(
+            "Senha (em branco mantém a atual na edição)"
+        )
+        form_class.password_confirm = wtforms.PasswordField("Confirmar senha")
         return form_class
 
     async def on_model_change(self, data, model, is_created, request) -> None:
         password = (data.pop("password", "") or "").strip()
-        if password:
-            data["password_hash"] = hash_password(password)
-        elif is_created:
-            raise ValueError("Senha é obrigatória ao criar um usuário.")
+        confirm = (data.pop("password_confirm", "") or "").strip()
+
+        if not password and not confirm:
+            if is_created:
+                raise ValueError("Senha é obrigatória ao criar um usuário.")
+            return  # edit with blank password: keep the current hash
+
+        if password != confirm:
+            raise ValueError("As senhas não conferem.")
+        if len(password) < _MIN_PASSWORD_LEN:
+            raise ValueError(
+                f"A senha deve ter ao menos {_MIN_PASSWORD_LEN} caracteres."
+            )
+        if not _PASSWORD_SPECIAL_RE.search(password):
+            raise ValueError("A senha deve conter ao menos um caractere especial.")
+
+        data["password_hash"] = hash_password(password)
 
 
 class AddressAdmin(ModelView, model=Address):

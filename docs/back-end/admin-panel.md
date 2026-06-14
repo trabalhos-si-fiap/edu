@@ -49,9 +49,12 @@ modelos do domínio, definidos em `app/admin/views.py` (`ALL_VIEWS`):
 ## Notas de segurança
 
 - **Senha de usuário:** o campo `password_hash` nunca aparece em listagem,
-  detalhe ou formulário. O form de `User` expõe um campo virtual **"Senha"**;
-  ao salvar, o valor é hasheado com bcrypt via `on_model_change`. Em branco na
-  edição, mantém o hash atual; em branco na criação, o form rejeita com erro.
+  detalhe ou formulário. O form de `User` expõe dois campos virtuais
+  **"Senha"** e **"Confirmar senha"**; ao salvar, o valor é validado
+  (confirmação igual, mínimo de 8 caracteres e ao menos um caractere especial —
+  espelhando a política de cadastro em `auth/schemas.py`) e hasheado com bcrypt
+  via `on_model_change`. Em branco na edição, mantém o hash atual; em branco na
+  criação, o form rejeita com erro.
 - **Dados sensíveis ocultos:** o valor do token FCM (`DeviceToken.token`) não é
   listado; `PaymentMethod` mostra apenas dados mascarados (`card_brand`,
   `card_last4`) — `pix_key` e `cardholder_name` ficam fora da listagem de
