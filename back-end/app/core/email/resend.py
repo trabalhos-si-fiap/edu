@@ -40,6 +40,4 @@ class ResendEmailAdapter:
                 await client.aclose()
 
         if response.status_code >= 400:
-            raise EmailDeliveryError(
-                f"resend returned {response.status_code}: {response.text}"
-            )
+            raise EmailDeliveryError(f"resend returned {response.status_code}: {response.text}")

@@ -19,7 +19,9 @@ async def test_resend_posts_expected_payload_and_headers() -> None:
         return httpx.Response(200, json={"id": "email_123"})
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    adapter = ResendEmailAdapter(api_key="re_test_key", sender="Edu <no-reply@edu.app>", client=client)
+    adapter = ResendEmailAdapter(
+        api_key="re_test_key", sender="Edu <no-reply@edu.app>", client=client
+    )
 
     await adapter.send(_MSG)
     await client.aclose()
@@ -39,7 +41,9 @@ async def test_resend_raises_on_error_status() -> None:
         return httpx.Response(422, json={"message": "invalid"})
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    adapter = ResendEmailAdapter(api_key="re_test_key", sender="Edu <no-reply@edu.app>", client=client)
+    adapter = ResendEmailAdapter(
+        api_key="re_test_key", sender="Edu <no-reply@edu.app>", client=client
+    )
 
     with pytest.raises(EmailDeliveryError):
         await adapter.send(_MSG)
