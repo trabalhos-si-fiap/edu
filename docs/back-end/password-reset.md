@@ -231,5 +231,20 @@ Os testes de fluxo capturam o `.delay()` da task (monkeypatch) para ficarem offl
 ## 11. Fora de escopo (futuro)
 
 - **Revogar sessões ativas após o reset** — os refresh tokens são JWT stateless sem denylist; invalidá-los exigiria `token_version`/`password_changed_at` no usuário.
-- **Telas Flutter** ("esqueci a senha" / "digite o código + nova senha").
 - **Rate-limit no endpoint `confirm`** (hoje a proteção é o lockout por código) e **retry/backoff** da task de envio.
+
+---
+
+## 12. Telas Flutter (entregue)
+
+O fluxo de "esqueci minha senha" no app Flutter já está implementado
+(`front-end-flutter/`), ligado a estes endpoints:
+
+- **Esqueci a senha** (`/forgot-password`) — campo de e-mail → `request` →
+  confirmação neutra (anti-enumeração) → navega para a tela de código.
+- **Redefinir senha** (`/reset-password`) — código de 6 dígitos (widget
+  `OtpInput`) + nova senha → `confirm` → volta ao login. Inclui "Reenviar
+  código" com cooldown de 60s.
+
+Camada de dados: `AuthApi.requestPasswordReset` / `AuthApi.confirmPasswordReset`.
+Spec: `docs/superpowers/specs/2026-06-14-password-reset-flutter-screens-design.md`.

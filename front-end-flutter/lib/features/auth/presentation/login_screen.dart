@@ -25,6 +25,26 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  bool _checkedResetFlag = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_checkedResetFlag) return;
+    _checkedResetFlag = true;
+    final args = ModalRoute.of(context)?.settings.arguments;
+    if (args is Map && args['passwordReset'] == true) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Senha redefinida! Faça login com a nova senha.'),
+          ),
+        );
+      });
+    }
+  }
+
   Future<void> _handleLogin() async {
     if (_submitting) return;
     final email = _emailController.text.trim();
@@ -72,6 +92,8 @@ class _LoginScreenState extends State<LoginScreen> {
                   setState(() => _obscurePassword = !_obscurePassword);
                 },
                 onLogin: _handleLogin,
+                onForgotPassword: () =>
+                    Navigator.pushNamed(context, '/forgot-password'),
               ),
             ),
             const SizedBox(height: 16),
@@ -199,6 +221,7 @@ class _LoginCard extends StatelessWidget {
     required this.obscurePassword,
     required this.onToggleObscure,
     required this.onLogin,
+    required this.onForgotPassword,
   });
 
   final TextEditingController emailController;
@@ -206,6 +229,7 @@ class _LoginCard extends StatelessWidget {
   final bool obscurePassword;
   final VoidCallback onToggleObscure;
   final VoidCallback onLogin;
+  final VoidCallback onForgotPassword;
 
   @override
   Widget build(BuildContext context) {
@@ -269,7 +293,7 @@ class _LoginCard extends StatelessWidget {
           Align(
             alignment: Alignment.centerRight,
             child: GestureDetector(
-              onTap: () {},
+              onTap: onForgotPassword,
               child: const Text(
                 'Esqueceu sua senha?',
                 style: TextStyle(
