@@ -92,6 +92,10 @@ services:
       - ../secrets:/app/secrets:ro
     environment:
       FIREBASE_CREDENTIALS_PATH: /app/secrets/edu-ia-29080-firebase-adminsdk-fbsvc-4b9cc9075d.json
+      # Sign presigned image URLs against the host LAN IP so physical devices can
+      # reach MinIO. Built from HOST_IP (exported by `make back-up`); falls back
+      # to the Android-emulator alias when HOST_IP is unset.
+      R2_PUBLIC_ENDPOINT_URL: "http://${HOST_IP:-10.0.2.2}:9000"
 
   worker:
     build: .
@@ -110,6 +114,10 @@ services:
       - ../secrets:/app/secrets:ro
     environment:
       FIREBASE_CREDENTIALS_PATH: /app/secrets/edu-ia-29080-firebase-adminsdk-fbsvc-4b9cc9075d.json
+      # Sign presigned image URLs against the host LAN IP so physical devices can
+      # reach MinIO. Built from HOST_IP (exported by `make back-up`); falls back
+      # to the Android-emulator alias when HOST_IP is unset.
+      R2_PUBLIC_ENDPOINT_URL: "http://${HOST_IP:-10.0.2.2}:9000"
 
   minio:
     image: minio/minio:latest

@@ -76,7 +76,8 @@ front-test: ## Run Flutter tests
 .PHONY: back-up back-down back-logs back-sh back-test back-test-e2e back-lint back-format back-migrate back-seed back-revision back-sync
 
 back-up: ## Start backend stack (postgres, redis, rabbitmq, api, worker)
-	cd $(BACK_DIR) && $(COMPOSE) up -d
+	@echo "→ R2_PUBLIC_ENDPOINT_URL host: $(if $(HOST_IP),$(HOST_IP),10.0.2.2 (emulator fallback — set HOST_IP for physical devices))"
+	cd $(BACK_DIR) && HOST_IP=$(HOST_IP) $(COMPOSE) up -d
 
 back-down: ## Stop backend stack
 	cd $(BACK_DIR) && $(COMPOSE) down
