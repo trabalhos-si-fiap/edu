@@ -4,6 +4,15 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<!-- Allow cleartext HTTP to the dev backend on the local network (private
+	     LAN IPs / .local). Without this, iOS App Transport Security blocks the
+	     plain-HTTP connection to the host's LAN IP on a physical device.
+	     Production must use HTTPS — do NOT add NSAllowsArbitraryLoads. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
