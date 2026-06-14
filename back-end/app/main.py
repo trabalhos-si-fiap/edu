@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 
+from app.admin.setup import setup_admin
 from app.bff.router import router as bff_router
 from app.core.config import settings
 from app.core.logging import configure_logging
@@ -40,3 +41,8 @@ app.include_router(payment_methods_router, prefix=settings.API_PREFIX)
 app.include_router(notifications_router, prefix=settings.API_PREFIX)
 app.include_router(support_router, prefix=settings.API_PREFIX)
 app.include_router(bff_router, prefix=settings.API_PREFIX)
+
+
+# Painel administrativo web (SQLAdmin) montado em /admin. Camada de agregação —
+# pode importar models de todos os módulos, igual ao BFF.
+setup_admin(app)
