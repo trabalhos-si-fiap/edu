@@ -1,6 +1,7 @@
+import 'dart:convert';
+
 import 'package:edu_ia/features/auth/data/auth_api.dart';
 import 'package:edu_ia/features/auth/presentation/reset_password_screen.dart';
-import 'package:edu_ia/features/auth/presentation/widgets/otp_input.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/testing.dart';
@@ -28,16 +29,11 @@ Widget _harness(AuthApi api) => MaterialApp(
     );
 
 Future<void> _fillForm(WidgetTester tester) async {
-  final boxes = find.descendant(
-    of: find.byType(OtpInput),
-    matching: find.byType(TextField),
-  );
-  for (var i = 0; i < 6; i++) {
-    await tester.enterText(boxes.at(i), '${i + 1}');
-  }
-  final passwords = find.byType(TextFormField);
-  await tester.enterText(passwords.at(0), 'NovaSenha!9');
-  await tester.enterText(passwords.at(1), 'NovaSenha!9');
+  // Fields in order: code, new password, confirm password.
+  final fields = find.byType(TextFormField);
+  await tester.enterText(fields.at(0), '123456');
+  await tester.enterText(fields.at(1), 'NovaSenha!9');
+  await tester.enterText(fields.at(2), 'NovaSenha!9');
   await tester.pump();
 }
 
@@ -83,11 +79,22 @@ void main() {
     await tester.pump(const Duration(seconds: 60)); // drain cooldown timer
   });
 
-  testWidgets('navigates to login on success', (tester) async {
-    final api = AuthApi(client: MockClient((_) async => http.Response('', 200)));
+  testWidgets('masks the code field and submits digits only, then navigates',
+      (tester) async {
+    String? sentCode;
+    final api = AuthApi(client: MockClient((req) async {
+      if (req.url.path.endsWith('/auth/password-reset/confirm')) {
+        sentCode = (jsonDecode(req.body) as Map<String, dynamic>)['code']
+            as String?;
+      }
+      return http.Response('', 200);
+    }));
     await tester.pumpWidget(_harness(api));
     await tester.pump();
     await _fillForm(tester);
+
+    // The single code field renders the digits separated by spaces.
+    expect(find.text('1 2 3 4 5 6'), findsOneWidget);
 
     final submit = find.widgetWithText(ElevatedButton, 'Redefinir senha');
     await tester.ensureVisible(submit);
@@ -96,6 +103,8 @@ void main() {
     await tester.pump(); // request resolves, navigation scheduled
     await tester.pumpAndSettle(); // route transition (timer cancelled on dispose)
 
+    // The code reached the backend without the visual spaces.
+    expect(sentCode, '123456');
     expect(find.text('login-screen'), findsOneWidget);
   });
 

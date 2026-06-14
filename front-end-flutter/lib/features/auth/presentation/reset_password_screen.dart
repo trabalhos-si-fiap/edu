@@ -1,10 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../data/auth_api.dart';
-import 'widgets/otp_input.dart';
 
 class ResetPasswordScreen extends StatefulWidget {
   ResetPasswordScreen({super.key, AuthApi? authApi})
@@ -20,9 +20,9 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   static const _cooldownStart = 60;
 
   final _formKey = GlobalKey<FormState>();
+  final _codeController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmController = TextEditingController();
-  String _code = '';
   bool _obscurePassword = true;
   bool _obscureConfirm = true;
   bool _submitting = false;
@@ -39,6 +39,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   @override
   void dispose() {
     _timer?.cancel();
+    _codeController.dispose();
     _passwordController.dispose();
     _confirmController.dispose();
     super.dispose();
@@ -74,7 +75,8 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
 
   Future<void> _handleSubmit() async {
     if (_submitting) return;
-    if (_code.length != 6) {
+    final code = _codeController.text.replaceAll(' ', '');
+    if (code.length != 6) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Informe os 6 dígitos do código')),
       );
@@ -86,7 +88,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     try {
       await widget.authApi.confirmPasswordReset(
         email: _emailArg(),
-        code: _code,
+        code: code,
         newPassword: _passwordController.text,
       );
       if (!mounted) return;
@@ -186,7 +188,22 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
             const SizedBox(height: 20),
             _label('Código'),
             const SizedBox(height: 8),
-            OtpInput(onChanged: (v) => _code = v),
+            TextFormField(
+              controller: _codeController,
+              keyboardType: TextInputType.number,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 4,
+                color: AppColors.textPrimary,
+              ),
+              inputFormatters: const [_SpacedDigitsFormatter(6)],
+              decoration: const InputDecoration(
+                counterText: '',
+                hintText: '0 0 0 0 0 0',
+              ),
+            ),
             const SizedBox(height: 20),
             _label('Nova senha'),
             const SizedBox(height: 8),
@@ -311,6 +328,31 @@ class _Header extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Keeps only digits (capped at [maxDigits]) and renders them separated by a
+/// single space (e.g. `1 2 3 4 5 6`). The spaces are display-only — callers
+/// read the raw code by stripping spaces from the controller text.
+class _SpacedDigitsFormatter extends TextInputFormatter {
+  const _SpacedDigitsFormatter(this.maxDigits);
+
+  final int maxDigits;
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    var digits = newValue.text.replaceAll(RegExp(r'\D'), '');
+    if (digits.length > maxDigits) {
+      digits = digits.substring(0, maxDigits);
+    }
+    final formatted = digits.split('').join(' ');
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
     );
   }
 }

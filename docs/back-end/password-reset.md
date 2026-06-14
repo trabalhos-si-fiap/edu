@@ -248,9 +248,10 @@ O fluxo de "esqueci minha senha" no app Flutter já está implementado
 
 - **Esqueci a senha** (`/forgot-password`) — campo de e-mail → `request` →
   confirmação neutra (anti-enumeração) → navega para a tela de código.
-- **Redefinir senha** (`/reset-password`) — código de 6 dígitos (widget
-  `OtpInput`) + nova senha → `confirm` → volta ao login. Inclui "Reenviar
-  código" com cooldown de 60s.
+- **Redefinir senha** (`/reset-password`) — código de 6 dígitos (campo único com
+  máscara de slots `0 0 0 0 0 0`; o separador é só visual e os 6 dígitos são
+  enviados sem espaços) + nova senha → `confirm` → volta ao login. Inclui
+  "Reenviar código" com cooldown de 60s.
 
 Camada de dados: `AuthApi.requestPasswordReset` / `AuthApi.confirmPasswordReset`.
 Spec: `docs/superpowers/specs/2026-06-14-password-reset-flutter-screens-design.md`.
