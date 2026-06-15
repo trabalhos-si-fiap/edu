@@ -12,6 +12,7 @@ from sqlalchemy.orm import selectinload
 # atomic and idempotent (security rule #3). That correctness requirement
 # outweighs module purity here, so orders reads the cart/products tables
 # directly. When extracted, this becomes a saga/transactional outbox.
+from app.modules.addresses import services as addresses_services
 from app.modules.cart.models import Cart, CartItem
 from app.modules.notifications import services as notifications_services
 from app.modules.orders import lifecycle
@@ -33,7 +34,10 @@ async def _get_order_with_items(
 
 
 async def create_order_from_cart(
-    session: AsyncSession, user_id: uuid.UUID, payment_method: str
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    payment_method: str,
+    address_id: uuid.UUID | None = None,
 ) -> Order:
     # Lock the cart row so a concurrent/duplicate checkout can't build two
     # orders from the same cart — the second finds it already emptied.
@@ -60,7 +64,23 @@ async def create_order_from_cart(
         .all()
     }
 
-    order = Order(user_id=user_id, payment_method=payment_method, total=Decimal("0.00"))
+    address = None
+    if address_id is not None:
+        address = await addresses_services.get_address(session, user_id, address_id)
+
+    order = Order(
+        user_id=user_id,
+        payment_method=payment_method,
+        total=Decimal("0.00"),
+        ship_label=address.label if address else None,
+        ship_zip_code=address.zip_code if address else None,
+        ship_street=address.street if address else None,
+        ship_number=address.number if address else None,
+        ship_complement=address.complement if address else None,
+        ship_neighborhood=address.neighborhood if address else None,
+        ship_city=address.city if address else None,
+        ship_state=address.state if address else None,
+    )
     total = Decimal("0.00")
     for cart_item in cart_items:
         product = products.get(cart_item.product_id)
