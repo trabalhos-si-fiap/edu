@@ -4,9 +4,11 @@ Mirrors the Flutter mock catalog (mock_marketplace.dart) so the connected app
 shows the same data it does today with mocks. Safe to run repeatedly — products
 are keyed by name and skipped if already present.
 
-When an ObjectStorage instance is passed to seed_products(), a deterministic
-solid-color placeholder PNG is generated (stdlib only, no Pillow) and uploaded
-per product, and the product's image_url is set to the resulting object key.
+When an ObjectStorage instance is passed to seed_products(), each product's
+curated free-license (Unsplash) photo is downloaded and uploaded under
+products/seed-{index}.jpg, and the product's image_url is set to that key.
+Images are always overwritten on each run. _solid_png() is kept as a stdlib-only
+fallback for any future entry that has no photo_url.
 
 Run inside the api container:
 
@@ -17,14 +19,17 @@ import asyncio
 import struct
 import uuid
 import zlib
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+import httpx
 from loguru import logger
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import SessionLocal
 from app.modules.products.models import Product, Review
 
@@ -70,6 +75,26 @@ def _unsplash(photo_id: str) -> str:
     License: free commercial use, no attribution required.
     """
     return f"https://images.unsplash.com/{photo_id}?w=800&h=800&fit=crop&q=80&fm=jpg"
+
+
+_FETCH_TIMEOUT_SECONDS = 15.0
+
+
+async def _fetch_image(url: str) -> bytes:
+    """Download a curated product photo as bytes.
+
+    Thin httpx wrapper (I/O glue, exercised by the real seed run). Raises on
+    network/HTTP error or when the body exceeds the configured upload cap.
+    seed_products() catches failures and keeps the product's current image, so a
+    transient error never erases a good photo.
+    """
+    async with httpx.AsyncClient(timeout=_FETCH_TIMEOUT_SECONDS, follow_redirects=True) as client:
+        resp = await client.get(url)
+        resp.raise_for_status()
+        body = resp.content
+    if len(body) > settings.MEDIA_MAX_UPLOAD_BYTES:
+        raise ValueError(f"image exceeds max upload bytes: {len(body)}")
+    return body
 
 
 # rating_avg/rating_count are the "headline" aggregates carried over from the
@@ -206,36 +231,49 @@ SEED_PRODUCTS: list[dict] = [
 ]
 
 
-async def seed_products(session: AsyncSession, *, storage: "ObjectStorage | None" = None) -> int:
+async def seed_products(
+    session: AsyncSession,
+    *,
+    storage: "ObjectStorage | None" = None,
+    fetch_image: Callable[[str], Awaitable[bytes]] = _fetch_image,
+) -> int:
     """Insert any missing catalog products (and their sample reviews).
 
     Returns the number of products inserted. Existing products (matched by
     name) are not re-inserted, so this is safe to run repeatedly.
 
-    When storage is provided, a deterministic solid-color PNG placeholder is
-    generated and uploaded for each newly inserted product, and image_url is
-    set to the resulting object key. Existing products whose image_url is still
-    empty (e.g. seeded before the storage wiring) are backfilled the same way;
-    products that already have an image are never overwritten.
+    When storage is provided, each product's curated photo is downloaded via
+    fetch_image and uploaded under products/seed-{index}.jpg, and image_url is
+    set to that key. Images are ALWAYS overwritten (the seed runs manually, not
+    on boot); any superseded object key is deleted best-effort. A download
+    failure is logged and leaves the product's current image untouched.
     """
     existing = {p.name: p for p in (await session.execute(select(Product))).scalars().all()}
 
-    def _seed_image(index: int) -> tuple[str, tuple[int, int, int]]:
-        key = f"products/seed-{index}.png"
-        color = ((index * 53) % 256, (index * 97) % 256, (index * 151) % 256)
-        return key, color
+    async def _apply_image(product: Product, index: int, photo_url: str | None) -> None:
+        if storage is None or not photo_url:
+            return
+        key = f"products/seed-{index}.jpg"
+        try:
+            body = await fetch_image(photo_url)
+        except Exception as exc:  # network/HTTP/timeout/oversize
+            logger.warning("seed: failed to download photo for {!r}: {}", product.name, exc)
+            return
+        await storage.put_object(key, body, "image/jpeg")
+        if product.image_url and product.image_url != key:
+            try:
+                await storage.delete_object(product.image_url)
+            except Exception as exc:  # best-effort cleanup of the old object
+                logger.warning(
+                    "seed: failed to delete superseded object {!r}: {}", product.image_url, exc
+                )
+        product.image_url = key
 
     inserted = 0
     for index, data in enumerate(SEED_PRODUCTS):
+        photo_url = data.get("photo_url")
         if data["name"] in existing:
-            # Already present (matched by name) — backfill a placeholder image
-            # for rows that predate the storage wiring, but never overwrite an
-            # image that's already set. Keeps the seed safe to re-run.
-            current = existing[data["name"]]
-            if storage is not None and not current.image_url:
-                key, color = _seed_image(index)
-                await storage.put_object(key, _solid_png(400, 400, color), "image/png")
-                current.image_url = key
+            await _apply_image(existing[data["name"]], index, photo_url)
             continue
         product = Product(
             name=data["name"],
@@ -256,11 +294,8 @@ async def seed_products(session: AsyncSession, *, storage: "ObjectStorage | None
                     created_at=_ts(review["created_at"]),
                 )
             )
-        if storage is not None:
-            key, color = _seed_image(index)
-            await storage.put_object(key, _solid_png(400, 400, color), "image/png")
-            product.image_url = key
         session.add(product)
+        await _apply_image(product, index, photo_url)
         inserted += 1
 
     await session.commit()
