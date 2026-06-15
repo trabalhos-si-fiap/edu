@@ -285,6 +285,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     try {
       await CheckoutService().placeOrder(
         paymentMethod: _paymentTitle(method),
+        addressId: _selectedAddressId,
       );
     } on CheckoutException catch (e) {
       if (mounted) _snack(e.message);
