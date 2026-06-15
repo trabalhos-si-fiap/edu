@@ -62,11 +62,22 @@ def _solid_png(width: int, height: int, rgb: tuple[int, int, int]) -> bytes:
     return signature + _chunk(b"IHDR", ihdr) + _chunk(b"IDAT", idat) + _chunk(b"IEND", b"")
 
 
+def _unsplash(photo_id: str) -> str:
+    """Build a sized, cropped JPEG URL from an Unsplash photo id.
+
+    The CDN params give us an ~800x800 JPEG directly, so seeded images are
+    small and square without any image processing (no Pillow needed). Unsplash
+    License: free commercial use, no attribution required.
+    """
+    return f"https://images.unsplash.com/{photo_id}?w=800&h=800&fit=crop&q=80&fm=jpg"
+
+
 # rating_avg/rating_count are the "headline" aggregates carried over from the
 # mock; the listed reviews are an illustrative subset (as in the current app).
 SEED_PRODUCTS: list[dict] = [
     {
         "name": "Guia de Redação Nota 1000",
+        "photo_url": _unsplash("photo-1455390582262-044cdead277a"),
         "type": "apostila",
         "subtype": "Apostila Digital",
         "description": (
@@ -93,6 +104,7 @@ SEED_PRODUCTS: list[dict] = [
     },
     {
         "name": "Mastering Data Synthesis",
+        "photo_url": _unsplash("photo-1551288049-bebda4e38f71"),
         "type": "curso",
         "subtype": "Premium Course",
         "description": (
@@ -112,6 +124,7 @@ SEED_PRODUCTS: list[dict] = [
     },
     {
         "name": "Diagnostic AI Toolkit",
+        "photo_url": _unsplash("photo-1488590528505-98d2b5aba04b"),
         "type": "digital",
         "subtype": "Digital Tool",
         "description": (
@@ -132,6 +145,7 @@ SEED_PRODUCTS: list[dict] = [
     },
     {
         "name": "Simulado ENEM Completo",
+        "photo_url": _unsplash("photo-1434030216411-0b793f4b4173"),
         "type": "apostila",
         "subtype": "Apostila",
         "description": (
@@ -157,6 +171,7 @@ SEED_PRODUCTS: list[dict] = [
     },
     {
         "name": "Mapa Mental de Biologia",
+        "photo_url": _unsplash("photo-1532187863486-abf9dbad1b69"),
         "type": "digital",
         "subtype": "Material Digital",
         "description": (
@@ -169,6 +184,7 @@ SEED_PRODUCTS: list[dict] = [
     },
     {
         "name": "Curso de Matemática Essencial",
+        "photo_url": _unsplash("photo-1509228468518-180dd4864904"),
         "type": "curso",
         "subtype": "Curso",
         "description": (

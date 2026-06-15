@@ -5,6 +5,17 @@ from app.modules.products.models import Product, Review
 from app.seeds.products import SEED_PRODUCTS, seed_products
 
 
+def test_every_seed_product_has_a_unique_unsplash_photo_url() -> None:
+    from app.seeds.products import SEED_PRODUCTS
+
+    urls = [data["photo_url"] for data in SEED_PRODUCTS]
+    for url in urls:
+        assert url.startswith("https://images.unsplash.com/")
+        assert "fm=jpg" in url
+        assert "fit=crop" in url
+    assert len(set(urls)) == len(urls)  # one distinct photo per product
+
+
 class TestProductsSeed:
     async def test_inserts_full_catalog(self, db_session: AsyncSession) -> None:
         inserted = await seed_products(db_session)
