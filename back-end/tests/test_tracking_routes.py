@@ -78,6 +78,37 @@ async def tracked_order(db_session: AsyncSession, db_user: User) -> Order:
 
 
 @pytest.fixture
+async def routed_order(db_session: AsyncSession, db_user: User) -> Order:
+    """A persisted order owned by ``db_user`` with a delivery-address snapshot."""
+    order = Order(
+        user_id=db_user.id,
+        total=Decimal("100.00"),
+        payment_method="pix",
+        status="out_for_delivery",
+        ship_label="Casa",
+        ship_zip_code="13201-005",
+        ship_street="Rua das Flores",
+        ship_number="42",
+        ship_complement="Apto 3",
+        ship_neighborhood="Centro",
+        ship_city="Jundiaí",
+        ship_state="SP",
+        items=[
+            OrderItem(
+                product_id=uuid.uuid4(),
+                product_name="Apostila",
+                unit_price=Decimal("100.00"),
+                quantity=1,
+            )
+        ],
+    )
+    db_session.add(order)
+    await db_session.commit()
+    await db_session.refresh(order)
+    return order
+
+
+@pytest.fixture
 async def db_auth_client(client: AsyncClient, db_user: User) -> AsyncIterator[AsyncClient]:
     """A client authenticated as the persisted ``db_user`` (owns ``tracked_order``)."""
 
@@ -228,7 +259,7 @@ async def test_get_order_route_requires_auth(client: AsyncClient) -> None:
 
 
 async def test_get_order_route_happy_path(
-    auth_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    db_auth_client: AsyncClient, routed_order: Order, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(settings, "GOOGLE_MAPS_API_PLATAFORM", "test-key")
 
@@ -239,11 +270,13 @@ async def test_get_order_route_happy_path(
             distance_km=32.0,
             duration_text="48 min",
             duration_minutes=48,
+            destination_latitude=-23.1857,
+            destination_longitude=-46.8978,
         )
 
     monkeypatch.setattr(directions, "fetch_directions", fake_fetch)
 
-    resp = await auth_client.get(f"/api/orders/{_ORDER_ID}/route")
+    resp = await db_auth_client.get(f"/api/orders/{routed_order.id}/route")
     assert resp.status_code == 200
 
     body = resp.json()
@@ -259,16 +292,32 @@ async def test_get_order_route_happy_path(
     assert set(body["origin"]) == {"label", "latitude", "longitude"}
     assert body["polyline"] == "enc-poly"
     assert body["origin"]["label"] == "Centro de Distribuição"
+    assert body["destination"]["latitude"] == -23.1857
+    assert body["destination"]["longitude"] == -46.8978
     assert body["duration_minutes"] == 48
 
 
 async def test_get_order_route_unavailable_returns_503(
-    auth_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    db_auth_client: AsyncClient, routed_order: Order, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Provider failure surfaces as RouteUnavailable; the route must map it to a
     # clean 503, never a 500. Here the maps key is unconfigured.
     monkeypatch.setattr(settings, "GOOGLE_MAPS_API_PLATAFORM", None)
 
-    resp = await auth_client.get(f"/api/orders/{_ORDER_ID}/route")
+    resp = await db_auth_client.get(f"/api/orders/{routed_order.id}/route")
     assert resp.status_code == 503
     assert resp.json()["detail"] == "Rota indisponível no momento"
+
+
+async def test_get_order_route_unknown_order_returns_404(db_auth_client: AsyncClient) -> None:
+    resp = await db_auth_client.get(f"/api/orders/{uuid.uuid4()}/route")
+    assert resp.status_code == 404
+
+
+async def test_get_order_route_without_address_returns_503(
+    db_auth_client: AsyncClient, tracked_order: Order, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # tracked_order has no ship_* snapshot -> nothing to route to.
+    monkeypatch.setattr(settings, "GOOGLE_MAPS_API_PLATAFORM", "test-key")
+    resp = await db_auth_client.get(f"/api/orders/{tracked_order.id}/route")
+    assert resp.status_code == 503
