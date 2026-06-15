@@ -12,10 +12,13 @@ class _FakeTokenStore extends TokenStore {
 }
 
 void main() {
-  test('placeOrder posts only to /orders and returns the order id', () async {
+  test('placeOrder posts payment_method and address_id, returns the order id',
+      () async {
     final calls = <String>[];
+    Map<String, dynamic>? sentBody;
     final client = MockClient((req) async {
       calls.add('${req.method} ${req.url.path}');
+      sentBody = jsonDecode(req.body) as Map<String, dynamic>;
       if (req.method == 'POST' && req.url.path.endsWith('/orders')) {
         return http.Response(jsonEncode({'id': 'order-9'}), 201);
       }
@@ -24,10 +27,12 @@ void main() {
     final service =
         CheckoutService(client: client, tokenStore: _FakeTokenStore());
 
-    final orderId = await service.placeOrder(paymentMethod: 'PIX');
+    final orderId =
+        await service.placeOrder(paymentMethod: 'PIX', addressId: 'addr-1');
 
     expect(orderId, 'order-9');
     expect(calls, ['POST /api/orders']);
+    expect(sentBody, {'payment_method': 'PIX', 'address_id': 'addr-1'});
   });
 
   test('throws CheckoutException when order creation fails', () async {
@@ -37,7 +42,7 @@ void main() {
         CheckoutService(client: client, tokenStore: _FakeTokenStore());
 
     expect(
-      () => service.placeOrder(paymentMethod: 'PIX'),
+      () => service.placeOrder(paymentMethod: 'PIX', addressId: 'addr-1'),
       throwsA(isA<CheckoutException>()),
     );
   });
