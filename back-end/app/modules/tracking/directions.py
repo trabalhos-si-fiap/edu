@@ -1,7 +1,8 @@
 """Google Directions API client for the order-route map.
 
-Pure HTTP boundary: given two ``(lat, lng)`` points and an API key, it returns
-the encoded overview polyline plus distance and duration. Any failure to obtain
+Pure HTTP boundary: given a ``(lat, lng)`` origin and a text destination address
+plus an API key, it returns the encoded overview polyline, distance, duration,
+and the geocoded destination coordinates (the route's final ``end_location``). Any failure to obtain
 a usable route — transport error, timeout, non-OK API status, or empty route
 list — is surfaced as :class:`RouteUnavailable` so callers handle one error type.
 
@@ -30,6 +31,8 @@ class DirectionsResult:
     distance_km: float
     duration_text: str
     duration_minutes: int
+    destination_latitude: float
+    destination_longitude: float
 
 
 def _format_point(point: tuple[float, float]) -> str:
@@ -41,7 +44,7 @@ async def fetch_directions(
     client: httpx.AsyncClient,
     *,
     origin: tuple[float, float],
-    destination: tuple[float, float],
+    destination: str,
     api_key: str,
 ) -> DirectionsResult:
     """Fetch the driving route ``origin`` -> ``destination`` from Google.
@@ -50,7 +53,7 @@ async def fetch_directions(
     """
     params = {
         "origin": _format_point(origin),
-        "destination": _format_point(destination),
+        "destination": destination,
         "mode": "driving",
         "key": api_key,
     }
@@ -75,10 +78,20 @@ async def fetch_directions(
     duration_seconds = sum(leg.get("duration", {}).get("value", 0) for leg in legs)
     first_leg = legs[0] if legs else {}
 
+    last_leg = legs[-1] if legs else {}
+    end_location = last_leg.get("end_location") or {}
+    if "lat" not in end_location or "lng" not in end_location:
+        # No geocoded destination point — can't place the pin; fail fast rather
+        # than defaulting to (0, 0).
+        logger.warning("tracking: directions OK response missing end_location")
+        raise RouteUnavailable("directions response missing end_location")
+
     return DirectionsResult(
         polyline=route["overview_polyline"]["points"],
         distance_text=first_leg.get("distance", {}).get("text", ""),
         distance_km=distance_meters / 1000,
         duration_text=first_leg.get("duration", {}).get("text", ""),
         duration_minutes=math.ceil(duration_seconds / 60),
+        destination_latitude=float(end_location.get("lat", 0.0)),
+        destination_longitude=float(end_location.get("lng", 0.0)),
     )

@@ -7,7 +7,7 @@ from app.modules.tracking.directions import DirectionsResult, fetch_directions
 from app.modules.tracking.exceptions import RouteUnavailable
 
 _ORIGIN = (-23.3558, -46.8769)
-_DEST = (-23.561414, -46.655881)
+_DEST = "Rua das Flores, 42, Centro, Jundiaí - SP, 13201-005, Brazil"
 
 _OK_BODY = {
     "status": "OK",
@@ -18,6 +18,7 @@ _OK_BODY = {
                 {
                     "distance": {"text": "32,4 km", "value": 32400},
                     "duration": {"text": "48 min", "value": 2880},
+                    "end_location": {"lat": -23.1857, "lng": -46.8978},
                 }
             ],
         }
@@ -39,6 +40,8 @@ async def test_fetch_directions_parses_ok_response() -> None:
     assert result.distance_km == pytest.approx(32.4)
     assert result.duration_text == "48 min"
     assert result.duration_minutes == 48  # 2880s -> 48 min
+    assert result.destination_latitude == -23.1857
+    assert result.destination_longitude == -46.8978
 
 
 async def test_fetch_directions_sends_origin_destination_and_key() -> None:
@@ -52,7 +55,7 @@ async def test_fetch_directions_sends_origin_destination_and_key() -> None:
         await fetch_directions(client, origin=_ORIGIN, destination=_DEST, api_key="secret-key")
 
     assert seen["origin"] == "-23.3558,-46.8769"
-    assert seen["destination"] == "-23.561414,-46.655881"
+    assert seen["destination"] == _DEST
     assert seen["key"] == "secret-key"
 
 
@@ -65,6 +68,23 @@ async def test_fetch_directions_raises_on_non_ok_status() -> None:
 
 async def test_fetch_directions_raises_on_empty_routes() -> None:
     body = {"status": "OK", "routes": []}
+    async with _client(lambda req: httpx.Response(200, json=body)) as client:
+        with pytest.raises(RouteUnavailable):
+            await fetch_directions(client, origin=_ORIGIN, destination=_DEST, api_key="k")
+
+
+async def test_fetch_directions_raises_when_end_location_missing() -> None:
+    # An OK response whose leg carries no end_location can't position the
+    # destination pin — fail fast instead of defaulting to (0, 0).
+    body = {
+        "status": "OK",
+        "routes": [
+            {
+                "overview_polyline": {"points": "abc"},
+                "legs": [{"distance": {"text": "1 km", "value": 1000}, "duration": {"value": 60}}],
+            }
+        ],
+    }
     async with _client(lambda req: httpx.Response(200, json=body)) as client:
         with pytest.raises(RouteUnavailable):
             await fetch_directions(client, origin=_ORIGIN, destination=_DEST, api_key="k")

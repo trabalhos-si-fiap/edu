@@ -4,6 +4,9 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.addresses import services as addresses_services
+from app.modules.addresses.exceptions import AddressNotFound
+from app.modules.addresses.schemas import AddressIn
 from app.modules.auth.models import User
 from app.modules.cart import services as cart_services
 from app.modules.cart.models import CartItem
@@ -102,3 +105,61 @@ class TestRebuyRepopulatesCart:
             )
         cart = await cart_services.get_cart(db_session, created_user.id)
         assert cart.total == order.total
+
+
+class TestCheckoutAddressSnapshot:
+    async def _make_address(self, db_session, user_id):
+        return await addresses_services.create_address(
+            db_session,
+            user_id,
+            AddressIn(
+                label="Casa",
+                zip_code="13201-005",
+                street="Rua das Flores",
+                number="42",
+                complement="Apto 3",
+                neighborhood="Centro",
+                city="Jundiaí",
+                state="SP",
+            ),
+        )
+
+    async def test_snapshots_address_onto_order(
+        self,
+        db_session: AsyncSession,
+        created_user: User,
+        filled_cart: list[Product],
+    ) -> None:
+        address = await self._make_address(db_session, created_user.id)
+
+        order = await services.create_order_from_cart(
+            db_session, created_user.id, "PIX", address_id=address.id
+        )
+
+        assert order.ship_street == "Rua das Flores"
+        assert order.ship_number == "42"
+        assert order.ship_city == "Jundiaí"
+        assert order.ship_state == "SP"
+        assert order.ship_zip_code == "13201-005"
+        assert order.ship_label == "Casa"
+
+    async def test_without_address_leaves_snapshot_empty(
+        self,
+        db_session: AsyncSession,
+        created_user: User,
+        filled_cart: list[Product],
+    ) -> None:
+        order = await services.create_order_from_cart(db_session, created_user.id, "PIX")
+        assert order.ship_street is None
+
+    async def test_rejects_address_of_another_user(
+        self,
+        db_session: AsyncSession,
+        created_user: User,
+        filled_cart: list[Product],
+    ) -> None:
+        stranger_address_id = uuid.uuid4()  # never created for this user
+        with pytest.raises(AddressNotFound):
+            await services.create_order_from_cart(
+                db_session, created_user.id, "PIX", address_id=stranger_address_id
+            )

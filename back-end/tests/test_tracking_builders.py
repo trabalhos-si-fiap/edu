@@ -104,3 +104,30 @@ def test_exactly_one_current_step_unless_delivered(status: OrderStatus) -> None:
         assert currents == []
     else:
         assert len(currents) == 1
+
+
+def test_location_uses_snapshot_city_when_out_for_delivery() -> None:
+    order = _order(OrderStatus.OUT_FOR_DELIVERY)
+    order.ship_city = "Jundiaí"
+    order.ship_state = "SP"
+    payload = build_order_tracking(order)
+    assert payload.location.city == "Jundiaí"
+    assert payload.location.state == "SP"
+
+
+def test_location_uses_snapshot_city_when_delivered() -> None:
+    order = _order(OrderStatus.DELIVERED)
+    order.ship_city = "Campinas"
+    order.ship_state = "SP"
+    payload = build_order_tracking(order)
+    assert payload.location.city == "Campinas"
+
+
+def test_location_falls_back_to_cd_before_dispatch() -> None:
+    order = _order(OrderStatus.SEPARATING)
+    order.ship_city = "Jundiaí"
+    order.ship_state = "SP"
+    payload = build_order_tracking(order)
+    # Still at the distribution center until it's out for delivery.
+    assert payload.location.city == "Cajamar"
+    assert payload.location.state == "SP"

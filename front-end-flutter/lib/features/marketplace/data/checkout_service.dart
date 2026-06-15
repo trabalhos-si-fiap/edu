@@ -26,13 +26,19 @@ class CheckoutService {
   final TokenStore _tokenStore;
 
   /// Retorna o id do pedido criado.
-  Future<String> placeOrder({required String paymentMethod}) async {
+  Future<String> placeOrder({
+    required String paymentMethod,
+    String? addressId,
+  }) async {
     final headers = await _headers();
     final res = await _send(
       () => _client.post(
         Uri.parse('${ApiConfig.baseUrl}/orders'),
         headers: {'Content-Type': 'application/json', ...headers},
-        body: jsonEncode({'payment_method': paymentMethod}),
+        body: jsonEncode({
+          'payment_method': paymentMethod,
+          'address_id': ?addressId,
+        }),
       ),
       accept: const {200, 201},
       error: 'Falha ao finalizar o pedido',

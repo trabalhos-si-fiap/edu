@@ -57,14 +57,19 @@ async def predict_eta(
 async def get_order_route(
     order_id: OrderId,
     user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
     redis: Annotated[aioredis.Redis, Depends(get_redis)],
 ) -> RouteOut:
     """Return the street route from the distribution center to the destination."""
     try:
-        return await services.get_order_route(redis, user.id, order_id)
+        return await services.get_order_route(session, redis, user.id, order_id)
+    except OrderNotFound as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Pedido não encontrado"
+        ) from exc
     except RouteUnavailable as exc:
-        # Provider down/over-quota, no route, or key unconfigured — surface a
-        # clean 503 instead of leaking a 500 (and never echo the provider detail).
+        # Provider down/over-quota, no route, no address, or key unconfigured —
+        # surface a clean 503 instead of a 500 (never echo the provider detail).
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Rota indisponível no momento",

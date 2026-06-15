@@ -47,6 +47,20 @@ class Order(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
+    # Snapshot of the delivery address chosen at checkout. An order is a
+    # historical record of WHERE it shipped, so the address is copied here and
+    # must not change if the user later edits/deletes the source Address.
+    # Nullable: pre-existing orders and the lenient (address-less) create
+    # contract leave these empty; the route endpoint then returns 503.
+    ship_label: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    ship_zip_code: Mapped[str | None] = mapped_column(String(9), nullable=True)
+    ship_street: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    ship_number: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    ship_complement: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    ship_neighborhood: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    ship_city: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    ship_state: Mapped[str | None] = mapped_column(String(2), nullable=True)
+
     items: Mapped[list["OrderItem"]] = relationship(
         back_populates="order",
         cascade="all, delete-orphan",

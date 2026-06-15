@@ -9,6 +9,7 @@ from app.core.database import get_session
 from app.core.media import presigned_image_url
 from app.core.redis_client import get_redis
 from app.core.storage import ObjectStorage, get_storage
+from app.modules.addresses.exceptions import AddressNotFound
 from app.modules.auth.dependencies import get_current_user
 from app.modules.auth.models import User
 
@@ -53,11 +54,19 @@ async def create_order(
     payload: OrderCreateIn | None = None,
 ) -> OrderOut:
     payment_method = payload.payment_method if payload is not None else ""
+    address_id = payload.address_id if payload is not None else None
     try:
-        order = await services.create_order_from_cart(session, user.id, payment_method)
+        order = await services.create_order_from_cart(
+            session, user.id, payment_method, address_id=address_id
+        )
     except EmptyCart as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Cart is empty"
+        ) from exc
+    except AddressNotFound as exc:
+        # A stale or foreign address id is a client error, not a 404 on the order.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid delivery address"
         ) from exc
     return await _order_out(order, storage=storage, redis=redis)
 

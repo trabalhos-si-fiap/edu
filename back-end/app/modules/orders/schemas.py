@@ -15,6 +15,11 @@ class OrderCreateIn(BaseModel):
     # empty-body contract.
     payment_method: str = Field(default="", max_length=120)
 
+    # Which saved address this order ships to. Optional to preserve the original
+    # empty-body contract; when present it is validated and snapshotted onto the
+    # order. The app always sends the selected address id.
+    address_id: uuid.UUID | None = None
+
 
 class OrderItemOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
