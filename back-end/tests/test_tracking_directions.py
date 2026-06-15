@@ -73,6 +73,23 @@ async def test_fetch_directions_raises_on_empty_routes() -> None:
             await fetch_directions(client, origin=_ORIGIN, destination=_DEST, api_key="k")
 
 
+async def test_fetch_directions_raises_when_end_location_missing() -> None:
+    # An OK response whose leg carries no end_location can't position the
+    # destination pin — fail fast instead of defaulting to (0, 0).
+    body = {
+        "status": "OK",
+        "routes": [
+            {
+                "overview_polyline": {"points": "abc"},
+                "legs": [{"distance": {"text": "1 km", "value": 1000}, "duration": {"value": 60}}],
+            }
+        ],
+    }
+    async with _client(lambda req: httpx.Response(200, json=body)) as client:
+        with pytest.raises(RouteUnavailable):
+            await fetch_directions(client, origin=_ORIGIN, destination=_DEST, api_key="k")
+
+
 async def test_fetch_directions_raises_on_http_error() -> None:
     def boom(req: httpx.Request) -> httpx.Response:
         raise httpx.ConnectTimeout("timeout", request=req)

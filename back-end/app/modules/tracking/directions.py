@@ -80,6 +80,11 @@ async def fetch_directions(
 
     last_leg = legs[-1] if legs else {}
     end_location = last_leg.get("end_location") or {}
+    if "lat" not in end_location or "lng" not in end_location:
+        # No geocoded destination point — can't place the pin; fail fast rather
+        # than defaulting to (0, 0).
+        logger.warning("tracking: directions OK response missing end_location")
+        raise RouteUnavailable("directions response missing end_location")
 
     return DirectionsResult(
         polyline=route["overview_polyline"]["points"],
