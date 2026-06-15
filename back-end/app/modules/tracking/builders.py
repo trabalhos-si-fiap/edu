@@ -59,8 +59,9 @@ _COPY: dict[OrderStatus, tuple[str, str]] = {
     ),
 }
 
-# Last-known-location label per status. The coordinates/route stay mocked
-# (see the /route endpoint); this only drives the location card's text.
+# Last-known-location label per status. The city/state are derived from the
+# order's delivery-address snapshot once it's out for delivery (see
+# build_order_tracking); this dict only drives the location card's name text.
 _LOCATION_NAME: dict[OrderStatus, str] = {
     OrderStatus.OUT_FOR_DELIVERY: "Em rota de entrega",
     OrderStatus.DELIVERED: "Entregue no endereço",
@@ -135,6 +136,12 @@ def build_order_tracking(order: Order) -> OrderTrackingOut:
         status_updated_at if status == OrderStatus.DELIVERED else created_at + _DELIVERY_WINDOW
     )
 
+    # Once the parcel is out for delivery / delivered, the last-known location is
+    # the destination city; before that it sits at the distribution center.
+    at_destination = status in (OrderStatus.OUT_FOR_DELIVERY, OrderStatus.DELIVERED)
+    location_city = order.ship_city if (at_destination and order.ship_city) else "Cajamar"
+    location_state = order.ship_state if (at_destination and order.ship_state) else "SP"
+
     return OrderTrackingOut(
         id=str(order.id),
         headline=headline,
@@ -143,8 +150,8 @@ def build_order_tracking(order: Order) -> OrderTrackingOut:
         steps=steps,
         location=TrackingLocationOut(
             name=_LOCATION_NAME.get(status, _DEFAULT_LOCATION_NAME),
-            city="Cajamar",
-            state="SP",
+            city=location_city,
+            state=location_state,
             updated_at=status_updated_at,
         ),
         kit=[KitItemOut(name=item.product_name) for item in order.items],
