@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.modules.orders import services as orders_services
 from app.modules.orders.exceptions import OrderNotFound
+from app.modules.orders.models import Order
 from app.modules.tracking import directions
 from app.modules.tracking.builders import build_order_tracking
 from app.modules.tracking.exceptions import RouteUnavailable
@@ -32,9 +33,10 @@ from app.modules.tracking.schemas import (
     RoutePoint,
 )
 
-# Mocked delivery destination (the customer's home) used by the ETA estimator.
-# The tracking screen contract doesn't carry this coordinate, so it lives here
-# until the addresses/orders integration provides the real one.
+# Destination used ONLY by the predict-eta endpoint, which has no app consumer
+# yet (a future courier app) and needs coordinates for the Haversine math. The
+# real order route (get_order_route) derives its destination from the order's
+# snapshot address. Remove when predict-eta gets a real address source.
 _MOCK_DESTINATION = GeoPoint(latitude=-23.561414, longitude=-46.655881)
 
 # Mocked distribution center (route origin) — Cajamar/SP. Paired with
@@ -112,14 +114,44 @@ async def predict_eta(
     )
 
 
-async def get_order_route(redis: aioredis.Redis, user_id: object, order_id: str) -> RouteOut:
+def _destination_query(order: Order) -> str:
+    """Build a Google-geocodable address string from the order's snapshot."""
+    parts = [
+        order.ship_street,
+        order.ship_number,
+        order.ship_neighborhood,
+        f"{order.ship_city} - {order.ship_state}" if order.ship_city else None,
+        order.ship_zip_code,
+        "Brazil",
+    ]
+    return ", ".join(p for p in parts if p)
+
+
+async def get_order_route(
+    session: AsyncSession,
+    redis: aioredis.Redis,
+    user_id: uuid.UUID,
+    order_id: str,
+) -> RouteOut:
     """Return the street route from the distribution center to the order address.
 
-    Lazily calls the Google Directions API only on a cache miss; the origin and
-    destination are fixed per order, so the resulting route is cached in Redis
-    (security/cost: avoids repeated paid Directions calls). Ownership is the
-    caller's responsibility; with the current mock every order resolves.
+    Loads the order (ownership enforced in the query — security rule #2), builds
+    the destination from its delivery-address snapshot, and lazily calls the
+    Google Directions API only on a cache miss (origin/destination are fixed per
+    order, so the route is cached in Redis to avoid repeated paid calls).
     """
+    try:
+        parsed_id = uuid.UUID(order_id)
+    except ValueError as exc:
+        # Not a real order id — treat as not found, don't 500 on bad input.
+        raise OrderNotFound() from exc
+
+    order = await orders_services.get_order(session, user_id, parsed_id)
+    if not order.ship_street:
+        # Order has no delivery-address snapshot (pre-migration or address-less
+        # checkout); there is nothing to route to.
+        raise RouteUnavailable("order has no delivery address")
+
     cache_key = f"{_ROUTE_CACHE_PREFIX}{order_id}"
     cached = await redis.get(cache_key)
     if cached is not None:
@@ -134,7 +166,7 @@ async def get_order_route(redis: aioredis.Redis, user_id: object, order_id: str)
         result = await directions.fetch_directions(
             client,
             origin=(_MOCK_ORIGIN.latitude, _MOCK_ORIGIN.longitude),
-            destination=(_MOCK_DESTINATION.latitude, _MOCK_DESTINATION.longitude),
+            destination=_destination_query(order),
             api_key=api_key,
         )
 
@@ -145,9 +177,9 @@ async def get_order_route(redis: aioredis.Redis, user_id: object, order_id: str)
             longitude=_MOCK_ORIGIN.longitude,
         ),
         destination=RoutePoint(
-            label=_DESTINATION_LABEL,
-            latitude=_MOCK_DESTINATION.latitude,
-            longitude=_MOCK_DESTINATION.longitude,
+            label=order.ship_label or _DESTINATION_LABEL,
+            latitude=result.destination_latitude,
+            longitude=result.destination_longitude,
         ),
         polyline=result.polyline,
         distance_text=result.distance_text,
