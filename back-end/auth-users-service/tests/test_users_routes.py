@@ -1,6 +1,7 @@
-from edu_common.security import create_access_token
+from edu_common.security import create_access_token, hash_password
 
 from app.config import settings
+from app.models.user import User
 
 
 def admin_headers() -> dict[str, str]:
@@ -51,3 +52,21 @@ async def test_list_users_respects_limit(client):
         )
     response = await client.get("/users?limit=2", headers=admin_headers())
     assert len(response.json()) == 2
+
+
+async def test_list_users_default_limit_caps_an_unbounded_listing(client, db_session):
+    """Review finding: no test proved the default (50) actually caps a
+    listing left unbounded (no `?limit`) — only that an explicit `?limit=N`
+    is respected. Inserted directly via `db_session` (bypassing
+    `/auth/register`'s bcrypt hashing 51 times) since this is about the
+    listing endpoint's default, not about registration."""
+    senha_hash = hash_password("Senha@123")
+    for i in range(51):
+        db_session.add(
+            User(nome=f"Cap {i}", email=f"cap{i}@teste.com", senha_hash=senha_hash, role="student")
+        )
+    await db_session.commit()
+
+    response = await client.get("/users", headers=admin_headers())
+
+    assert len(response.json()) == 50

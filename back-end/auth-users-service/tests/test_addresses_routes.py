@@ -1,3 +1,5 @@
+from app.models.address import Address
+
 REGISTER = {
     "name": "Maria",
     "email": "maria@teste.com",
@@ -81,6 +83,45 @@ async def test_list_addresses_is_paginated(client):
         await client.post("/auth/addresses", json={**ADDRESS, "number": str(i)}, headers=headers)
     response = await client.get("/auth/addresses?limit=2", headers=headers)
     assert len(response.json()) == 2
+
+
+async def test_list_addresses_rejects_limit_above_the_cap(client):
+    """Review finding: the cap (le=200) is implemented on both /users and
+    /auth/addresses, but only /users had a test locking it down."""
+    headers = await _register(client, REGISTER)
+    response = await client.get("/auth/addresses?limit=1000", headers=headers)
+    assert response.status_code == 422
+
+
+async def test_list_addresses_default_limit_caps_an_unbounded_listing(client, db_session):
+    """Review finding: no test proved the default (50) actually caps a
+    listing left unbounded (no `?limit`). Addresses inserted directly via
+    `db_session` — this is about the listing endpoint's default, not about
+    address creation."""
+    tokens = (await client.post("/auth/register", json=REGISTER)).json()
+    headers = {"Authorization": f"Bearer {tokens['tokens']['access_token']}"}
+    user_id = tokens["user"]["id"]
+
+    for i in range(51):
+        db_session.add(
+            Address(
+                user_id=user_id,
+                label="Casa",
+                zip_code="01001-000",
+                street="Rua Teste",
+                number=str(i),
+                complement="",
+                neighborhood="Bairro",
+                city="São Paulo",
+                state="SP",
+                is_favorite=False,
+            )
+        )
+    await db_session.commit()
+
+    response = await client.get("/auth/addresses", headers=headers)
+
+    assert len(response.json()) == 50
 
 
 async def test_patch_with_non_uuid_address_id_returns_422(client):
