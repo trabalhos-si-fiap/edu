@@ -7,29 +7,24 @@ from app.config import settings
 SERVICE_MAP: dict[str, str] = {
     "auth": "auth",
     "users": "auth",
-    "materias": "learning",
-    "temas": "learning",
-    "subtemas": "learning",
-    "diagnostico": "learning",
-    "recomendacoes": "learning",
-    "revisoes": "learning",
-    "produtos": "commerce",
-    "pedidos": "commerce",
-    "separacao": "commerce",
-    "entrega": "commerce",
-    "admin": "commerce",
-    "ocorrencias": "commerce",
-    "notifications": "notification",
-    "analytics": "analytics",
-    "chat": "chatbot",
-    # ATENÇÃO — mapeados para o Commerce Service, mas os endpoints reais
-    # ainda não existem lá com esse contrato (ver STATUS.md, seção
-    # Marketplace/Checkout). Requests para estes paths hoje respondem 404
-    # vindo do próprio Commerce Service, não do Gateway.
+    "addresses": "auth",
+    "subjects": "learning",
+    "topics": "learning",
+    "subtopics": "learning",
+    "diagnostic": "learning",
+    "recommendations": "learning",
+    "reviews": "learning",
     "products": "commerce",
     "orders": "commerce",
     "cart": "commerce",
     "payment-methods": "commerce",
+    "picking": "commerce",
+    "delivery": "commerce",
+    "occurrences": "commerce",
+    "admin": "commerce",
+    "notifications": "notification",
+    "analytics": "analytics",
+    "chat": "chatbot",
     "support": "chatbot",
 }
 
@@ -43,15 +38,12 @@ SERVICE_BASE_URLS: dict[str, str] = {
 }
 
 
-def resolver_destino(path: str) -> tuple[str, str] | None:
-    """
-    Recebe o path já sem o prefixo `/api` (ex: "auth/login") e devolve
+def resolve_destination(path: str) -> tuple[str, str] | None:
+    """Recebe o path já sem o prefixo `/api` (ex: "auth/login") e devolve
     (base_url_do_servico, path_final_com_barra_inicial), ou None se não
-    houver nenhum serviço mapeado para esse path.
-    """
-    primeiro_segmento = path.split("/", 1)[0] if path else ""
-    servico = SERVICE_MAP.get(primeiro_segmento)
-    if servico is None:
+    houver serviço mapeado."""
+    first_segment = path.split("/", 1)[0] if path else ""
+    service = SERVICE_MAP.get(first_segment)
+    if service is None:
         return None
-
-    return SERVICE_BASE_URLS[servico], f"/{path}"
+    return SERVICE_BASE_URLS[service], f"/{path}"

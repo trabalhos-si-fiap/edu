@@ -14,6 +14,11 @@ class Settings(BaseSettings):
 
     request_timeout_seconds: float = 30.0
 
+    # Origens liberadas para CORS (lista JSON via env CORS_ORIGINS). Sem
+    # curinga — allow_credentials=True com "*" é rejeitado pelo browser e
+    # vazaria a API para qualquer site.
+    cors_origins: list[str] = ["http://localhost:3000"]
+
     class Config:
         env_file = ".env"
 

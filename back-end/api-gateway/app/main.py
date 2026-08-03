@@ -1,18 +1,19 @@
 import httpx
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
 from app.config import settings
-from app.routing import resolver_destino
+from app.routing import resolve_destination
 
 app = FastAPI(title="Edu API Gateway")
 
-# CORS liberado para o MVP (Flutter Web / apps de terceiros de demo).
-# Em produção, restrinjam allow_origins aos domínios reais do app.
+# Origens liberadas vêm do ambiente (CORS_ORIGINS, lista JSON). Curinga com
+# allow_credentials=True é rejeitado pelos browsers e vazaria a API para
+# qualquer site — a lista explícita é obrigatória mesmo em dev.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -34,52 +35,48 @@ async def health():
     methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
 )
 async def gateway(path: str, request: Request):
-    destino = resolver_destino(path)
-    if destino is None:
+    destination = resolve_destination(path)
+    if destination is None:
         raise HTTPException(
             status_code=404,
             detail=f"Nenhum serviço mapeado para '/{path}'. Verifique app/routing.py.",
         )
 
-    base_url, path_final = destino
-    url = f"{base_url}{path_final}"
+    base_url, final_path = destination
+    url = f"{base_url}{final_path}"
 
     headers = {
-        k: v
-        for k, v in request.headers.items()
-        if k.lower() not in _HEADERS_PARA_REMOVER_NA_IDA
+        k: v for k, v in request.headers.items() if k.lower() not in _HEADERS_PARA_REMOVER_NA_IDA
     }
     body = await request.body()
 
     async with httpx.AsyncClient(timeout=settings.request_timeout_seconds) as client:
         try:
-            resposta = await client.request(
+            response = await client.request(
                 request.method,
                 url,
                 params=request.query_params,
                 headers=headers,
                 content=body,
             )
-        except httpx.ConnectError:
+        except httpx.ConnectError as exc:
             raise HTTPException(
                 status_code=503,
                 detail=f"Serviço indisponível ao processar '/{path}'",
-            )
-        except httpx.TimeoutException:
+            ) from exc
+        except httpx.TimeoutException as exc:
             raise HTTPException(
                 status_code=504,
                 detail=f"Tempo limite excedido ao processar '/{path}'",
-            )
+            ) from exc
 
-    headers_resposta = {
-        k: v
-        for k, v in resposta.headers.items()
-        if k.lower() not in _HEADERS_PARA_REMOVER_NA_VOLTA
+    response_headers = {
+        k: v for k, v in response.headers.items() if k.lower() not in _HEADERS_PARA_REMOVER_NA_VOLTA
     }
 
     return Response(
-        content=resposta.content,
-        status_code=resposta.status_code,
-        headers=headers_resposta,
-        media_type=resposta.headers.get("content-type"),
+        content=response.content,
+        status_code=response.status_code,
+        headers=response_headers,
+        media_type=response.headers.get("content-type"),
     )
