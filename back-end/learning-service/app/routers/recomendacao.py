@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -35,7 +35,13 @@ async def get_recomendacao(
 @router.get("/related/{subtema_id}", response_model=list[SubtemaRelacionadoOut])
 async def get_subtemas_relacionados(
     subtema_id: int,
-    k: int = 3,
+    # le=20: é um widget de "conteúdo relacionado", não uma listagem —
+    # 20 sugestões cobre generosamente qualquer uso legítimo do cliente e
+    # evita que `?k=<grande>` force NearestNeighbors a rankear o catálogo
+    # inteiro de subtemas a cada chamada (recomendacao_semantica.py
+    # clampa só em `len(ids_nomes)`, ou seja, sem este limite o teto real
+    # era "todo o banco").
+    k: int = Query(3, ge=1, le=20),
     _usuario: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -49,7 +55,9 @@ async def get_subtemas_relacionados(
     um enriquecimento opcional e nunca derruba a resposta), aqui a
     similaridade semântica É o propósito do endpoint — se o modelo de
     embeddings falhar (sem internet, timeout etc.), retorna 503 explicando
-    o motivo em vez de vazar um stack trace bruto ao cliente.
+    o motivo em vez de vazar um stack trace bruto ao cliente. `k` fora dos
+    limites agora nunca chega aqui — é rejeitado com 422 pelo `Query`
+    acima, antes deste corpo rodar.
     """
     try:
         relacionados = await subtemas_relacionados(db, subtema_id, k=k)
