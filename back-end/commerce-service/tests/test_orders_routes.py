@@ -81,3 +81,30 @@ async def test_my_orders_only_returns_orders_owned_by_the_caller(client, db_sess
     assert response.status_code == 200
     ids = {row["aluno_id"] for row in response.json()}
     assert ids == {mine}
+
+
+async def test_my_orders_response_does_not_leak_staff_assignee_ids(client, db_session):
+    """Fix round 1 (reviewer finding, MINOR #4): `separador_id`/
+    `entregador_id` são identificadores operacionais internos — quem está
+    separando/entregando o pedido não é assunto do aluno. Mesma classe do
+    vazamento de `descricao_ia` fechado no learning-service. `PedidoOut`
+    (contrato do aluno) não deve incluí-los; `PedidoStaffOut`
+    (picking/delivery/admin) é quem os expõe."""
+    aluno_id = str(uuid.uuid4())
+    await _seed_pedido(db_session, aluno_id)
+
+    response = await client.get("/orders/mine", headers=headers_for("student", aluno_id))
+    assert response.status_code == 200
+    order = response.json()[0]
+    assert set(order) == {
+        "id",
+        "aluno_id",
+        "status",
+        "endereco_entrega",
+        "valor_total",
+        "transportadora_nome",
+        "data_prevista_entrega",
+        "criado_em",
+    }
+    assert "separador_id" not in order
+    assert "entregador_id" not in order

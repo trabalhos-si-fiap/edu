@@ -8,13 +8,13 @@ from app.models.pedido import Pedido
 from app.models.produto import Estoque
 from app.routers.separacao import transicionar_pedido
 from app.schemas.estoque import EstoqueOut
-from app.schemas.pedido import PedidoOut
+from app.schemas.pedido import PedidoStaffOut
 from app.services.status_pedido import StatusPedido
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
-@router.get("/orders", response_model=list[PedidoOut])
+@router.get("/orders", response_model=list[PedidoStaffOut])
 async def listar_pedidos(
     status: str | None = None,
     limit: int = Query(50, ge=1, le=200),
@@ -30,7 +30,7 @@ async def listar_pedidos(
     return result.scalars().all()
 
 
-@router.patch("/orders/{pedido_id}/confirm-payment", response_model=PedidoOut)
+@router.patch("/orders/{pedido_id}/confirm-payment", response_model=PedidoStaffOut)
 async def confirmar_pagamento(
     pedido_id: int,
     user: dict = Depends(requer_papel("admin")),
@@ -42,7 +42,7 @@ async def confirmar_pagamento(
     )
 
 
-@router.patch("/orders/{pedido_id}/assign-picker", response_model=PedidoOut)
+@router.patch("/orders/{pedido_id}/assign-picker", response_model=PedidoStaffOut)
 async def atribuir_separador(
     pedido_id: int,
     separador_id: str,
@@ -59,7 +59,7 @@ async def atribuir_separador(
     return pedido
 
 
-@router.patch("/orders/{pedido_id}/assign-deliverer", response_model=PedidoOut)
+@router.patch("/orders/{pedido_id}/assign-deliverer", response_model=PedidoStaffOut)
 async def atribuir_entregador(
     pedido_id: int,
     entregador_id: str,
