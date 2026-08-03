@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from app.database import Base
@@ -10,7 +10,12 @@ class Ocorrencia(Base):
     id = Column(Integer, primary_key=True)
     pedido_id = Column(Integer, ForeignKey("pedidos.id"), nullable=False, index=True)
     tipo = Column(String(30), nullable=False)  # FALTA_ESTOQUE | ATRASO_ENTREGA
-    status = Column(String(20), nullable=False, default="ABERTA", index=True)
+    # `default=` covers ORM inserts; `server_default` matches schema.sql's
+    # `DEFAULT 'ABERTA'` for any insert bypassing the ORM — fix round 1,
+    # reviewer finding.
+    status = Column(
+        String(20), nullable=False, default="ABERTA", server_default=text("'ABERTA'"), index=True
+    )
 
     # Campos específicos de FALTA_ESTOQUE
     produto_id = Column(Integer, ForeignKey("produtos.id"), nullable=True)

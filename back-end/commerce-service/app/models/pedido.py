@@ -7,6 +7,7 @@ from sqlalchemy import (
     String,
     Text,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 
@@ -18,7 +19,12 @@ class Pedido(Base):
 
     id = Column(Integer, primary_key=True)
     aluno_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    status = Column(String(30), nullable=False, default="CRIADO", index=True)
+    # `default=` covers ORM inserts; `server_default` matches schema.sql's
+    # `DEFAULT 'CRIADO'` for any insert bypassing the ORM — fix round 1,
+    # reviewer finding.
+    status = Column(
+        String(30), nullable=False, default="CRIADO", server_default=text("'CRIADO'"), index=True
+    )
     endereco_entrega = Column(Text, nullable=False)
     valor_total = Column(Numeric(10, 2), nullable=False)
     separador_id = Column(UUID(as_uuid=True), nullable=True, index=True)

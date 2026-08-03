@@ -1,8 +1,8 @@
 """baseline schema
 
-Revision ID: 559862df2d79
+Revision ID: 62926745dd94
 Revises:
-Create Date: 2026-08-03 01:46:13.670366
+Create Date: 2026-08-03 02:17:44.898627
 
 """
 
@@ -14,7 +14,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "559862df2d79"
+revision: str = "62926745dd94"
 down_revision: str | Sequence[str] | None = None
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
@@ -28,14 +28,16 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("nome", sa.String(length=150), nullable=False),
         sa.Column("contato", sa.String(length=150), nullable=True),
-        sa.Column("ativo", sa.Boolean(), nullable=True),
+        sa.Column("ativo", sa.Boolean(), server_default=sa.text("true"), nullable=True),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_table(
         "pedidos",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("aluno_id", sa.UUID(), nullable=False),
-        sa.Column("status", sa.String(length=30), nullable=False),
+        sa.Column(
+            "status", sa.String(length=30), server_default=sa.text("'CRIADO'"), nullable=False
+        ),
         sa.Column("endereco_entrega", sa.Text(), nullable=False),
         sa.Column("valor_total", sa.Numeric(precision=10, scale=2), nullable=False),
         sa.Column("separador_id", sa.UUID(), nullable=True),
@@ -72,7 +74,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("produto_id", sa.Integer(), nullable=True),
         sa.Column("fornecedor_id", sa.Integer(), nullable=True),
-        sa.Column("quantidade", sa.Integer(), nullable=False),
+        sa.Column("quantidade", sa.Integer(), server_default=sa.text("0"), nullable=False),
         sa.Column(
             "atualizado_em",
             sa.DateTime(timezone=True),
@@ -95,7 +97,9 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("pedido_id", sa.Integer(), nullable=False),
         sa.Column("tipo", sa.String(length=30), nullable=False),
-        sa.Column("status", sa.String(length=20), nullable=False),
+        sa.Column(
+            "status", sa.String(length=20), server_default=sa.text("'ABERTA'"), nullable=False
+        ),
         sa.Column("produto_id", sa.Integer(), nullable=True),
         sa.Column("produtos_sugeridos", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("produto_escolhido_id", sa.Integer(), nullable=True),

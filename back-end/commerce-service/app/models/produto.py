@@ -9,6 +9,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 
 from app.database import Base
@@ -20,7 +21,10 @@ class Fornecedor(Base):
     id = Column(Integer, primary_key=True)
     nome = Column(String(150), nullable=False)
     contato = Column(String(150), nullable=True)
-    ativo = Column(Boolean, default=True)
+    # `default=True` covers ORM inserts; `server_default` matches schema.sql's
+    # `DEFAULT TRUE` for any insert that bypasses the ORM (raw SQL, seed
+    # scripts, SQLAdmin, a future service) — fix round 1, reviewer finding.
+    ativo = Column(Boolean, default=True, server_default=text("true"))
 
 
 class Produto(Base):
@@ -43,5 +47,5 @@ class Estoque(Base):
     id = Column(Integer, primary_key=True)
     produto_id = Column(Integer, ForeignKey("produtos.id"))
     fornecedor_id = Column(Integer, ForeignKey("fornecedores.id"))
-    quantidade = Column(Integer, nullable=False, default=0)
+    quantidade = Column(Integer, nullable=False, default=0, server_default=text("0"))
     atualizado_em = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
