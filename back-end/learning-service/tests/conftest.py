@@ -1,5 +1,6 @@
 import uuid
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 
 import pytest
 from edu_common.security import create_access_token
@@ -95,22 +96,42 @@ async def client(
     app.dependency_overrides.clear()
 
 
+@dataclass(frozen=True)
+class StudentIdentity:
+    """Um aluno de teste e o header pronto para autenticar como ele — os dois
+    lados do mesmo token, para testes que precisam gravar linhas no banco
+    com o MESMO `aluno_id` que a rota vai extrair do JWT (ex.: paginação de
+    `/reviews/today`, que filtra por `AlunoTemaProgresso.aluno_id`).
+    """
+
+    aluno_id: uuid.UUID
+    headers: dict[str, str]
+
+
 @pytest.fixture
-def auth_headers() -> dict[str, str]:
+def student_identity() -> StudentIdentity:
+    aluno_id = uuid.uuid4()
+    token = create_access_token(
+        sub=str(aluno_id),
+        role="student",
+        secret=settings.jwt_secret,
+        algorithm=settings.jwt_algorithm,
+    )
+    return StudentIdentity(aluno_id=aluno_id, headers={"Authorization": f"Bearer {token}"})
+
+
+@pytest.fixture
+def auth_headers(student_identity: StudentIdentity) -> dict[str, str]:
     """Um bearer token de aluno válido, assinado com o mesmo segredo do
     serviço (`settings.jwt_secret`/`jwt_algorithm`) — é o que
     `app.dependencies.get_current_user`/`get_current_student_id` (via
     `edu_common.deps.build_auth_deps`) espera decodificar. Usado pelos
     testes de rota que exigem autenticação mas não dependem de nenhum
-    valor específico de `aluno_id`.
+    valor específico de `aluno_id`. Testes que precisam do `aluno_id` em si
+    (para seedar dados que a rota vai filtrar por ele) usam
+    `student_identity` diretamente em vez desta fixture.
     """
-    token = create_access_token(
-        sub=str(uuid.uuid4()),
-        role="student",
-        secret=settings.jwt_secret,
-        algorithm=settings.jwt_algorithm,
-    )
-    return {"Authorization": f"Bearer {token}"}
+    return student_identity.headers
 
 
 @pytest.fixture(autouse=True)
