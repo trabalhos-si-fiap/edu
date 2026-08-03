@@ -25,12 +25,19 @@ app = FastAPI(title="Chatbot Service", lifespan=lifespan)
 
 
 @app.post("/chat/ask", response_model=MensagemOut)
-async def chat_ask(payload: MensagemIn) -> MensagemOut:
+async def chat_ask(
+    payload: MensagemIn,
+    _user: dict = Depends(get_current_student),
+) -> MensagemOut:
     """Assistente genérico (RAG estático) — dúvidas de suporte (frete,
-    troca, etc.), sem contexto pessoal do aluno. Continua sem autenticação
-    de propósito: não consulta nem revela nenhum dado de aluno, e o
-    input é limitado (`schemas.MensagemIn`) para conter o custo de abuso
-    de um endpoint público."""
+    troca, etc.), sem contexto pessoal do aluno. Autenticado: cada chamada
+    aciona uma consulta paga ao provedor de LLM (Groq), então um endpoint
+    anônimo seria um vetor de dreno de custo aberto pra internet inteira —
+    todo chamador deste produto já está logado, então não há necessidade
+    de deixar isso público (diferente de /auth/login, que precisa ficar
+    aberto porque autentica quem ainda não tem sessão). `_user` não é
+    usado além da checagem de auth: esta rota não consulta nem revela
+    nenhum dado pessoal do aluno."""
     try:
         resposta = await responder(payload.pergunta)
     except RagIndisponivelError:

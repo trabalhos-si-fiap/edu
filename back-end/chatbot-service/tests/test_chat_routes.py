@@ -1,10 +1,14 @@
 """Contrato e segurança de `/chat/ask` e `/chat/explain-question`.
 
-Cobre: 401 vs 403 (contrato do gateway/refresh do Flutter), a autenticação
-encadeada com o Learning Service (o motivo de `raw_token` existir), que o
-token do aluno nunca aparece no corpo da resposta, que os paths antigos em
-português sumiram, que o endpoint público é limitado no tamanho do input, e
-que uma falha do provedor de LLM (Groq) nunca vaza como 500 cru.
+Cobre: 401 vs 403 (contrato do gateway/refresh do Flutter), que AMBAS as
+rotas exigem sessão (nenhuma delas é o caso "quem ainda não tem token" de
+/auth/login — todo chamador deste produto já está logado, e /chat/ask
+aciona uma chamada paga por request, então anônimo seria um vetor de
+dreno de custo), a autenticação encadeada com o Learning Service (o
+motivo de `raw_token` existir), que o token do aluno nunca aparece no
+corpo da resposta, que os paths antigos em português sumiram, que o
+input tem limite de tamanho, e que uma falha do provedor de LLM (Groq)
+nunca vaza como 500 cru.
 """
 
 from types import SimpleNamespace
@@ -182,19 +186,34 @@ async def test_old_ask_portuguese_path_is_gone(client):
     assert response.status_code == 404
 
 
-async def test_ask_is_public_and_returns_a_response(client):
+async def test_ask_requires_authentication(client):
+    """`/chat/ask` aciona uma chamada paga ao provedor de LLM por request —
+    diferente de /auth/login (que precisa ficar aberto porque autentica
+    quem ainda não tem sessão) ou /health, todo chamador deste produto já
+    está logado, então deixar esta rota anônima seria um vetor de dreno de
+    custo aberto pra internet inteira, sem ganho nenhum (nenhum caller
+    legítimo se beneficia de não estar autenticado aqui)."""
     response = await client.post("/chat/ask", json={"pergunta": "Qual o prazo de entrega?"})
+    assert response.status_code == 403
+
+
+async def test_ask_returns_a_response_when_authenticated(client):
+    response = await client.post(
+        "/chat/ask", json={"pergunta": "Qual o prazo de entrega?"}, headers=student_headers()
+    )
     assert response.status_code == 200
     assert response.json()["resposta"]
 
 
 async def test_ask_rejects_an_oversized_pergunta(client):
-    response = await client.post("/chat/ask", json={"pergunta": "x" * 1001})
+    response = await client.post(
+        "/chat/ask", json={"pergunta": "x" * 1001}, headers=student_headers()
+    )
     assert response.status_code == 422
 
 
 async def test_ask_rejects_an_empty_pergunta(client):
-    response = await client.post("/chat/ask", json={"pergunta": ""})
+    response = await client.post("/chat/ask", json={"pergunta": ""}, headers=student_headers())
     assert response.status_code == 422
 
 
@@ -211,7 +230,9 @@ async def test_ask_returns_a_clean_503_when_the_embeddings_index_is_unavailable(
 
     monkeypatch.setattr("app.main.responder", fake_responder_indisponivel, raising=True)
 
-    response = await client.post("/chat/ask", json={"pergunta": "Qual o prazo de entrega?"})
+    response = await client.post(
+        "/chat/ask", json={"pergunta": "Qual o prazo de entrega?"}, headers=student_headers()
+    )
     assert response.status_code == 503
 
 
@@ -229,7 +250,9 @@ async def test_ask_returns_a_clean_503_when_the_llm_provider_fails(client, monke
 
     monkeypatch.setattr("app.rag.AsyncGroq", _BrokenGroq, raising=True)
 
-    response = await client.post("/chat/ask", json={"pergunta": "Qual o prazo de entrega?"})
+    response = await client.post(
+        "/chat/ask", json={"pergunta": "Qual o prazo de entrega?"}, headers=student_headers()
+    )
     assert response.status_code == 503
     assert "Incorrect API key" not in response.text
     assert "RuntimeError" not in response.text
