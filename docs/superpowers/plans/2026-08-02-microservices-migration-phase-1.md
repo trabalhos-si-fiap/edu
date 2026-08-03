@@ -1870,51 +1870,17 @@ async def test_confirm_rejects_unknown_email_with_the_same_generic_error(client)
     assert response.json()["detail"] == "Código inválido ou expirado"
 ```
 
-- [ ] **Step 3: Rodar e confirmar que o teste do log falha**
+- [ ] **Step 3: Rodar e confirmar que estes testes já passam**
 
 ```bash
 cd /home/elias/programming/fiap/estuda_app/back-end/auth-users-service
 uv run pytest tests/test_password_reset.py -v
+grep -rn "print(\|utcnow\|random\." app/
 ```
 
-Expected: `test_request_never_logs_the_code` FAIL — o código hoje sai por `print()`, e os demais PASS.
+Expected: **todos PASS**, e o grep sem nenhuma ocorrência.
 
-- [ ] **Step 4: Remover o `print()` do OTP e usar timezone-aware**
-
-Em `back-end/auth-users-service/app/routers/auth.py`, no `password_reset_request`, trocar:
-
-```python
-        # MVP: sem provedor de e-mail/SMS configurado — logamos o código no
-        # console do serviço para permitir testar o fluxo manualmente.
-        print(f"[password-reset] código para {payload.email}: {codigo}")
-```
-
-por:
-
-```python
-        # O código é um segredo de curta duração — nunca vai para log. O envio
-        # real por e-mail entra na fase 3 da migração; até lá o fluxo só é
-        # testável pelo banco (tabela password_reset_codes).
-        logger.info("Código de reset gerado para user_id={}", user.id)
-```
-
-Acrescentar no topo do arquivo:
-
-```python
-from loguru import logger
-```
-
-E trocar as duas ocorrências de `datetime.utcnow()` por `datetime.now(UTC)`, ajustando o import:
-
-```python
-from datetime import UTC, datetime, timedelta
-```
-
-```bash
-grep -rn "print(\|utcnow" app/
-```
-
-Expected: nenhuma ocorrência.
+A task 6 já removeu o `print()` do código OTP, trocou `datetime.utcnow()` por `datetime.now(UTC)` e substituiu `random.randint()` por geração criptograficamente segura — são constraints globais incondicionais, não dava para deixar o serviço commitado violando-as. Estes testes são, portanto, **testes de regressão**: eles travam o comportamento para que ninguém reintroduza o vazamento. Se algum falhar aqui, é regressão de verdade — investigar antes de seguir.
 
 - [ ] **Step 5: Escrever os testes de paginação e ownership**
 
