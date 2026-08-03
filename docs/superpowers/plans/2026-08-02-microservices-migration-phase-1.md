@@ -353,7 +353,7 @@ curl -sf "http://localhost:${API_PORT:-8000}/health"
 make back-test
 ```
 
-Expected: `{"status":"ok"}` e a suíte inteira verde (410 testes, baseline medido antes da task 1).
+Expected: `{"status":"ok"}` e a suíte inteira verde (**406 passed, 0 failed, 6 deselected** — baseline medido antes da task 1, com MinIO no ar).
 
 - [ ] **Step 6: Commit**
 
@@ -3914,7 +3914,7 @@ curl -sf "http://localhost:${API_PORT:-8000}/health" && curl -sf http://localhos
 
 Critérios de aceite:
 
-1. A suíte do legacy segue com 410 testes verdes e o app continua servido na porta que o `.env` define.
+1. A suíte do legacy segue com 406 testes verdes (6 deselected, e2e) e o app continua servido na porta que o `.env` define.
 2. Os 8 projetos novos (7 serviços + edu-common) têm suíte verde e ruff limpo.
 3. Nenhum `print()` e nenhum `datetime.utcnow()` sobrou nos serviços importados.
 4. Nenhum `.env` foi commitado; `git log --stat` não mostra nenhum arquivo `.env`.
