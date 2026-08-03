@@ -1,6 +1,8 @@
+import uuid
 from collections.abc import AsyncIterator
 
 import pytest
+from edu_common.security import create_access_token
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -91,6 +93,24 @@ async def client(
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def auth_headers() -> dict[str, str]:
+    """Um bearer token de aluno válido, assinado com o mesmo segredo do
+    serviço (`settings.jwt_secret`/`jwt_algorithm`) — é o que
+    `app.dependencies.get_current_user`/`get_current_student_id` (via
+    `edu_common.deps.build_auth_deps`) espera decodificar. Usado pelos
+    testes de rota que exigem autenticação mas não dependem de nenhum
+    valor específico de `aluno_id`.
+    """
+    token = create_access_token(
+        sub=str(uuid.uuid4()),
+        role="student",
+        secret=settings.jwt_secret,
+        algorithm=settings.jwt_algorithm,
+    )
+    return {"Authorization": f"Bearer {token}"}
 
 
 @pytest.fixture(autouse=True)
