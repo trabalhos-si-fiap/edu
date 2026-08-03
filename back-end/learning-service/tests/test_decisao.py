@@ -10,12 +10,7 @@ limiares, retroceder < 0.3 só quando existe tema anterior) bateu com o
 código real — só os nomes de função/parâmetro mudaram.
 """
 
-from app.services.decisao import (
-    LIMIAR_AVANCAR_TEMA,
-    LIMIAR_RETROCEDER_TEMA,
-    AcaoTema,
-    decidir_acao_tema,
-)
+from app.services.decisao import AcaoTema, decidir_acao_tema
 
 
 def test_high_mastery_advances():
@@ -35,19 +30,18 @@ def test_low_mastery_studies_when_there_is_no_previous_topic():
 
 
 def test_boundary_at_seventy_percent_advances():
-    assert (
-        decidir_acao_tema(dominio_tema=LIMIAR_AVANCAR_TEMA, existe_tema_anterior=True)
-        == AcaoTema.AVANCAR
-    )
+    # Literal proposital (não LIMIAR_AVANCAR_TEMA importado do próprio
+    # módulo): o objetivo é travar o limiar em 0.70 exato, não em "o que
+    # quer que a constante valha hoje" — importar a constante como input
+    # deixaria o teste verde mesmo se o limiar fosse alterado no código.
+    assert decidir_acao_tema(dominio_tema=0.70, existe_tema_anterior=True) == AcaoTema.AVANCAR
 
 
 def test_boundary_at_thirty_percent_studies():
     # dominio < 0.3 é quem retrocede; em 0.3 exato não é "menor que", então
     # não retrocede — cai em "estudar" (não atinge o limiar de avançar).
-    assert (
-        decidir_acao_tema(dominio_tema=LIMIAR_RETROCEDER_TEMA, existe_tema_anterior=True)
-        == AcaoTema.ESTUDAR
-    )
+    # Literal proposital, mesmo motivo do teste acima.
+    assert decidir_acao_tema(dominio_tema=0.30, existe_tema_anterior=True) == AcaoTema.ESTUDAR
 
 
 def test_return_value_is_the_acao_tema_enum_not_a_bare_string():
