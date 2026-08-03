@@ -142,7 +142,12 @@ extend-immutable-calls = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# As duas linhas de loop_scope andam juntas. Só a de fixture não basta: o
+# default de teste é "function", e um engine asyncpg criado no loop da sessão
+# estoura no segundo teste que tocar o banco — falha que só aparece quando o
+# serviço ganha o seu segundo teste de banco, não no primeiro.
 asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
 markers = [
