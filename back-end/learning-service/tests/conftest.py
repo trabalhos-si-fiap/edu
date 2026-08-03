@@ -60,18 +60,21 @@ def _stub_publish_event(monkeypatch: pytest.MonkeyPatch) -> None:
     estouraria `RuntimeError("EventPublisher not connected — call connect()
     first")` depois que o progresso/resposta já foi gravado no banco.
 
-    O alvo do monkeypatch é o nome onde a ROTA importa `publish_event`, não
-    onde ele é definido: `app/routers/diagnostico.py` faz `from
-    app.events.publisher import publish_event`, o que copia a referência
-    para o namespace do próprio módulo — remendar
-    `app.events.publisher.publish_event` não afetaria essa cópia. Confirmado
-    com `grep -rn "publish_event" app/` antes de escrever esta fixture.
+    O alvo do monkeypatch é o nome onde CADA CHAMADOR importa `publish_event`,
+    não onde ele é definido — `from app.events.publisher import publish_event`
+    copia a referência para o namespace de quem importa, então remendar
+    `app.events.publisher.publish_event` não afetaria nenhuma dessas cópias.
+    Há DOIS chamadores, não um: `app/routers/diagnostico.py` (rota) e
+    `app/scheduler.py::verificar_revisoes_pendentes` (job do APScheduler) —
+    fix round 1 corrigiu esta fixture depois que a revisão encontrou que só o
+    primeiro estava coberto. Confirmado com `grep -rn "publish_event" app/`.
     """
 
     async def _noop(routing_key: str, payload: dict) -> None:
         return None
 
     monkeypatch.setattr("app.routers.diagnostico.publish_event", _noop)
+    monkeypatch.setattr("app.scheduler.publish_event", _noop)
 
 
 @pytest.fixture
@@ -91,7 +94,7 @@ async def client(
 
 
 @pytest.fixture(autouse=True)
-def fake_encoder(monkeypatch: pytest.MonkeyPatch):
+def fake_encoder(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch):
     """Evita baixar `paraphrase-multilingual-MiniLM-L12-v2` na suíte.
 
     O nome real da função de carga do modelo é `_get_modelo()`, dentro de
@@ -115,9 +118,15 @@ def fake_encoder(monkeypatch: pytest.MonkeyPatch):
     importa se chamadas a partir de outro módulo.
 
     Devolve um vetor determinístico por texto, o suficiente para exercitar a
-    lógica de similaridade sem carregar centenas de MB. Testes que precisam
-    do modelo real levam a marca `slow` e não usam esta fixture.
+    lógica de similaridade sem carregar centenas de MB. Testes marcados
+    `slow` fazem esta fixture retornar SEM remendar nada (ver `request`
+    abaixo) — fix round 1: antes disso a marca `slow` era só decorativa,
+    porque `autouse=True` sem checar `request` remenda TODO teste, marcado
+    ou não.
     """
+    if request.node.get_closest_marker("slow") is not None:
+        return
+
     import numpy as np
 
     class FakeEncoder:
@@ -132,10 +141,26 @@ def fake_encoder(monkeypatch: pytest.MonkeyPatch):
             entrada = [texts] if single else texts
             vetores = np.vstack(
                 [
-                    np.array([len(t) % 7, sum(map(ord, t)) % 11, len(t.split()) % 5], dtype=float)
+                    np.array(
+                        [len(t) % 7, sum(map(ord, t)) % 11, len(t.split()) % 5],
+                        dtype=np.float32,
+                    )
                     for t in entrada
                 ]
             )
+            # fix round 1: a versão anterior ignorava `normalize_embeddings`
+            # (presente em TODA chamada real, embeddings.py:38,47), então
+            # `similaridade_cosseno` — que só É a similaridade de cosseno
+            # porque assume vetores de norma 1 — devolvia o produto escalar
+            # bruto (ex.: 86.0 em vez de 1.0 para um texto comparado consigo
+            # mesmo). Guarda contra norma zero (texto vazio "") para não
+            # gerar NaN, que se propagaria sem erro por
+            # `NearestNeighbors(metric="cosine")` e seria engolido pelo
+            # `except Exception` largo em `diagnostico.py`.
+            if kwargs.get("normalize_embeddings"):
+                normas = np.linalg.norm(vetores, axis=1, keepdims=True)
+                normas[normas == 0] = 1.0
+                vetores = (vetores / normas).astype(np.float32)
             return vetores[0] if single else vetores
 
     # `raising=True` (o default) de propósito, ao contrário do rascunho

@@ -41,9 +41,14 @@ def gerar_embedding(texto: str) -> np.ndarray:
 def gerar_embeddings(textos: list[str]) -> np.ndarray:
     """Embeddings normalizados de uma lista de textos, em lote (mais rápido
     que chamar `gerar_embedding` em loop)."""
-    modelo = _get_modelo()
+    # Guarda ANTES de tocar o modelo: `_get_modelo()` carrega ~470MB na
+    # primeira chamada do processo inteiro (não só desta função) — uma
+    # lista vazia nunca deveria pagar esse custo. Bug real de produção
+    # encontrado em fix round 1 (a ordem antiga chamava `_get_modelo()`
+    # incondicionalmente, antes deste guard).
     if not textos:
         return np.array([])
+    modelo = _get_modelo()
     return modelo.encode(textos, convert_to_numpy=True, normalize_embeddings=True)
 
 
