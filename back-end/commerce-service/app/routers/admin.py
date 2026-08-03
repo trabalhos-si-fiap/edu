@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -7,26 +7,30 @@ from app.dependencies import requer_papel
 from app.models.pedido import Pedido
 from app.models.produto import Estoque
 from app.routers.separacao import transicionar_pedido
+from app.schemas.estoque import EstoqueOut
 from app.schemas.pedido import PedidoOut
 from app.services.status_pedido import StatusPedido
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
-@router.get("/pedidos", response_model=list[PedidoOut])
+@router.get("/orders", response_model=list[PedidoOut])
 async def listar_pedidos(
     status: str | None = None,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     user: dict = Depends(requer_papel("admin")),
     db: AsyncSession = Depends(get_db),
 ):
     query = select(Pedido)
     if status:
         query = query.where(Pedido.status == status)
+    query = query.order_by(Pedido.id).limit(limit).offset(offset)
     result = await db.execute(query)
     return result.scalars().all()
 
 
-@router.patch("/pedidos/{pedido_id}/confirmar-pagamento", response_model=PedidoOut)
+@router.patch("/orders/{pedido_id}/confirm-payment", response_model=PedidoOut)
 async def confirmar_pagamento(
     pedido_id: int,
     user: dict = Depends(requer_papel("admin")),
@@ -38,7 +42,7 @@ async def confirmar_pagamento(
     )
 
 
-@router.patch("/pedidos/{pedido_id}/atribuir-separador", response_model=PedidoOut)
+@router.patch("/orders/{pedido_id}/assign-picker", response_model=PedidoOut)
 async def atribuir_separador(
     pedido_id: int,
     separador_id: str,
@@ -55,7 +59,7 @@ async def atribuir_separador(
     return pedido
 
 
-@router.patch("/pedidos/{pedido_id}/atribuir-entregador", response_model=PedidoOut)
+@router.patch("/orders/{pedido_id}/assign-deliverer", response_model=PedidoOut)
 async def atribuir_entregador(
     pedido_id: int,
     entregador_id: str,
@@ -72,16 +76,24 @@ async def atribuir_entregador(
     return pedido
 
 
-@router.get("/estoque")
+@router.get("/inventory", response_model=list[EstoqueOut])
 async def listar_estoque(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     user: dict = Depends(requer_papel("admin")),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(Estoque))
+    """
+    `response_model` adicionado além do escopo original do brief — a rota
+    devolvia o objeto ORM `Estoque` cru (sem schema nenhum), violando a
+    regra "nenhum endpoint devolve objeto ORM cru". Ver
+    app/schemas/estoque.py para o porquê.
+    """
+    result = await db.execute(select(Estoque).order_by(Estoque.id).limit(limit).offset(offset))
     return result.scalars().all()
 
 
-@router.patch("/estoque/{estoque_id}/ajustar")
+@router.patch("/inventory/{estoque_id}/adjust", response_model=EstoqueOut)
 async def ajustar_estoque(
     estoque_id: int,
     quantidade: int,
