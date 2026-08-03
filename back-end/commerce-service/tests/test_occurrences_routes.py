@@ -4,6 +4,7 @@ from decimal import Decimal
 from edu_common.security import create_access_token
 
 from app.config import settings
+from app.models.ocorrencia import Ocorrencia
 from app.models.pedido import Pedido
 from app.models.produto import Produto
 from app.services.status_pedido import StatusPedido
@@ -49,8 +50,18 @@ async def _seed_produto(db_session) -> Produto:
     return produto
 
 
-async def test_old_portuguese_occurrences_order_path_is_gone(client):
-    response = await client.get("/ocorrencias/pedido/1", headers=headers_for("admin", sub=ADMIN))
+async def test_old_portuguese_occurrences_order_path_is_gone(client, db_session):
+    """Fix round 1 (reviewer finding #1): o pedido usado precisa EXISTIR —
+    a rota antiga (`listar_ocorrencias_pedido`) 404a em "Pedido não
+    encontrado" para QUALQUER id inexistente, então um id chumbado como
+    `1` sem seed passaria com 404 mesmo se o path nunca tivesse sido
+    traduzido, provando nada. Com um pedido real, a rota antiga
+    responderia 200 (lista vazia de ocorrências) se ainda existisse — o
+    404 aqui só pode vir da rota não existir mais."""
+    pedido = await _seed_pedido(db_session, StatusPedido.EM_SEPARACAO.value)
+    response = await client.get(
+        f"/ocorrencias/pedido/{pedido.id}", headers=headers_for("admin", sub=ADMIN)
+    )
     assert response.status_code == 404
 
 
@@ -68,9 +79,26 @@ async def test_old_portuguese_atraso_entrega_path_is_gone(client):
     assert response.status_code == 404
 
 
-async def test_old_portuguese_resolver_path_is_gone(client):
+async def test_old_portuguese_resolver_path_is_gone(client, db_session):
+    """Fix round 1 (reviewer finding #1): mesma lógica — a ocorrência
+    precisa EXISTIR e ser resolvível pelo aluno chamador, senão a rota
+    antiga 404aria em "Ocorrência não encontrada" de qualquer forma,
+    independente de tradução."""
+    aluno_id = "00000000-0000-0000-0000-000000000001"  # sub padrão de headers_for("student")
+    pedido = await _seed_pedido(db_session, StatusPedido.CRIADO.value, aluno_id=aluno_id)
+    ocorrencia = Ocorrencia(
+        pedido_id=pedido.id,
+        tipo="ATRASO_ENTREGA",
+        status="ABERTA",
+        motivo="teste",
+        criado_por=aluno_id,
+    )
+    db_session.add(ocorrencia)
+    await db_session.commit()
+    await db_session.refresh(ocorrencia)
+
     response = await client.post(
-        "/ocorrencias/1/resolver",
+        f"/ocorrencias/{ocorrencia.id}/resolver",
         json={"resolucao": "cancelar_pedido"},
         headers=headers_for("student"),
     )
