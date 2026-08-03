@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,6 +46,8 @@ async def update_me(
 @router.get("", response_model=list[UserOut])
 async def listar_usuarios(
     role: str | None = None,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     _admin: dict = Depends(requer_papel("admin")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -53,5 +55,6 @@ async def listar_usuarios(
     query = select(User)
     if role:
         query = query.where(User.role == role)
+    query = query.order_by(User.criado_em.desc()).limit(limit).offset(offset)
     result = await db.execute(query)
     return result.scalars().all()
