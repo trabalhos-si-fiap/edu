@@ -5,17 +5,34 @@ encontrada em `GET /admin/estoque` / `PATCH /admin/estoque/{id}/ajustar"
 (sem response_model nenhum) enquanto essas rotas já precisavam ser tocadas
 para traduzir o prefixo. Ver task-11-report.md."""
 
+import uuid
 from decimal import Decimal
 
 from edu_common.security import create_access_token
+from sqlalchemy import select
 
 from app.config import settings
+from app.models.pedido import Pedido, PedidoStatusHistorico
 from app.models.produto import Estoque, Fornecedor, Produto
+from app.services.status_pedido import StatusPedido
 
 
 def headers_for(role: str, sub: str = "00000000-0000-0000-0000-000000000001") -> dict[str, str]:
     token = create_access_token(sub, role, settings.jwt_secret)
     return {"Authorization": f"Bearer {token}"}
+
+
+async def _seed_pedido(db_session, status: str) -> Pedido:
+    pedido = Pedido(
+        aluno_id=str(uuid.uuid4()),
+        status=status,
+        endereco_entrega="Rua Teste, 123",
+        valor_total=Decimal("100.00"),
+    )
+    db_session.add(pedido)
+    await db_session.commit()
+    await db_session.refresh(pedido)
+    return pedido
 
 
 async def _seed_estoque(db_session) -> Estoque:
@@ -57,3 +74,51 @@ async def test_inventory_response_exposes_only_declared_fields(client, db_sessio
 async def test_orders_listing_is_paginated(client):
     response = await client.get("/admin/orders?limit=5000", headers=headers_for("admin"))
     assert response.status_code == 422
+
+
+# ── Fix round 2, reviewer finding: transicionar_pedido's own SELECT
+# (app/routers/separacao.py:44) had no lock — confirmar_pagamento doesn't
+# even read the pedido before delegating to it, so a double-click/retry
+# could duplicate the PedidoStatusHistorico row AND the published event. ──
+
+
+async def test_confirm_payment_is_idempotent_against_a_sequential_double_call(
+    client, db_session, _stub_publish_event
+):
+    """Prova SEQUENCIAL e determinística, não uma corrida de verdade — ver
+    task-11-report.md, Fix round 2, para o que continua sem prova
+    automatizada (a corrida concorrente em si).
+
+    O que isto prova: a mesma máquina de estados que o `.with_for_update()`
+    protege contra corrida também rejeita um reenvio sequencial — a
+    segunda chamada nunca encontra o pedido em CRIADO de novo (já está em
+    AGUARDANDO_SEPARACAO), então `validar_transicao` recusa ANTES de
+    qualquer `db.add(PedidoStatusHistorico(...))` ou `publish_event(...)`
+    rodar uma segunda vez. Exatamente um registro de histórico e
+    exatamente um evento `order.status_changed`, não dois.
+    """
+    pedido = await _seed_pedido(db_session, StatusPedido.CRIADO.value)
+
+    first = await client.patch(
+        f"/admin/orders/{pedido.id}/confirm-payment", headers=headers_for("admin")
+    )
+    assert first.status_code == 200
+    assert first.json()["status"] == StatusPedido.AGUARDANDO_SEPARACAO.value
+
+    second = await client.patch(
+        f"/admin/orders/{pedido.id}/confirm-payment", headers=headers_for("admin")
+    )
+    assert second.status_code == 400
+
+    historico_result = await db_session.execute(
+        select(PedidoStatusHistorico).where(PedidoStatusHistorico.pedido_id == pedido.id)
+    )
+    assert len(historico_result.scalars().all()) == 1
+
+    status_changed_events = [
+        payload
+        for routing_key, payload in _stub_publish_event
+        if routing_key == "order.status_changed"
+    ]
+    assert len(status_changed_events) == 1
+    assert status_changed_events[0]["pedido_id"] == pedido.id

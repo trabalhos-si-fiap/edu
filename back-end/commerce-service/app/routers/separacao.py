@@ -40,8 +40,40 @@ async def transicionar_pedido(
     Função central de transição de estado do pedido — reutilizada pelos
     routers de separação, entrega e admin, para garantir que toda mudança
     de status passe pela mesma validação e publique o mesmo evento.
+
+    `.with_for_update()` no SELECT abaixo: fix round 2 (reviewer finding).
+    Findings #2/#3 do round 1 só travaram `collect`/`start`, cujo risco era
+    uma corrida de POSSE (dois chamadores reivindicando um pedido sem
+    dono). Mas CLAUDE.md regra 3 é mais ampla que isso — qualquer
+    read→mutate→commit desprotegido num recurso compartilhado conta,
+    mesmo sem disputa de posse. `confirmar_pagamento` (admin.py, nem lê o
+    pedido antes de delegar aqui), `confirmar_entrega`/`deliver`
+    (entrega.py) e `finalizar_separacao` (separacao.py, com DUAS chamadas
+    encadeadas) chamam só esta função — um duplo-clique do admin, um
+    reenvio do mesmo entregador após timeout, ou uma corrida real, todos
+    liam o mesmo `pedido.status` sob READ COMMITTED, todos passavam
+    `validar_transicao`, todos commitavam: linha de histórico duplicada e
+    (o pior) evento `order.status_changed` publicado duas vezes —
+    `notification-service` e `analytics-service` reagiriam duas vezes ao
+    mesmo evento. Travar aqui, no único ponto por onde as três rotas
+    passam, fecha as três de uma vez em vez de repetir o padrão em cada
+    call site (e cobre qualquer rota futura que reutilize esta função).
+
+    Não deadloca consigo mesma: `collect` e `start` já tomam
+    `with_for_update()` na MESMA linha antes de chamar esta função, dentro
+    da MESMA transação (nenhum commit entre as duas — `db.flush()` não
+    commita). Um segundo `SELECT ... FOR UPDATE` na mesma linha, pela
+    mesma transação Postgres, não bloqueia: o Postgres associa o lock à
+    transação, não à instrução, e uma transação nunca espera por um lock
+    que ela própria já segura. Verificado empiricamente, não só por
+    documentação: os testes que exercitam exatamente esse caminho
+    (`collect`/`start` → `transicionar_pedido`, dois `with_for_update()`
+    na mesma linha na mesma transação) rodam sob `timeout` e completam em
+    frações de segundo — um self-deadlock real faria a suíte travar
+    (pendurar), não falhar rápido. Ver task-11-report.md, Fix round 2,
+    para o comando exato usado.
     """
-    result = await db.execute(select(Pedido).where(Pedido.id == pedido_id))
+    result = await db.execute(select(Pedido).where(Pedido.id == pedido_id).with_for_update())
     pedido = result.scalar_one_or_none()
     if not pedido:
         raise HTTPException(404, "Pedido não encontrado")
