@@ -42,7 +42,10 @@ async def listar_temas(
     result = await db.execute(
         select(Tema)
         .where(Tema.materia_id == materia_id)
-        .order_by(Tema.ordem.asc())
+        # `.ordem` tem default=0 e não é única (models/subtema.py) — sem um
+        # desempate por `.id`, linhas empatadas podem ser puladas ou
+        # repetidas entre páginas de offset diferentes.
+        .order_by(Tema.ordem.asc(), Tema.id.asc())
         .limit(limit)
         .offset(offset)
     )
@@ -64,7 +67,8 @@ async def listar_subtemas(
     result = await db.execute(
         select(Subtema)
         .where(Subtema.tema_id == tema_id)
-        .order_by(Subtema.ordem.asc())
+        # Mesma correção que em `listar_temas` acima: `.ordem` não é única.
+        .order_by(Subtema.ordem.asc(), Subtema.id.asc())
         .limit(limit)
         .offset(offset)
     )
