@@ -293,6 +293,34 @@ async def client(
     app.dependency_overrides.clear()
 ```
 
+**Serviços que publicam eventos precisam de mais uma fixture.** O `ASGITransport`
+não roda o lifespan do app, então o `init_publisher()` do startup nunca dispara e
+qualquer rota que publique evento estoura `RuntimeError: EventPublisher not
+connected` — depois de já ter gravado no banco. Sem isso, nenhum teste consegue
+exercitar as rotas de escrita. Acrescentar ao `conftest.py`:
+
+```python
+@pytest.fixture(autouse=True)
+def fake_event_publisher(monkeypatch) -> list[tuple[str, dict]]:
+    """Captura eventos em memória em vez de exigir um RabbitMQ de verdade.
+
+    Devolve a lista de `(routing_key, payload)` publicados, para que um teste
+    possa afirmar que a rota publicou o evento certo.
+    """
+    published: list[tuple[str, dict]] = []
+
+    async def _capture(routing_key: str, payload: dict) -> None:
+        published.append((routing_key, payload))
+
+    monkeypatch.setattr("app.events.publisher.publish_event", _capture)
+    return published
+```
+
+O alvo do `monkeypatch` precisa ser o nome **onde a rota importa** `publish_event`,
+não onde ele é definido. Se o router fez `from app.events.publisher import
+publish_event`, o alvo é `app.routers.<módulo>.publish_event`. Confirmar com
+`grep -rn "publish_event" app/` antes de escrever a fixture.
+
 ### Recipe E — `Dockerfile` de um serviço
 
 Os serviços vieram com Dockerfile de `pip install -r requirements.txt`, e o
@@ -324,14 +352,37 @@ O `api-gateway` omite a linha do `edu-common`: ele é proxy burro e não valida
 JWT. A porta 8000 é a **interna** do container e não muda — o mapeamento para a
 porta do host (8100 no gateway, 8101-8106 nos serviços) é do compose, na task 15.
 
-O contexto de build é `back-end/`, com `dockerfile: <service>/Dockerfile`. Provar
-que constrói antes de fechar a task:
+O contexto de build é `back-end/`, com `dockerfile: <service>/Dockerfile`.
+
+Junto vai um `<service>/Dockerfile.dockerignore`. **Todo padrão precisa do prefixo
+`**/`**: os padrões são ancorados na raiz do contexto (`back-end/`), então `.venv/`
+sozinho casaria só com `back-end/.venv` — nunca com `back-end/<service>/.venv`, que
+é justamente o que `COPY <service>/ ./` arrasta para dentro da imagem, junto com o
+`.env` do serviço.
+
+```
+**/.env
+**/.env.*
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/.git
+```
+
+Provar que constrói **e** que a imagem está limpa antes de fechar a task:
 
 ```bash
 cd back-end
 docker build -f <service>/Dockerfile -t edu-<service>-test .
 docker run --rm edu-<service>-test uv run python -c "import edu_common.security; print('ok')"
+# A imagem não pode conter .env, .venv do host nem caches:
+docker run --rm edu-<service>-test sh -c \
+  'ls -a /app/<service> | grep -E "^\.(env|venv|pytest_cache|ruff_cache)$" && echo VAZOU || echo limpa'
 ```
+
+Expected: `ok` e `limpa`. Se sair `VAZOU`, o `.dockerignore` não pegou — quase
+sempre por falta do prefixo `**/`.
 
 ### Recipe D — baseline do Alembic a partir dos models
 
@@ -1521,7 +1572,7 @@ rm -f auth-users-service/.env auth-users-service/requirements.txt
 test ! -f auth-users-service/.env && echo "OK: .env de sandbox não foi copiado"
 ```
 
-O `.env` original continha `JWT_SECRET=teste_secreto_para_sandbox_1234567890abcdef`. Ele não entra no repositório em hipótese alguma.
+O `.env` original trazia um `JWT_SECRET` de sandbox commitado. Ele não entra no repositório em hipótese alguma — e o valor não é reproduzido aqui, porque um segredo citado em documentação continua sendo um segredo no repositório.
 
 - [ ] **Step 2: Criar o `pyproject.toml`**
 
