@@ -17,7 +17,9 @@
 Valem para toda task deste plano.
 
 - **Python `>=3.12`** em todo `pyproject.toml`.
-- **O legacy não pode quebrar.** `back-end/legacy/` continua servindo o Flutter na porta host **8000** durante toda a fase 1. O gateway novo usa a porta host **8100** até a fase 4.
+- **O legacy não pode quebrar.** `back-end/legacy/` continua servindo o Flutter na porta host que já usa hoje — `API_PORT_EXTERNAL` do `back-end/.env`, **8001** nesta máquina — durante toda a fase 1. Nada no plano altera essa variável.
+- **Faixa de portas do stack novo: 81xx.** Gateway em **8100**, serviços em **8101-8106**. A faixa 80xx está ocupada nesta máquina (8000 por outro projeto, 8001 pelo legacy) — nenhum serviço novo pode publicar em 80xx.
+- **`back-end/.env` já existe e está em uso.** Nunca sobrescrever: as variáveis novas são *acrescentadas* ao arquivo existente. O plano só cria/atualiza o `.env.example`.
 - **ruff** com a mesma config do legacy: `target-version = "py312"`, `line-length = 100`, `select = ["E","F","I","N","UP","B","A","C4","SIM","RUF","ASYNC","S"]`, `ignore = ["S101"]`, e `per-file-ignores` de `"tests/**" = ["S","ASYNC"]` e `"alembic/**" = ["S","E501"]`.
 - **pytest** com `asyncio_mode = "auto"`, `addopts = "-ra --strict-markers"`, e a marca `slow` registrada para os testes que carregam modelo de embeddings real.
 - **Logging com loguru.** Nenhum `print()` sobrevive à importação. Nenhum segredo (token, código OTP, senha, JWT) vai para log.
@@ -33,7 +35,7 @@ Valem para toda task deste plano.
 
 ## Decisões que este plano trava
 
-**Compose único, infra compartilhada.** Os dois compose declaram `container_name: edu-postgres` e ambos querem a porta 8000 — não dá para rodar os dois arquivos em paralelo. A fase 1 funde tudo em `back-end/docker-compose.yml`: uma instância de Postgres com vários bancos (`edu` do legacy, `auth_db`, `learning_db`, `commerce_db`, `notification_db`, `analytics_db`), um Redis, um RabbitMQ, um MinIO, mais `api`/`worker` do legacy e o gateway com os 6 serviços.
+**Compose único, infra compartilhada.** Os dois compose declaram `container_name: edu-postgres` — não dá para rodar os dois arquivos em paralelo. A fase 1 funde tudo em `back-end/docker-compose.yml`: uma instância de Postgres com vários bancos (`edu` do legacy, `auth_db`, `learning_db`, `commerce_db`, `notification_db`, `analytics_db`), um Redis, um RabbitMQ, um MinIO, mais `api`/`worker` do legacy e o gateway com os 6 serviços.
 
 **Sem uv workspace.** `auth-users-service` fixa `bcrypt==3.2.2` (limitação do passlib 1.7.4) e o legacy usa `bcrypt>=4.2.0`; num workspace o lock é único e os dois não coexistem. Cada serviço é um projeto uv independente, e `edu-common` entra como path dependency editável via `[tool.uv.sources]`. Além disso a task 2 **remove o passlib**, usando `bcrypt` direto como o legacy já faz — o formato de hash `$2b$` é o mesmo, então hashes existentes continuam válidos.
 
@@ -346,11 +348,12 @@ grep -n "BACK_DIR" Makefile
 ```bash
 make back-up
 sleep 20
-curl -sf http://localhost:8000/health
+API_PORT=$(sed -n 's/^API_PORT_EXTERNAL=//p' back-end/.env | tr -d '[:space:]')
+curl -sf "http://localhost:${API_PORT:-8000}/health"
 make back-test
 ```
 
-Expected: `{"status":"ok"}` e a suíte inteira verde (59 arquivos de teste).
+Expected: `{"status":"ok"}` e a suíte inteira verde (410 testes, baseline medido antes da task 1).
 
 - [ ] **Step 6: Commit**
 
@@ -3625,7 +3628,7 @@ git commit -m "feat(analytics-service): import analytics-service on uv, alembic 
 
 **Interfaces:**
 - Consumes: os 7 serviços das tasks 5-14
-- Produces: `make up` sobe legacy + stack novo; `make services-test` roda as 8 suítes
+- Produces: `make stack-up` sobe legacy + stack novo; `make services-test` roda as 8 suítes
 
 - [ ] **Step 1: Trocar os Dockerfiles para uv**
 
@@ -3697,9 +3700,10 @@ Copiar o mesmo script para `back-end/scripts/create-service-databases.sh` — `i
 
 - Um só `postgres` (imagem `postgres:17.4-alpine3.21`), com `./postgres/initdb.d` e `./legacy/postgres/initdb.d` montados em `/docker-entrypoint-initdb.d`.
 - Um só `redis` (`redis:8.2.1-alpine`), um só `rabbitmq` (`rabbitmq:4.2.3-management-alpine`), um só `minio`.
-- `api` e `worker` do legacy com `build.context: ./legacy` e porta host **8000** (o Flutter não muda nesta fase).
-- `api-gateway` com `build.context: .`, `dockerfile: api-gateway/Dockerfile`, porta host **8100**.
-- Os 6 serviços com `build.context: .` e `dockerfile: <service>/Dockerfile`, portas host 8001-8006.
+- `api` e `worker` do legacy com `build.context: ./legacy` e porta host `${API_PORT_EXTERNAL:-8000}` — exatamente como o compose do legacy já faz. O Flutter não muda nesta fase.
+- `api-gateway` com `build.context: .`, `dockerfile: api-gateway/Dockerfile`, porta host `${GATEWAY_PORT_EXTERNAL:-8100}`.
+- Os 6 serviços com `build.context: .` e `dockerfile: <service>/Dockerfile`, portas host **8101-8106** (auth 8101, learning 8102, commerce 8103, chatbot 8104, notification 8105, analytics 8106). A faixa 80xx está ocupada — não usar.
+- As URLs internas entre serviços (`AUTH_SERVICE_URL` etc.) usam o hostname do compose e a porta **8000 interna** do container, que não muda: `http://auth-users-service:8000`.
 - Cada serviço com `DATABASE_URL` apontando para o seu banco no `postgres` compartilhado.
 - Todos os serviços novos com o **mesmo** `JWT_SECRET`, vindo do `.env`.
 - `depends_on` com `condition: service_healthy` em postgres e rabbitmq.
@@ -3724,9 +3728,12 @@ CORS_ORIGINS=["http://localhost:3000"]
 GROQ_API_KEY=
 GOOGLE_MAPS_API_KEY=
 
-# Portas host do stack novo (o legacy fica com a 8000 até a fase 4)
+# Porta host do gateway. Os seis serviços ficam em 8101-8106, fixos no compose.
+# A faixa 80xx é do legacy (API_PORT_EXTERNAL) e de outros projetos da máquina.
 GATEWAY_PORT_EXTERNAL=8100
 ```
+
+O `.env.example` é o contrato; o `back-end/.env` real **já existe e está em uso**. Este step só escreve o `.env.example`.
 
 - [ ] **Step 5: Acrescentar os alvos do Makefile**
 
@@ -3735,10 +3742,10 @@ No `Makefile` da raiz, na seção Backend, acrescentar:
 ```makefile
 SERVICES := packages/edu-common api-gateway auth-users-service learning-service commerce-service chatbot-service notification-service analytics-service
 
-up: ## Start the whole backend stack (legacy + microservices)
+stack-up: ## Start the whole backend stack (legacy + microservices)
 	cd back-end && $(COMPOSE) up -d
 
-down: ## Stop the whole backend stack
+stack-down: ## Stop the whole backend stack
 	cd back-end && $(COMPOSE) down
 
 services-dbs: ## Create the per-service databases on an existing volume
@@ -3770,22 +3777,29 @@ Acrescentar os nomes novos ao `.PHONY` da seção.
 
 - [ ] **Step 6: Subir tudo e provar que os dois stacks convivem**
 
+O `back-end/.env` já existe e está em uso — **acrescentar** as variáveis novas, nunca sobrescrever o arquivo:
+
 ```bash
 cd /home/elias/programming/fiap/estuda_app
-cp back-end/.env.example back-end/.env
-# editar back-end/.env com um JWT_SECRET real: openssl rand -hex 32
-make up
+grep -q '^JWT_SECRET=' back-end/.env || {
+  printf '\n# ── Microserviços ─────────────────────────────────────────\n' >> back-end/.env
+  printf 'JWT_SECRET=%s\n' "$(openssl rand -hex 32)" >> back-end/.env
+  printf 'JWT_ALGORITHM=HS256\nRABBITMQ_URL=amqp://edu:edu@rabbitmq:5672/\nEXCHANGE_NAME=edu.events\n' >> back-end/.env
+  printf 'CORS_ORIGINS=["http://localhost:3000"]\nGATEWAY_PORT_EXTERNAL=8100\nGROQ_API_KEY=\nGOOGLE_MAPS_API_KEY=\n' >> back-end/.env
+}
+make stack-up
 sleep 40
 make services-dbs
 make services-migrate
 ```
 
-Verificação:
+Verificação — a porta do legacy vem do próprio `.env`, não é fixa:
 
 ```bash
-curl -sf http://localhost:8000/health   # legacy — o que o Flutter usa
-curl -sf http://localhost:8100/health   # gateway novo
-for p in 8001 8002 8003 8004 8005 8006; do curl -sf "http://localhost:$p/openapi.json" >/dev/null && echo "$p ok"; done
+API_PORT=$(sed -n 's/^API_PORT_EXTERNAL=//p' back-end/.env | tr -d '[:space:]')
+curl -sf "http://localhost:${API_PORT:-8000}/health"   # legacy — o que o Flutter usa
+curl -sf http://localhost:8100/health                  # gateway novo
+for p in 8101 8102 8103 8104 8105 8106; do curl -sf "http://localhost:$p/openapi.json" >/dev/null && echo "$p ok"; done
 curl -s http://localhost:8100/api/rota-inexistente | grep -q "Nenhum serviço mapeado" && echo "gateway 404 ok"
 ```
 
@@ -3829,10 +3843,10 @@ Conteúdo obrigatório, todo verificado contra o código já mergeado:
 
 1. Tabela de serviços, porta host e responsabilidade.
 2. O mapa de rotas do gateway (`SERVICE_MAP`) em inglês, com a nota de que `products`, `orders`, `cart`, `payment-methods` e `support` ainda respondem 404 até a fase 2.
-3. Como subir: `make up`, `make services-dbs`, `make services-migrate`.
+3. Como subir: `make stack-up`, `make services-dbs`, `make services-migrate`.
 4. Como rodar testes: `make services-test`.
 5. `edu-common`: o que vive lá e por quê (JWT e eventos), e por que `config.py`/`database.py` seguem duplicados.
-6. Por que o legacy continua na porta 8000 e o gateway na 8100, e o que muda na fase 4.
+6. Por que o legacy continua na porta que o `.env` já define (`API_PORT_EXTERNAL`, 8001 nesta máquina), o gateway na 8100 e os serviços em 8101-8106, e o que muda na fase 4.
 7. Aviso: nenhum `.env` vai para o repositório; o `.env.example` é o contrato.
 
 Boa parte do conteúdo pode ser adaptada do `README.md` da refatoração original — mas toda afirmação precisa ser conferida contra o código, porque o README original descreve o estado do zip, não o estado pós-migração.
@@ -3851,7 +3865,8 @@ No topo de `docs/back-end/start-here.md`, acrescentar:
 
 ```markdown
 > **Nota:** este documento descreve o monolito modular, que vive em
-> `back-end/legacy/` e continua servindo o app na porta 8000. A arquitetura
+> `back-end/legacy/` e continua servindo o app na porta definida por
+> `API_PORT_EXTERNAL` no `back-end/.env`. A arquitetura
 > de microserviços que vai substituí-lo está em
 > [microservices.md](microservices.md). A migração está descrita em
 > `docs/superpowers/specs/2026-08-02-microservices-migration-design.md`.
@@ -3889,16 +3904,17 @@ Rodar tudo e confirmar antes de declarar a fase pronta:
 
 ```bash
 cd /home/elias/programming/fiap/estuda_app
-make up && sleep 40
+make stack-up && sleep 40
 make services-dbs && make services-migrate
 make services-test && make services-lint
 make back-test
-curl -sf http://localhost:8000/health && curl -sf http://localhost:8100/health
+API_PORT=$(sed -n 's/^API_PORT_EXTERNAL=//p' back-end/.env | tr -d '[:space:]')
+curl -sf "http://localhost:${API_PORT:-8000}/health" && curl -sf http://localhost:8100/health
 ```
 
 Critérios de aceite:
 
-1. Os 59 arquivos de teste do legacy seguem verdes e o app continua servido na porta 8000.
+1. A suíte do legacy segue com 410 testes verdes e o app continua servido na porta que o `.env` define.
 2. Os 8 projetos novos (7 serviços + edu-common) têm suíte verde e ruff limpo.
 3. Nenhum `print()` e nenhum `datetime.utcnow()` sobrou nos serviços importados.
 4. Nenhum `.env` foi commitado; `git log --stat` não mostra nenhum arquivo `.env`.
