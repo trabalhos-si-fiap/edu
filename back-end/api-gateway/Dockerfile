@@ -1,12 +1,15 @@
 FROM python:3.12-slim
 
-WORKDIR /app
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Mesma disposição relativa do repositório: o contexto de build é `back-end/`,
+# então o serviço vive em /app/<service>. O gateway não copia
+# packages/edu-common — ele é um proxy burro e não valida JWT.
+WORKDIR /app/api-gateway
 
-COPY app ./app
+COPY api-gateway/pyproject.toml api-gateway/uv.lock* ./
+RUN uv sync --no-install-project
 
-EXPOSE 8000
+COPY api-gateway/ ./
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+CMD ["uv", "run", "granian", "--interface", "asgi", "--host", "0.0.0.0", "--port", "8000", "app.main:app"]
