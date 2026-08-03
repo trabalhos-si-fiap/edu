@@ -154,16 +154,27 @@ async def refresh(payload: RefreshIn):
     if decoded is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Refresh token inválido ou expirado")
 
+    # `decoded` só vem de tokens assinados por este serviço, mas um payload
+    # forjado por outro emissor com o mesmo segredo (ou um token antigo,
+    # gerado antes de `role` existir nas claims) pode passar em `decode_token`
+    # sem carregar `sub`/`role`. Acessar via índice levantaria `KeyError`, que
+    # o FastAPI transforma em 500 — aqui isso é só mais um refresh token
+    # inválido, então cai no mesmo 401 genérico dos outros casos.
+    sub = decoded.get("sub")
+    role = decoded.get("role")
+    if sub is None or role is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Refresh token inválido ou expirado")
+
     access_token = create_access_token(
-        decoded["sub"],
-        decoded["role"],
+        sub,
+        role,
         settings.jwt_secret,
         settings.jwt_algorithm,
         settings.access_token_expire_minutes,
     )
     novo_refresh_token = create_refresh_token(
-        decoded["sub"],
-        decoded["role"],
+        sub,
+        role,
         settings.jwt_secret,
         settings.jwt_algorithm,
         settings.refresh_token_expire_days,
