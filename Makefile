@@ -1,5 +1,5 @@
 FRONT_DIR = front-end-flutter
-BACK_DIR = back-end
+BACK_DIR = back-end/legacy
 COMPOSE = docker compose
 ADB = adb
 
@@ -17,7 +17,7 @@ FLUTTER ?= $(shell \
 	done)
 FLUTTER := $(or $(FLUTTER),flutter)
 
-# Host port the API is published on. Read from back-end/.env (API_PORT_EXTERNAL),
+# Host port the API is published on. Read from $(BACK_DIR)/.env (API_PORT_EXTERNAL),
 # matching the docker-compose default of 8000. Override with: make front API_PORT=8000
 API_PORT := $(shell sed -n 's/^API_PORT_EXTERNAL=//p' $(BACK_DIR)/.env 2>/dev/null | tr -d '[:space:]')
 API_PORT := $(or $(API_PORT),8000)
