@@ -1,0 +1,74 @@
+[project]
+name = "learning-service"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "edu-common",
+    "fastapi>=0.115.0",
+    "granian>=1.6.0",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30.0",
+    "alembic>=1.14.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.6.0",
+    "aio-pika>=9.4.2",
+    "apscheduler>=3.10.4",
+    "httpx>=0.28.0",
+    "scikit-learn>=1.5.2",
+    "sentence-transformers>=3.1.1",
+    "groq>=0.11.0",
+    "loguru>=0.7.2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.25.0",
+    "pytest-cov>=6.0.0",
+    "ruff>=0.8.0",
+]
+
+[tool.uv.sources]
+edu-common = { path = "../packages/edu-common", editable = true }
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "RUF", "ASYNC", "S"]
+ignore = ["S101"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "ASYNC"]
+"alembic/**" = ["S", "E501"]
+
+# `Depends(...)` como default de argumento é o idioma do FastAPI, não o
+# bug que o B008 procura. Declarar aqui evita espalhar `# noqa: B008`
+# por todo router dos sete serviços. `requer_papel` entra na lista pelo
+# mesmo motivo: `Depends(requer_papel("admin"))` é chamada inline por
+# design, e sem isso todo endpoint com papel exigido carregaria um noqa.
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Security",
+    "app.dependencies.requer_papel",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+# As duas linhas de loop_scope andam juntas. Só a de fixture não basta: o
+# default de teste é "function", e um engine asyncpg criado no loop da sessão
+# estoura no segundo teste que tocar o banco — falha que só aparece quando o
+# serviço ganha o seu segundo teste de banco, não no primeiro.
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "slow: tests that load a real embeddings model (opt-in)",
+]
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["alembic/*"]
