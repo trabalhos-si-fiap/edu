@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +16,8 @@ router = APIRouter(prefix="/reviews", tags=["revisao"])
 
 @router.get("/today", response_model=list[RevisaoOut])
 async def revisoes_hoje(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     aluno_id: str = Depends(get_current_student_id),
     db: AsyncSession = Depends(get_db),
 ):
@@ -26,7 +28,13 @@ async def revisoes_hoje(
             AlunoTemaProgresso.aluno_id == aluno_id,
             AlunoTemaProgresso.proxima_revisao <= datetime.now(UTC),
         )
-        .order_by(AlunoTemaProgresso.proxima_revisao.asc())
+        # `.proxima_revisao` sozinho não é único (dois subtemas podem cair
+        # devidos no mesmo instante) — `.id` como desempate garante uma
+        # ordem total estável entre páginas (mesma correção do MINOR 5
+        # em materias.py: `.ordem` também não é única lá).
+        .order_by(AlunoTemaProgresso.proxima_revisao.asc(), AlunoTemaProgresso.id.asc())
+        .limit(limit)
+        .offset(offset)
     )
 
     revisoes = []
