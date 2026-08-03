@@ -11,6 +11,14 @@ suíte. Por isso todos os testes que exercitam o corpo do endpoint usam a
 fixture `auth_headers`; só o teste do path antigo (que nem chega a
 resolver dependência nenhuma, pois a rota não existe mais) continua sem
 header.
+
+Fix round 1 (MINOR 6) acrescenta testes que seedam mais linhas do que o
+limite padrão para provar que `.limit(limit).offset(offset)` está
+realmente aplicado — os testes originais só provavam a ANOTAÇÃO (422 em
+`limit=1000`), não o comportamento; apagar `.limit()/.offset()` do router
+deixava todos os testes anteriores verdes. Também acrescenta testes com
+`ordem` duplicado (MINOR 5) para provar que o desempate por `.id` evita
+linhas puladas/repetidas entre páginas.
 """
 
 from app.models.subtema import Materia, Subtema, Tema
@@ -123,3 +131,137 @@ async def test_subtopics_listing_never_leaks_the_internal_ai_description(
             "videoaula_revisao_url": None,
         }
     ]
+
+
+async def test_subjects_listing_defaults_to_fifty_and_supports_offset(
+    client, auth_headers, db_session
+):
+    for i in range(55):
+        db_session.add(Materia(nome=f"Materia {i}"))
+    await db_session.commit()
+
+    first_page = await client.get("/subjects", headers=auth_headers)
+    assert first_page.status_code == 200
+    first_body = first_page.json()
+    assert len(first_body) == 50
+
+    second_page = await client.get("/subjects?offset=50", headers=auth_headers)
+    assert second_page.status_code == 200
+    second_body = second_page.json()
+    assert len(second_body) == 5
+
+    ids_first = {item["id"] for item in first_body}
+    ids_second = {item["id"] for item in second_body}
+    assert ids_first.isdisjoint(ids_second)
+
+
+async def test_topics_listing_defaults_to_fifty_and_supports_offset(
+    client, auth_headers, db_session
+):
+    materia = Materia(nome="Biologia")
+    db_session.add(materia)
+    await db_session.flush()
+    for i in range(55):
+        db_session.add(Tema(materia_id=materia.id, nome=f"Tema {i}", ordem=i))
+    await db_session.commit()
+
+    first_page = await client.get(f"/subjects/{materia.id}/topics", headers=auth_headers)
+    assert first_page.status_code == 200
+    first_body = first_page.json()
+    assert len(first_body) == 50
+
+    second_page = await client.get(f"/subjects/{materia.id}/topics?offset=50", headers=auth_headers)
+    assert second_page.status_code == 200
+    second_body = second_page.json()
+    assert len(second_body) == 5
+
+    ids_first = {item["id"] for item in first_body}
+    ids_second = {item["id"] for item in second_body}
+    assert ids_first.isdisjoint(ids_second)
+
+
+async def test_topics_pagination_is_stable_when_ordem_is_not_unique(
+    client, auth_headers, db_session
+):
+    """MINOR 5: `Tema.ordem` tem `default=0` e não é única. Ordenar só por
+    `.ordem` deixa a ordem entre linhas empatadas a critério do banco, que
+    pode mudar entre duas execuções da mesma query paginada — o que pula
+    ou repete linhas entre páginas. Seed 55 temas todos com `ordem=0` (o
+    pior caso: todos empatados) e prova que o desempate por `.id` garante
+    que a união das páginas contém as 55 linhas, sem repetição.
+    """
+    materia = Materia(nome="Biologia")
+    db_session.add(materia)
+    await db_session.flush()
+    for i in range(55):
+        db_session.add(Tema(materia_id=materia.id, nome=f"Tema {i}", ordem=0))
+    await db_session.commit()
+
+    first_page = (await client.get(f"/subjects/{materia.id}/topics", headers=auth_headers)).json()
+    second_page = (
+        await client.get(f"/subjects/{materia.id}/topics?offset=50", headers=auth_headers)
+    ).json()
+
+    ids_first = {item["id"] for item in first_page}
+    ids_second = {item["id"] for item in second_page}
+    assert len(ids_first) == 50
+    assert len(ids_second) == 5
+    assert ids_first.isdisjoint(ids_second)
+    assert len(ids_first) + len(ids_second) == 55
+
+
+async def test_subtopics_listing_defaults_to_fifty_and_supports_offset(
+    client, auth_headers, db_session
+):
+    materia = Materia(nome="Biologia")
+    db_session.add(materia)
+    await db_session.flush()
+    tema = Tema(materia_id=materia.id, nome="Citologia", ordem=1)
+    db_session.add(tema)
+    await db_session.flush()
+    for i in range(55):
+        db_session.add(Subtema(tema_id=tema.id, nome=f"Subtema {i}", ordem=i))
+    await db_session.commit()
+
+    first_page = await client.get(f"/topics/{tema.id}/subtopics", headers=auth_headers)
+    assert first_page.status_code == 200
+    first_body = first_page.json()
+    assert len(first_body) == 50
+
+    second_page = await client.get(f"/topics/{tema.id}/subtopics?offset=50", headers=auth_headers)
+    assert second_page.status_code == 200
+    second_body = second_page.json()
+    assert len(second_body) == 5
+
+    ids_first = {item["id"] for item in first_body}
+    ids_second = {item["id"] for item in second_body}
+    assert ids_first.isdisjoint(ids_second)
+
+
+async def test_subtopics_pagination_is_stable_when_ordem_is_not_unique(
+    client, auth_headers, db_session
+):
+    """MINOR 5, mesma correção que em `Tema.ordem` acima, agora para
+    `Subtema.ordem` (também `default=0`, também não única).
+    """
+    materia = Materia(nome="Biologia")
+    db_session.add(materia)
+    await db_session.flush()
+    tema = Tema(materia_id=materia.id, nome="Citologia", ordem=1)
+    db_session.add(tema)
+    await db_session.flush()
+    for i in range(55):
+        db_session.add(Subtema(tema_id=tema.id, nome=f"Subtema {i}", ordem=0))
+    await db_session.commit()
+
+    first_page = (await client.get(f"/topics/{tema.id}/subtopics", headers=auth_headers)).json()
+    second_page = (
+        await client.get(f"/topics/{tema.id}/subtopics?offset=50", headers=auth_headers)
+    ).json()
+
+    ids_first = {item["id"] for item in first_page}
+    ids_second = {item["id"] for item in second_page}
+    assert len(ids_first) == 50
+    assert len(ids_second) == 5
+    assert ids_first.isdisjoint(ids_second)
+    assert len(ids_first) + len(ids_second) == 55
