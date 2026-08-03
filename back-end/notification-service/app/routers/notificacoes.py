@@ -24,7 +24,7 @@ def _para_notification_out(n: Notificacao) -> NotificationOut:
         id=str(n.id),
         title=n.titulo,
         body=n.descricao,
-        data=NotificationDataOut(type=n.tipo, pedido_id=n.pedido_id, ocorrencia_id=n.ocorrencia_id),
+        data=NotificationDataOut(type=n.tipo, order_id=n.pedido_id, occurrence_id=n.ocorrencia_id),
         created_at=n.criado_em,
         read_at=n.lido_em,
     )
@@ -32,14 +32,14 @@ def _para_notification_out(n: Notificacao) -> NotificationOut:
 
 @router.get("", response_model=list[NotificationOut])
 async def listar_notificacoes(
-    apenas_nao_lidas: bool = False,
+    unread_only: bool = False,
     limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
     offset: int = Query(0, ge=0),
     aluno_id: str = Depends(get_current_student_id),
     db: AsyncSession = Depends(get_db),
 ):
     query = select(Notificacao).where(Notificacao.aluno_id == aluno_id)
-    if apenas_nao_lidas:
+    if unread_only:
         query = query.where(Notificacao.lido_em.is_(None))
     query = query.order_by(Notificacao.criado_em.desc()).limit(limit).offset(offset)
 

@@ -112,6 +112,33 @@ async def test_delivery_delayed_creates_a_notification_with_pedido_and_ocorrenci
 
 
 async def test_every_binding_points_to_a_real_handler():
-    for queue_name, routing_key, handler in consumer_module.BINDINGS:
-        assert queue_name and routing_key
-        assert callable(handler)
+    """Compara `BINDINGS` contra o pareamento exato esperado — não só que
+    cada handler é `callable`. `callable(handler)` sozinho passaria mesmo
+    se duas entradas trocassem de handler entre si (ex.: `stock_issue`
+    ligado ao handler de `delivery_delayed`), porque os testes que chamam
+    cada handler diretamente (`test_diagnostic_completed_...` etc.) nunca
+    passam por `BINDINGS` — nada mais nesta suíte pegaria essa troca."""
+    expected = [
+        (
+            "notification.revision_scheduled",
+            "revision.scheduled",
+            consumer_module.handle_revision_scheduled,
+        ),
+        (
+            "notification.diagnostic_completed",
+            "diagnostic.completed",
+            consumer_module.handle_diagnostic_completed,
+        ),
+        (
+            "notification.order_status_changed",
+            "order.status_changed",
+            consumer_module.handle_order_status_changed,
+        ),
+        ("notification.stock_issue", "order.stock_issue", consumer_module.handle_stock_issue),
+        (
+            "notification.delivery_delayed",
+            "order.delivery_delayed",
+            consumer_module.handle_delivery_delayed,
+        ),
+    ]
+    assert expected == consumer_module.BINDINGS

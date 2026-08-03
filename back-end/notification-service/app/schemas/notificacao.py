@@ -10,8 +10,8 @@ class NotificationDataOut(BaseModel):
     implementarmos, navegar direto para o pedido/ocorrência."""
 
     type: str
-    pedido_id: int | None = None
-    ocorrencia_id: int | None = None
+    order_id: int | None = None
+    occurrence_id: int | None = None
 
 
 class NotificationOut(BaseModel):
