@@ -149,6 +149,35 @@ mapeamento:
 O histórico completo dos 8 estados continua visível em
 `GET /orders/{id}/tracking`.
 
+### Divergências de contrato medidas na fase 1
+
+O design original dizia "portar products/cart/orders/payment-methods/tracking". A fase 1
+mediu, contra o código real do Flutter, **o que exatamente diverge** — e o problema é
+maior do que rota faltando: várias rotas existem, respondem, e ainda assim quebram o app.
+
+| O que o Flutter chama | O que ele espera | O que o commerce-service devolve hoje |
+|---|---|---|
+| `GET /products` | `{"items": [...]}`, `id` string (UUID) | array puro, `id` inteiro, sem `type`/`subtype`/`rating_avg`/`rating_count` |
+| `GET /orders` | array de pedidos com `items[]` | **405** — a listagem está em `/orders/mine` |
+| `POST /orders` | `{payment_method, address_id}` | **422** — exige `{endereco_entrega, itens[]}` |
+| `GET /orders/{id}/tracking` | objeto único | array de histórico de status |
+| `GET /products/{id}/reviews` | `{"items": [...]}` | **404** — rota não existe |
+| `GET /orders/{id}/route` | objeto de rota | **404** — rota não existe |
+
+Duas consequências para o planejamento da fase 2:
+
+**O envelope de resposta é parte do contrato, não detalhe de formatação.** O Flutter faz
+`jsonDecode(body)['items']`; contra um array puro isso levanta um `TypeError` que o
+tratamento de erro do app não captura — a tela quebra sem nem virar mensagem de erro. O
+mesmo vale para `id`: o app faz `as String` sobre um inteiro. Traduzir o caminho da rota
+resolve metade do problema e esconde a outra metade atrás de um 200.
+
+**A fase 1 trocou 404 limpo por quase-acerto.** Ao mover o commerce para o mesmo espaço de
+nomes que o app usa, requisições que antes falhavam de forma óbvia passaram a falhar de
+forma sutil (405, 422, forma errada). Isso é aceitável enquanto o Flutter aponta para o
+legacy, mas significa que a fase 4 precisa de uma passagem de reconciliação de contrato
+campo a campo — não basta apontar o app para o gateway e ver se responde.
+
 ### Fase 3 — Paridade de plataforma
 
 E-mail real (Resend) e rate limit no reset de senha; push FCM no
