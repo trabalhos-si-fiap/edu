@@ -184,6 +184,25 @@ E-mail real (Resend) e rate limit no reset de senha; push FCM no
 notification-service; Celery + Redis com as primitivas atômicas exigidas pelo
 CLAUDE.md; painel SQLAdmin; upload e storage de imagem de produto.
 
+**Mais um item, medido na fase 1: idempotência dos consumidores de evento.** Os
+cinco handlers do notification-service e o do analytics-service inserem
+incondicionalmente ao receber um evento, sem chave de deduplicação. O RabbitMQ
+entrega pelo menos uma vez: uma queda entre o commit e o ack reentrega a mensagem
+e gera notificação duplicada para o aluno e contagem inflada no painel. É a regra
+10 do CLAUDE.md.
+
+A correção não é local a nenhum dos dois serviços — o `EventPublisher` do
+`edu-common` não carimba id de mensagem, então não existe nada estável para
+deduplicar. O caminho é: o publisher passa a stampar um id único por evento, os
+consumidores ganham um registro de mensagens já processadas, e a checagem entra
+antes do insert. Fica na fase 3 porque é onde o Redis e as primitivas atômicas
+chegam. Deduplicar por chave de negócio agora seria pior que o buraco honesto:
+duas notificações de mesmo tipo para o mesmo pedido podem ser legítimas.
+
+Também nesta fase: o `UNIQUE(aluno_id, token)` de `device_tokens` permite o mesmo
+token físico registrado sob dois alunos — inofensivo enquanto não há push real,
+relevante no instante em que houver.
+
 ### Fase 4 — Desligamento
 
 Apontar o Flutter para o gateway `:8000`, rodar a suíte ponta a ponta, remover
