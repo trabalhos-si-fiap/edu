@@ -30,6 +30,7 @@ Valem para toda task deste plano.
 - **Nenhum segredo commitado.** `.env` nunca; só `.env.example`.
 - **Conventional Commits**, uma unidade lógica por commit, `git diff --staged` antes de cada um.
 - **Nada de `datetime.utcnow()`** — sempre `datetime.now(UTC)`.
+- **Cada task de serviço reescreve o `Dockerfile` do serviço** pela Recipe E, e prova que `docker build` passa. O arquivo que vem no zip referencia o `requirements.txt` que a própria importação apaga — deixá-lo para a task 15 mantém a árvore com Dockerfiles quebrados por dez tasks.
 - **`SettingsConfigDict`, nunca `class Config:`.** Os serviços importados usam a forma depreciada do Pydantic v1, que emite `PydanticDeprecatedSince20` e sai no v3. O monolito deste projeto já usa `SettingsConfigDict` (`back-end/legacy/app/core/config.py:5`) — todo serviço importado migra para ela.
 - **401 vs 403 é contrato, não detalhe.** Header `Authorization` ausente → **403**. Token inválido, expirado ou do `type` errado → **401**. O Flutter dispara o refresh do par de tokens *só* em 401 (`front-end-flutter/lib/core/network/auth_http_client.dart:43`), então 401 tem que significar exatamente "tenta renovar" — devolver 401 para requisição sem sessão nenhuma faria o app gastar um refresh à toa. O `HTTPBearer` do FastAPI 0.141 devolve 401 para header ausente, por isso `edu-common` usa `HTTPBearer(auto_error=False)` e levanta o 403 explicitamente. Isso é deliberado; não "corrigir".
 
@@ -290,6 +291,46 @@ async def client(
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
     app.dependency_overrides.clear()
+```
+
+### Recipe E — `Dockerfile` de um serviço
+
+Os serviços vieram com Dockerfile de `pip install -r requirements.txt`, e o
+`requirements.txt` é apagado na importação — o arquivo original fica quebrado no
+primeiro `docker build`. **Cada task de serviço reescreve o seu**, substituindo
+`<service>` pelo nome da pasta:
+
+```dockerfile
+FROM python:3.12-slim
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+# O container reproduz a MESMA disposição relativa do repositório
+# (/app/<service> ao lado de /app/packages/edu-common), para que o path
+# `../packages/edu-common` do [tool.uv.sources] valha no host e aqui dentro
+# sem precisar de source condicional.
+WORKDIR /app/<service>
+
+COPY packages/edu-common /app/packages/edu-common
+COPY <service>/pyproject.toml <service>/uv.lock* ./
+RUN uv sync --no-install-project
+
+COPY <service>/ ./
+
+CMD ["uv", "run", "granian", "--interface", "asgi", "--host", "0.0.0.0", "--port", "8000", "app.main:app"]
+```
+
+O `api-gateway` omite a linha do `edu-common`: ele é proxy burro e não valida
+JWT. A porta 8000 é a **interna** do container e não muda — o mapeamento para a
+porta do host (8100 no gateway, 8101-8106 nos serviços) é do compose, na task 15.
+
+O contexto de build é `back-end/`, com `dockerfile: <service>/Dockerfile`. Provar
+que constrói antes de fechar a task:
+
+```bash
+cd back-end
+docker build -f <service>/Dockerfile -t edu-<service>-test .
+docker run --rm edu-<service>-test uv run python -c "import edu_common.security; print('ok')"
 ```
 
 ### Recipe D — baseline do Alembic a partir dos models
@@ -3657,45 +3698,24 @@ git commit -m "feat(analytics-service): import analytics-service on uv, alembic 
 - Create: `back-end/postgres/initdb.d/10-create-service-databases.sh`
 - Create: `back-end/scripts/create-service-databases.sh`
 - Modify: `Makefile`
-- Modify: cada `<service>/Dockerfile` (uv em vez de pip)
 
 **Interfaces:**
-- Consumes: os 7 serviços das tasks 5-14
+- Consumes: os 7 serviços das tasks 5-14, cada um já com seu `Dockerfile` escrito pela Recipe E
 - Produces: `make stack-up` sobe legacy + stack novo; `make services-test` roda as 8 suítes
 
-- [ ] **Step 1: Trocar os Dockerfiles para uv**
+- [ ] **Step 1: Conferir que os sete Dockerfiles constroem**
 
-Cada serviço veio com um Dockerfile baseado em `pip install -r requirements.txt`. Substituir o conteúdo de cada `back-end/<service>/Dockerfile` por (trocando `<service>` pelo nome da pasta):
-
-```dockerfile
-FROM python:3.12-slim
-
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
-
-# O container reproduz a MESMA disposição relativa do repositório
-# (/app/<service> ao lado de /app/packages/edu-common), para que o path
-# `../packages/edu-common` do [tool.uv.sources] valha no host e aqui dentro
-# sem precisar de source condicional.
-WORKDIR /app/<service>
-
-COPY packages/edu-common /app/packages/edu-common
-COPY <service>/pyproject.toml <service>/uv.lock* ./
-RUN uv sync --no-install-project
-
-COPY <service>/ ./
-
-CMD ["uv", "run", "granian", "--interface", "asgi", "--host", "0.0.0.0", "--port", "8000", "app.main:app"]
-```
-
-O `build.context` no compose é `back-end/` (a raiz que contém `packages/` e as pastas dos serviços), e `dockerfile` é `<service>/Dockerfile`. Validar num serviço antes de replicar:
+Cada task de serviço já reescreveu o seu pela Recipe E — esta task só confirma que os sete constroem contra o contexto `back-end/`, que é o que o compose vai usar:
 
 ```bash
 cd /home/elias/programming/fiap/estuda_app/back-end
-docker build -f auth-users-service/Dockerfile -t edu-auth-test .
-docker run --rm edu-auth-test uv run python -c "import edu_common.security; print('edu-common ok')"
+for s in api-gateway auth-users-service learning-service commerce-service chatbot-service notification-service analytics-service; do
+  echo "→ $s"
+  docker build -q -f "$s/Dockerfile" -t "edu-$s-test" . || exit 1
+done
 ```
 
-Expected: `edu-common ok`.
+Expected: os sete constroem. Qualquer falha aqui é uma task de serviço que não cumpriu a Recipe E — corrigir o Dockerfile do serviço, não contornar no compose.
 
 - [ ] **Step 2: Criar o script de criação dos bancos**
 
