@@ -341,7 +341,19 @@ docker run --rm edu-<service>-test uv run python -c "import edu_common.security;
 4. `uv run alembic revision --autogenerate -m "baseline schema"` contra um banco vazio.
 5. `uv run alembic upgrade head`.
 6. **Prova de sincronia:** `uv run alembic revision --autogenerate -m "sync check"` deve gerar migration com `upgrade()` e `downgrade()` vazios (só `pass`). Apagar esse arquivo depois de conferir. Se não vier vazia, o model diverge do schema — corrigir o model e refazer o baseline.
-7. Apagar o `schema.sql` do serviço (o Alembic passa a ser a fonte da verdade) e remover a linha correspondente de `scripts/init-multiple-dbs.sh`.
+7. Apagar o `schema.sql` do serviço — o Alembic passa a ser a fonte da verdade. (O `scripts/init-multiple-dbs.sh` do zip original **não** é importado: a task 15 escreve um script próprio que só cria os bancos, sem aplicar schema. Não há nada a editar nele aqui.)
+
+O banco do serviço ainda não existe no Postgres compartilhado nesta altura — a task 15 é que automatiza a criação. Criar os dois bancos à mão antes de rodar o Alembic, lendo a senha do `back-end/legacy/.env` sem ecoá-la:
+
+```bash
+PGUSER=$(sed -n 's/^POSTGRES_USER=//p' back-end/legacy/.env | tr -d '[:space:]')
+for db in <service>_db <service>_test; do
+  docker exec -i edu-postgres psql -U "$PGUSER" -d postgres \
+    -c "SELECT 'CREATE DATABASE $db' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname='$db')\gexec"
+done
+```
+
+O Postgres do projeto já está de pé no container `edu-postgres`, publicado em `localhost:5433`.
 
 ---
 
