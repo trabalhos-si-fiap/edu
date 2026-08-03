@@ -556,6 +556,13 @@ Expected: FAIL com `ModuleNotFoundError: No module named 'edu_common.security'`.
 
 `back-end/packages/edu-common/src/edu_common/security.py`:
 
+> **O código abaixo é a versão original do plano e foi superado.** A revisão da
+> task 2 encontrou cinco falhas nele — `type` não verificável (refresh token
+> valendo como access), `ValueError` não tratado acima de 72 bytes, custo do
+> hash-isca desacoplado, `JWKError` escapando do `except`, e piso vulnerável do
+> `python-jose`. A implementação que vale é a que está no arquivo, commitada em
+> `757214f`. Não reescreva este arquivo a partir do bloco abaixo.
+
 ```python
 """Hash de senha e JWT compartilhados entre os serviços.
 
