@@ -83,19 +83,21 @@ async def test_list_addresses_is_paginated(client):
     assert len(response.json()) == 2
 
 
-async def test_patch_with_non_uuid_address_id_returns_4xx_not_500(client):
+async def test_patch_with_non_uuid_address_id_returns_422(client):
     """Additional scope (task 7 review finding, not in the brief):
     `address_id` was typed `str` on PATCH/DELETE, binding a raw string
     straight to a UUID column — a non-UUID id reached asyncpg and blew up as
-    a 500 instead of a clean 4xx."""
+    a 500 instead of a clean 4xx. Pinned to the exact status FastAPI's path
+    validation returns for a malformed `uuid.UUID`, verified by running this
+    request rather than assumed."""
     headers = await _register(client, REGISTER)
     response = await client.patch(
         "/auth/addresses/not-a-uuid", json={"label": "X"}, headers=headers
     )
-    assert 400 <= response.status_code < 500
+    assert response.status_code == 422
 
 
-async def test_delete_with_non_uuid_address_id_returns_4xx_not_500(client):
+async def test_delete_with_non_uuid_address_id_returns_422(client):
     headers = await _register(client, REGISTER)
     response = await client.delete("/auth/addresses/not-a-uuid", headers=headers)
-    assert 400 <= response.status_code < 500
+    assert response.status_code == 422
