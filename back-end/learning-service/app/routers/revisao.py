@@ -11,10 +11,10 @@ from app.models.subtema import Subtema
 from app.schemas.revisao import RevisaoOut
 from app.services.decisao import ClassificacaoSubtema, classificar_subtema
 
-router = APIRouter(prefix="/revisoes", tags=["revisao"])
+router = APIRouter(prefix="/reviews", tags=["revisao"])
 
 
-@router.get("/hoje", response_model=list[RevisaoOut])
+@router.get("/today", response_model=list[RevisaoOut])
 async def revisoes_hoje(
     aluno_id: str = Depends(get_current_student_id),
     db: AsyncSession = Depends(get_db),

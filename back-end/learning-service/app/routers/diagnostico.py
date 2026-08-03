@@ -33,10 +33,10 @@ from app.services.recomendacao_semantica import subtemas_relacionados
 from app.services.sm2 import atualizar_revisao
 from app.services.tutor_llm import gerar_mensagem_fallback, gerar_mensagem_tutor
 
-router = APIRouter(prefix="/diagnostico", tags=["diagnostico"])
+router = APIRouter(prefix="/diagnostic", tags=["diagnostico"])
 
 
-@router.post("/responder", response_model=DiagnosticoResultado)
+@router.post("/answer", response_model=DiagnosticoResultado)
 async def responder_diagnostico(
     payload: RespostaDiagnosticoIn,
     aluno_id: str = Depends(get_current_student_id),
@@ -66,7 +66,7 @@ async def responder_diagnostico(
         # Persiste a resposta individual — é o que permite ao Chatbot
         # Service confirmar depois "o aluno já respondeu essa questão"
         # antes de expor o gabarito na explicação por IA (ver
-        # GET /diagnostico/questoes/{id}/contexto).
+        # GET /diagnostic/questions/{id}/context).
         db.add(
             DiagnosticoResposta(
                 aluno_id=aluno_id,
@@ -244,7 +244,7 @@ async def responder_diagnostico(
     )
 
 
-@router.get("/questoes/{questao_id}/contexto", response_model=QuestaoContextoOut)
+@router.get("/questions/{questao_id}/context", response_model=QuestaoContextoOut)
 async def contexto_questao(
     questao_id: int,
     aluno_id: str = Depends(get_current_student_id),

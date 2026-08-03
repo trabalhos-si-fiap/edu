@@ -64,7 +64,7 @@ class QuestaoContextoOut(BaseModel):
     Contexto completo de uma questão já respondida pelo aluno — usado
     pelo Chatbot Service para explicar por que ele errou (ou acertou).
     Só é exposto para questões que o aluno JÁ respondeu (ver validação em
-    GET /diagnostico/questoes/{id}/contexto); nunca revela o gabarito de
+    GET /diagnostic/questions/{id}/context); nunca revela o gabarito de
     uma questão ainda não respondida.
     """
 

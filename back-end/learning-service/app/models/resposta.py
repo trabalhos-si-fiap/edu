@@ -10,7 +10,7 @@ class DiagnosticoResposta(Base):
     no schema mas não era persistida (só o agregado por subtema era
     salvo). Agora é gravada de verdade — é o que permite ao Chatbot
     Service confirmar "o aluno já respondeu essa questão" antes de expor
-    o gabarito na explicação (ver GET /diagnostico/questoes/{id}/contexto).
+    o gabarito na explicação (ver GET /diagnostic/questions/{id}/context).
     """
 
     __tablename__ = "diagnostico_resposta"
