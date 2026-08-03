@@ -9,14 +9,14 @@ from app.database import get_db
 from app.dependencies import requer_papel
 from app.models.pedido import Pedido
 from app.routers.separacao import transicionar_pedido
-from app.schemas.pedido import PedidoOut
+from app.schemas.pedido import PedidoStaffOut
 from app.services.previsao_entrega import estimar_prazo_entrega
 from app.services.status_pedido import StatusPedido
 
 router = APIRouter(prefix="/delivery", tags=["delivery"])
 
 
-@router.get("/queue", response_model=list[PedidoOut])
+@router.get("/queue", response_model=list[PedidoStaffOut])
 async def fila_entrega(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
@@ -33,7 +33,7 @@ async def fila_entrega(
     return result.scalars().all()
 
 
-@router.get("/mine", response_model=list[PedidoOut])
+@router.get("/mine", response_model=list[PedidoStaffOut])
 async def minhas_entregas(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
@@ -53,37 +53,45 @@ async def minhas_entregas(
     return result.scalars().all()
 
 
-@router.patch("/{pedido_id}/collect", response_model=PedidoOut)
+@router.patch("/{pedido_id}/collect", response_model=PedidoStaffOut)
 async def confirmar_coleta(
     pedido_id: int,
     user: dict = Depends(requer_papel("entregador")),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Claim-on-first-action, DE PROPÓSITO — decisão deliberada, não uma
-    lacuna: esta rota é o próprio ato de reivindicar o pedido para entrega,
-    não uma ação sobre um pedido já reivindicado. Não há "dono anterior"
-    para checar aqui, ao contrário de `confirmar_entrega` logo abaixo (gap
-    #2 do sweep), onde o pedido JÁ tem um `entregador_id` definido por esta
-    mesma rota e a posse precisa ser validada antes de deixar concluir a
-    entrega.
+    Claim-on-first-action, COM uma exceção — corrigido no fix round 1
+    (reviewer finding #2): a docstring original argumentava "não há dono
+    anterior para checar aqui". Falso: `admin.py`'s `assign-deliverer` pode
+    setar `entregador_id` SEM mudar o status do pedido — um admin pode
+    atribuir o pedido X ao entregador D1 enquanto ele ainda está em
+    SEPARADO. Sem honrar essa atribuição, quando o pedido chegasse em
+    AGUARDANDO_COLETA, QUALQUER OUTRO entregador D2 chamando `/collect`
+    sobrescreveria `entregador_id` para si (a transição continua válida do
+    ponto de vista da máquina de estados) e sequestraria o pedido de D1
+    silenciosamente — e o gap #2 fix em `confirmar_entrega`/`deliver`
+    passaria a proteger o sequestrador, não D1. Por isso: se
+    `entregador_id` já está definido E é de outra pessoa, rejeita. Se está
+    vazio (ninguém atribuiu) ou já é do próprio chamador (idempotente),
+    segue o claim-on-first-action normal.
 
-    A proteção contra reivindicação dupla não é um `if`, é a máquina de
-    estados: só AGUARDANDO_COLETA -> EM_TRANSITO é uma transição válida
-    (services/status_pedido.py). Um segundo entregador que tente coletar o
-    mesmo pedido encontra `pedido.status` já em EM_TRANSITO e
-    `transicionar_pedido` rejeita com 400 antes de sobrescrever o
-    `entregador_id` do primeiro — a ordem das linhas abaixo (atribui
-    `entregador_id` ANTES de chamar `transicionar_pedido`) é inofensiva
-    porque, se a transição for rejeitada, a sessão nunca commita: `db.flush()`
-    só empurra a mudança para a transação aberta, `transicionar_pedido` é
-    quem chama `db.commit()` — se ele levantar 400, o `entregador_id`
-    sobrescrito nunca persiste.
+    A proteção contra DUAS chamadas concorrentes de `/collect` no mesmo
+    pedido (não sequencial — corrida de verdade) é o `.with_for_update()`
+    abaixo: sem lock, duas transações sob READ COMMITTED podem ler o mesmo
+    `entregador_id`/status, ambas passarem nas checagens acima e ambas
+    commitarem — último `commit()` ganha, silenciosamente sobrescrevendo o
+    primeiro. CLAUDE.md regra 3 (fix round 1, reviewer finding #3). O
+    `.with_for_update()` serializa a segunda transação atrás da primeira:
+    ela só lê a linha depois que a primeira commita (ou reverte), e nesse
+    ponto vê o `entregador_id` já preenchido.
     """
-    result = await db.execute(select(Pedido).where(Pedido.id == pedido_id))
+    result = await db.execute(select(Pedido).where(Pedido.id == pedido_id).with_for_update())
     pedido = result.scalar_one_or_none()
     if not pedido:
         raise HTTPException(404, "Pedido não encontrado")
+
+    if pedido.entregador_id is not None and str(pedido.entregador_id) != user["sub"]:
+        raise HTTPException(403, "Este pedido já foi atribuído a outro entregador")
 
     pedido.entregador_id = user["sub"]
     await db.flush()
@@ -114,7 +122,7 @@ async def confirmar_coleta(
     return pedido_atualizado
 
 
-@router.patch("/{pedido_id}/deliver", response_model=PedidoOut)
+@router.patch("/{pedido_id}/deliver", response_model=PedidoStaffOut)
 async def confirmar_entrega(
     pedido_id: int,
     user: dict = Depends(requer_papel("entregador")),
