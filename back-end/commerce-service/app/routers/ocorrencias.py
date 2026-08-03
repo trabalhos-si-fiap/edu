@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,19 +21,36 @@ from app.schemas.ocorrencia import (
 from app.services.status_pedido import StatusPedido, validar_transicao
 from app.services.substituicao_ia import sugerir_substitutos
 
-router = APIRouter(prefix="/ocorrencias", tags=["ocorrencias"])
+router = APIRouter(prefix="/occurrences", tags=["occurrences"])
 
 
-@router.post("/falta-estoque", response_model=OcorrenciaDetalheOut, status_code=201)
+@router.post("/stock-shortage", response_model=OcorrenciaDetalheOut, status_code=201)
 async def reportar_falta_estoque(
     payload: FaltaEstoqueIn,
     user: dict = Depends(requer_papel("separador", "admin")),
     db: AsyncSession = Depends(get_db),
 ):
+    """
+    Fix do gap de autorização #4 do sweep de segurança: nada checava se o
+    separador que reporta a falta era o `separador_id` do pedido. Decisão
+    (judgement call, ver task-11-report.md): tratamos isso com a MESMA
+    regra do gap #3 (`finalizar_separacao`, separacao.py) — só o separador
+    que reivindicou o pedido (ou um admin) pode abrir esta ocorrência. Um
+    separador de fora podia, do contrário, abrir uma ocorrência num pedido
+    alheio e travar `finalizar_separacao` de quem está de fato trabalhando
+    nele (a checagem de "ocorrência aberta" ali bloqueia a finalização).
+    Admin é exceção deliberada, como no resto do serviço: atua sobre
+    qualquer pedido (ver admin.py).
+    """
     result = await db.execute(select(Pedido).where(Pedido.id == payload.pedido_id))
     pedido = result.scalar_one_or_none()
     if not pedido:
         raise HTTPException(404, "Pedido não encontrado")
+
+    if user["role"] != "admin" and str(pedido.separador_id) != user["sub"]:
+        raise HTTPException(
+            403, "Apenas o separador responsável por este pedido pode reportar a falta de estoque"
+        )
 
     produtos_sugeridos_ids = await sugerir_substitutos(db, payload.produto_id)
 
@@ -64,16 +81,26 @@ async def reportar_falta_estoque(
     return await _montar_detalhe(db, ocorrencia)
 
 
-@router.post("/atraso-entrega", response_model=OcorrenciaDetalheOut, status_code=201)
+@router.post("/delivery-delay", response_model=OcorrenciaDetalheOut, status_code=201)
 async def reportar_atraso_entrega(
     payload: AtrasoEntregaIn,
     user: dict = Depends(requer_papel("entregador", "admin")),
     db: AsyncSession = Depends(get_db),
 ):
+    """
+    Fix do gap de autorização #5 do sweep de segurança — mesmo raciocínio
+    do gap #4 acima, espelhado para entregador/`entregador_id`: só quem
+    coletou o pedido (ou um admin) pode reportar atraso nele.
+    """
     result = await db.execute(select(Pedido).where(Pedido.id == payload.pedido_id))
     pedido = result.scalar_one_or_none()
     if not pedido:
         raise HTTPException(404, "Pedido não encontrado")
+
+    if user["role"] != "admin" and str(pedido.entregador_id) != user["sub"]:
+        raise HTTPException(
+            403, "Apenas o entregador responsável por este pedido pode reportar o atraso"
+        )
 
     ocorrencia = Ocorrencia(
         pedido_id=payload.pedido_id,
@@ -101,10 +128,12 @@ async def reportar_atraso_entrega(
     return await _montar_detalhe(db, ocorrencia)
 
 
-@router.get("/pedido/{pedido_id}", response_model=list[OcorrenciaOut])
+@router.get("/order/{pedido_id}", response_model=list[OcorrenciaOut])
 async def listar_ocorrencias_pedido(
     pedido_id: int,
     apenas_abertas: bool = False,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     user: dict = Depends(requer_papel("separador", "entregador", "admin", "student")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -120,7 +149,7 @@ async def listar_ocorrencias_pedido(
     query = select(Ocorrencia).where(Ocorrencia.pedido_id == pedido_id)
     if apenas_abertas:
         query = query.where(Ocorrencia.status == "ABERTA")
-    query = query.order_by(Ocorrencia.criado_em.desc())
+    query = query.order_by(Ocorrencia.criado_em.desc()).limit(limit).offset(offset)
 
     result = await db.execute(query)
     return result.scalars().all()
@@ -173,7 +202,7 @@ async def detalhe_ocorrencia(
     return await _montar_detalhe(db, ocorrencia)
 
 
-@router.post("/{ocorrencia_id}/resolver", response_model=OcorrenciaOut)
+@router.post("/{ocorrencia_id}/resolve", response_model=OcorrenciaOut)
 async def resolver_ocorrencia(
     ocorrencia_id: int,
     payload: ResolverOcorrenciaIn,
