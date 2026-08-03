@@ -30,6 +30,7 @@ Valem para toda task deste plano.
 - **Nenhum segredo commitado.** `.env` nunca; só `.env.example`.
 - **Conventional Commits**, uma unidade lógica por commit, `git diff --staged` antes de cada um.
 - **Nada de `datetime.utcnow()`** — sempre `datetime.now(UTC)`.
+- **`SettingsConfigDict`, nunca `class Config:`.** Os serviços importados usam a forma depreciada do Pydantic v1, que emite `PydanticDeprecatedSince20` e sai no v3. O monolito deste projeto já usa `SettingsConfigDict` (`back-end/legacy/app/core/config.py:5`) — todo serviço importado migra para ela.
 - **401 vs 403 é contrato, não detalhe.** Header `Authorization` ausente → **403**. Token inválido, expirado ou do `type` errado → **401**. O Flutter dispara o refresh do par de tokens *só* em 401 (`front-end-flutter/lib/core/network/auth_http_client.dart:43`), então 401 tem que significar exatamente "tenta renovar" — devolver 401 para requisição sem sessão nenhuma faria o app gastar um refresh à toa. O `HTTPBearer` do FastAPI 0.141 devolve 401 para header ausente, por isso `edu-common` usa `HTTPBearer(auto_error=False)` e levanta o 403 explicitamente. Isso é deliberado; não "corrigir".
 
 ---
