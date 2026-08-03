@@ -37,7 +37,9 @@ async def test_request_returns_200_for_unknown_email_to_prevent_enumeration(clie
 async def test_request_never_returns_the_code(client):
     await client.post("/auth/register", json=REGISTER)
     response = await client.post("/auth/password-reset/request", json={"email": REGISTER["email"]})
-    assert "code" not in response.text.lower()
+    assert not re.search(r"\b\d{6}\b", response.text), (
+        f"código de 6 dígitos vazou na resposta: {response.text}"
+    )
 
 
 async def test_request_never_logs_the_code(client, captured_logs):
