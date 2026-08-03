@@ -163,6 +163,7 @@ maior do que rota faltando: várias rotas existem, respondem, e ainda assim queb
 | `GET /orders/{id}/tracking` | objeto único | array de histórico de status |
 | `GET /products/{id}/reviews` | `{"items": [...]}` | **404** — rota não existe |
 | `GET /orders/{id}/route` | objeto de rota | **404** — rota não existe |
+| `GET /notifications` → `data.order_id` | UUID em string (legacy) | inteiro — mesma chave, tipo diferente |
 
 Duas consequências para o planejamento da fase 2:
 
