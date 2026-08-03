@@ -384,13 +384,21 @@ Provar que constrói **e** que a imagem está limpa antes de fechar a task:
 cd back-end
 docker build -f <service>/Dockerfile -t edu-<service>-test .
 docker run --rm edu-<service>-test uv run python -c "import edu_common.security; print('ok')"
-# A imagem não pode conter .env, .venv do host nem caches:
+# A imagem não pode conter .env nem caches do host:
 docker run --rm edu-<service>-test sh -c \
-  'ls -a /app/<service> | grep -E "^\.(env|venv|pytest_cache|ruff_cache)$" && echo VAZOU || echo limpa'
+  'find /app -maxdepth 3 \( -name ".env" -o -name "__pycache__" -o -name ".pytest_cache" -o -name ".ruff_cache" \) | head'
+# E o .venv precisa ser o do container, não o do host:
+docker run --rm edu-<service>-test cat /app/<service>/.venv/pyvenv.cfg
 ```
 
-Expected: `ok` e `limpa`. Se sair `VAZOU`, o `.dockerignore` não pegou — quase
-sempre por falta do prefixo `**/`.
+Expected: o `find` sem nenhuma saída, e o `pyvenv.cfg` apontando para o Python do
+container (`/usr/local`), não para um caminho do host.
+
+**Não procure pela ausência de `.venv`.** O `RUN uv sync` cria um `.venv` dentro da
+imagem antes do `COPY`, então "existe `.venv`" é o estado normal e esperado — um teste
+que exija a ausência dele nunca passa e, pior, some com a informação real. O que
+distingue vazamento de build correto é a *procedência*: o `pyvenv.cfg` do host aponta
+para o interpretador do host e uma versão diferente de Python/uv.
 
 ### Recipe D — baseline do Alembic a partir dos models
 
