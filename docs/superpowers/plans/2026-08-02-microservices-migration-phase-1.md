@@ -375,12 +375,13 @@ git commit -m "refactor(backend): move modular monolith into back-end/legacy/"
 **Interfaces:**
 - Consumes: nada
 - Produces:
-  - `hash_password(plain: str, rounds: int = 12) -> str`
+  - `DEFAULT_BCRYPT_ROUNDS: int`, `MAX_PASSWORD_BYTES: int`
+  - `hash_password(plain: str, rounds: int = DEFAULT_BCRYPT_ROUNDS) -> str` — levanta `ValueError` acima de `MAX_PASSWORD_BYTES`
   - `verify_password(plain: str, hashed: str) -> bool`
   - `DUMMY_PASSWORD_HASH: str`
   - `create_access_token(sub: str, role: str, secret: str, algorithm: str = "HS256", expires_minutes: int = 60) -> str`
   - `create_refresh_token(sub: str, role: str, secret: str, algorithm: str = "HS256", expires_days: int = 7) -> str`
-  - `decode_token(token: str, secret: str, algorithm: str = "HS256") -> dict | None`
+  - `decode_token(token: str, secret: str, algorithm: str = "HS256", expected_type: str | None = None) -> dict | None` — devolve `None` (nunca levanta) para assinatura inválida, expirado, malformado, segredo inutilizável, ou `type` diferente do esperado
 
 - [ ] **Step 1: Criar o esqueleto do pacote**
 
@@ -400,7 +401,7 @@ description = "Shared JWT/auth and RabbitMQ event helpers for the Edu microservi
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115.0",
-    "python-jose[cryptography]>=3.3.0",
+    "python-jose[cryptography]>=3.4.0",
     "bcrypt>=4.2.0",
     "aio-pika>=9.4.2",
     "loguru>=0.7.2",
@@ -823,8 +824,10 @@ def build_auth_deps(secret: str, algorithm: str = DEFAULT_ALGORITHM) -> AuthDeps
     async def get_current_user(
         credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     ) -> dict:
-        payload = decode_token(credentials.credentials, secret, algorithm)
-        if payload is None or payload.get("type") != "access":
+        # `expected_type="access"` faz o próprio decode_token recusar um refresh
+        # token — a checagem não fica espalhada por serviço.
+        payload = decode_token(credentials.credentials, secret, algorithm, expected_type="access")
+        if payload is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Token inválido ou expirado",
