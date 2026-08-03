@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,7 +17,7 @@ from app.schemas.pedido import (
 from app.services.previsao_entrega import MINIMO_AMOSTRAS, estimar_prazo_entrega
 from app.services.status_pedido import StatusPedido
 
-router = APIRouter(prefix="/pedidos", tags=["pedidos"])
+router = APIRouter(prefix="/orders", tags=["orders"])
 
 
 @router.post("", response_model=PedidoOut, status_code=201)
@@ -67,12 +67,20 @@ async def criar_pedido(
     return pedido
 
 
-@router.get("/meus", response_model=list[PedidoOut])
+@router.get("/mine", response_model=list[PedidoOut])
 async def meus_pedidos(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     aluno_id: str = Depends(get_current_student_id),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(Pedido).where(Pedido.aluno_id == aluno_id))
+    result = await db.execute(
+        select(Pedido)
+        .where(Pedido.aluno_id == aluno_id)
+        .order_by(Pedido.id)
+        .limit(limit)
+        .offset(offset)
+    )
     return result.scalars().all()
 
 
@@ -91,9 +99,11 @@ async def detalhe_pedido(
     return pedido
 
 
-@router.get("/{pedido_id}/rastreio", response_model=list[PedidoStatusHistoricoOut])
+@router.get("/{pedido_id}/tracking", response_model=list[PedidoStatusHistoricoOut])
 async def rastreio_pedido(
     pedido_id: int,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     aluno_id: str = Depends(get_current_student_id),
     db: AsyncSession = Depends(get_db),
 ):
@@ -108,11 +118,13 @@ async def rastreio_pedido(
         select(PedidoStatusHistorico)
         .where(PedidoStatusHistorico.pedido_id == pedido_id)
         .order_by(PedidoStatusHistorico.criado_em.asc())
+        .limit(limit)
+        .offset(offset)
     )
     return historico.scalars().all()
 
 
-@router.get("/{pedido_id}/previsao-entrega", response_model=PrevisaoEntregaOut)
+@router.get("/{pedido_id}/delivery-estimate", response_model=PrevisaoEntregaOut)
 async def previsao_entrega_pedido(
     pedido_id: int,
     aluno_id: str = Depends(get_current_student_id),
