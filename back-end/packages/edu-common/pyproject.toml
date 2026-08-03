@@ -5,7 +5,7 @@ description = "Shared JWT/auth and RabbitMQ event helpers for the Edu microservi
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115.0",
-    "python-jose[cryptography]>=3.3.0",
+    "python-jose[cryptography]>=3.4.0",
     "bcrypt>=4.2.0",
     "aio-pika>=9.4.2",
     "loguru>=0.7.2",
