@@ -814,6 +814,15 @@ Expected: FAIL com `ModuleNotFoundError: No module named 'edu_common.deps'`.
 
 `back-end/packages/edu-common/src/edu_common/deps.py`:
 
+> **O código abaixo é a versão original do plano e foi superado.** A revisão da
+> task 3 encontrou que `build_auth_deps("")` montava um portão que validava
+> qualquer token (chave HMAC vazia assina qualquer coisa), e o `HTTPBearer` do
+> FastAPI 0.141 devolve 401 em header ausente, quebrando o contrato 401/403. A
+> implementação que vale está no arquivo, commitada em `e38bc9e`: valida o
+> segredo no build, usa `auto_error=False` com 403 explícito, e avisa no
+> docstring que o dict devolvido carrega o bearer token vivo. Não reescreva
+> este arquivo a partir do bloco abaixo.
+
 ```python
 """Dependências FastAPI de autenticação, parametrizadas pelo segredo do serviço.
 
