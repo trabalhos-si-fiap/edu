@@ -1,7 +1,13 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
     # URLs internas (rede Docker) — sempre porta 8000, que é a porta que
     # cada serviço expõe DENTRO do container (o mapeamento 8001:8000 etc.
     # no docker-compose.yml só vale para acesso de fora do Docker).
@@ -18,9 +24,6 @@ class Settings(BaseSettings):
     # curinga — allow_credentials=True com "*" é rejeitado pelo browser e
     # vazaria a API para qualquer site.
     cors_origins: list[str] = ["http://localhost:3000"]
-
-    class Config:
-        env_file = ".env"
 
 
 settings = Settings()
