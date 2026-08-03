@@ -128,9 +128,15 @@ ignore = ["S101"]
 
 # `Depends(...)` como default de argumento é o idioma do FastAPI, não o
 # bug que o B008 procura. Declarar aqui evita espalhar `# noqa: B008`
-# por todo router dos sete serviços.
+# por todo router dos sete serviços. `requer_papel` entra na lista pelo
+# mesmo motivo: `Depends(requer_papel("admin"))` é chamada inline por
+# design, e sem isso todo endpoint com papel exigido carregaria um noqa.
 [tool.ruff.lint.flake8-bugbear]
-extend-immutable-calls = ["fastapi.Depends", "fastapi.Security"]
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Security",
+    "app.dependencies.requer_papel",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
