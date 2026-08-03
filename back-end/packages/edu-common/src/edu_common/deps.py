@@ -31,13 +31,22 @@ class AuthDeps:
 
 
 def build_auth_deps(secret: str, algorithm: str = DEFAULT_ALGORITHM) -> AuthDeps:
-    # `Depends(...)` as a default value is FastAPI's own dependency-injection
-    # idiom, not the mutable-default footgun B008 guards against — FastAPI
-    # resolves it once per request, not once at def time. Suppressed below
-    # wherever it appears.
+    # Fail fast at build time (service startup), not per request: an empty
+    # HMAC key verifies any signature, so `secret=""` (e.g. an unset
+    # JWT_SECRET env var defaulting to "") would silently turn this whole
+    # gate into a no-op that accepts forged tokens for every role.
+    if not secret or not secret.strip():
+        raise ValueError("build_auth_deps: secret must be a non-empty, non-whitespace string")
+
     async def get_current_user(
-        credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),  # noqa: B008
+        credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     ) -> dict:
+        """Retorna o payload do JWT acrescido de `raw_token`.
+
+        `raw_token` é a credencial bearer viva de quem chamou — nunca
+        devolva este dict em corpo de resposta nem passe para o logger;
+        qualquer um dos dois vaza o token.
+        """
         if credentials is None:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -55,11 +64,11 @@ def build_auth_deps(secret: str, algorithm: str = DEFAULT_ALGORITHM) -> AuthDeps
         # (chatbot -> learning) repassam o MESMO token do aluno.
         return {**payload, "raw_token": credentials.credentials}
 
-    async def get_current_user_id(user: dict = Depends(get_current_user)) -> str:  # noqa: B008
+    async def get_current_user_id(user: dict = Depends(get_current_user)) -> str:
         return user["sub"]
 
     def require_role(*allowed_roles: str) -> Callable:
-        async def verifier(user: dict = Depends(get_current_user)) -> dict:  # noqa: B008
+        async def verifier(user: dict = Depends(get_current_user)) -> dict:
             if user.get("role") not in allowed_roles:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
