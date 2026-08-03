@@ -396,7 +396,11 @@ sempre por falta do prefixo `**/`.
 
 1. `uv run alembic init -t async alembic` e substituir `alembic/env.py` pela Recipe B.
 2. Em `alembic.ini`, apagar a linha `sqlalchemy.url = ...` (o `env.py` define pela settings).
-3. Comparar `schema.sql` com os models: todo `CREATE INDEX` e toda constraint do SQL precisa existir no model (`index=True`, `UniqueConstraint`, `CheckConstraint`). A task lista as divergências conhecidas.
+3. Comparar `schema.sql` com os models **coluna a coluna**, não por amostragem. Precisam existir no model: todo `CREATE INDEX` (`index=True`), toda constraint (`UniqueConstraint`, `CheckConstraint`), e **todo `DEFAULT` de nível de banco** como `server_default=sa.text(...)`.
+
+   O `DEFAULT` é o que mais escapa, porque o `default=` do SQLAlchemy é client-side: ele só vale para inserts que passam por aquele caminho do ORM. Seed em SQL puro, painel admin, ou outro serviço escrevendo na mesma tabela recebem NULL. Dois serviços já perderam seus defaults exatamente assim. Manter os dois: `default=` para o ORM e `server_default=` para todo o resto.
+
+   No relatório, listar a comparação coluna a coluna — "nenhuma divergência" sem a lista não é verificação.
 4. `uv run alembic revision --autogenerate -m "baseline schema"` contra um banco vazio.
 5. `uv run alembic upgrade head`.
 6. **Prova de sincronia:** `uv run alembic revision --autogenerate -m "sync check"` deve gerar migration com `upgrade()` e `downgrade()` vazios (só `pass`). Apagar esse arquivo depois de conferir. Se não vier vazia, o model diverge do schema — corrigir o model e refazer o baseline.
@@ -3744,6 +3748,12 @@ git commit -m "feat(analytics-service): import analytics-service on uv, alembic 
 **Interfaces:**
 - Consumes: os 7 serviços das tasks 5-14, cada um já com seu `Dockerfile` escrito pela Recipe E
 - Produces: `make stack-up` sobe legacy + stack novo; `make services-test` roda as 8 suítes
+
+- [ ] **Step 0a: Restaurar os `server_default` perdidos no `auth-users-service`**
+
+O `auth-users-service` foi importado antes de a Recipe D exigir a conferência de defaults, e sua baseline perdeu os `DEFAULT` de banco que o `schema.sql` declarava: `users.role`, `users.ativo`, `addresses.label`, `addresses.complement`, `addresses.is_favorite`, `password_reset_codes.usado`, e o `uuid_generate_v4()` dos `id`. Acrescentar `server_default` nesses models e gerar uma migration para eles (ali a baseline já foi aplicada em mais de um banco, então **não** amendar — empilhar uma migration nova).
+
+Conferir também `learning-service`, importado no mesmo intervalo.
 
 - [ ] **Step 0: Garantir que os sete serviços têm `.env.example`**
 
