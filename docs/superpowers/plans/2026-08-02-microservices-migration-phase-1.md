@@ -30,6 +30,7 @@ Valem para toda task deste plano.
 - **Nenhum segredo commitado.** `.env` nunca; só `.env.example`.
 - **Conventional Commits**, uma unidade lógica por commit, `git diff --staged` antes de cada um.
 - **Nada de `datetime.utcnow()`** — sempre `datetime.now(UTC)`.
+- **Cada serviço tem seu `.env.example`.** As settings com campo obrigatório sem default fazem `uv run pytest` estourar no import num clone limpo — sem o `.env.example` ninguém descobre quais variáveis faltam. Listar toda variável obrigatória, com valor de exemplo e nunca com valor real.
 - **Cada task de serviço reescreve o `Dockerfile` do serviço** pela Recipe E, e prova que `docker build` passa. O arquivo que vem no zip referencia o `requirements.txt` que a própria importação apaga — deixá-lo para a task 15 mantém a árvore com Dockerfiles quebrados por dez tasks.
 - **`SettingsConfigDict`, nunca `class Config:`.** Os serviços importados usam a forma depreciada do Pydantic v1, que emite `PydanticDeprecatedSince20` e sai no v3. O monolito deste projeto já usa `SettingsConfigDict` (`back-end/legacy/app/core/config.py:5`) — todo serviço importado migra para ela.
 - **401 vs 403 é contrato, não detalhe.** Header `Authorization` ausente → **403**. Token inválido, expirado ou do `type` errado → **401**. O Flutter dispara o refresh do par de tokens *só* em 401 (`front-end-flutter/lib/core/network/auth_http_client.dart:43`), então 401 tem que significar exatamente "tenta renovar" — devolver 401 para requisição sem sessão nenhuma faria o app gastar um refresh à toa. O `HTTPBearer` do FastAPI 0.141 devolve 401 para header ausente, por isso `edu-common` usa `HTTPBearer(auto_error=False)` e levanta o 403 explicitamente. Isso é deliberado; não "corrigir".
@@ -3741,6 +3742,19 @@ git commit -m "feat(analytics-service): import analytics-service on uv, alembic 
 **Interfaces:**
 - Consumes: os 7 serviços das tasks 5-14, cada um já com seu `Dockerfile` escrito pela Recipe E
 - Produces: `make stack-up` sobe legacy + stack novo; `make services-test` roda as 8 suítes
+
+- [ ] **Step 0: Garantir que os sete serviços têm `.env.example`**
+
+`api-gateway`, `auth-users-service` e `learning-service` foram importados antes desta constraint existir — provavelmente falta neles. Conferir os sete e escrever o que faltar:
+
+```bash
+cd back-end
+for s in api-gateway auth-users-service learning-service commerce-service chatbot-service notification-service analytics-service; do
+  test -f "$s/.env.example" && echo "$s ok" || echo "$s FALTA"
+done
+```
+
+Cada um lista toda variável sem default em `app/config.py`, com valor de exemplo — nunca o valor real.
 
 - [ ] **Step 1: Conferir que os sete Dockerfiles constroem**
 
