@@ -7,11 +7,26 @@ from app.dependencies import requer_papel
 from app.events.publisher import publish_event
 from app.models.ocorrencia import Ocorrencia
 from app.models.pedido import Pedido, PedidoStatusHistorico
-from app.schemas.pedido import PedidoFilaOut, PedidoOut
+from app.schemas.pedido import PedidoFilaOut, PedidoStaffOut
 from app.services.priorizacao_fila import priorizar_fila
 from app.services.status_pedido import StatusPedido, validar_transicao
 
 router = APIRouter(prefix="/picking", tags=["picking"])
+
+# Bound do fetch de candidatos da fila (fix round 1, reviewer finding #5):
+# antes, a query buscava TODOS os pedidos AGUARDANDO_SEPARACAO, sem teto —
+# a paginação (limit/offset) só corta a resposta DEPOIS de pontuar/ordenar
+# (ver docstring de fila_separacao), então não limitava o que o banco
+# devolvia. Busca-se aqui as CANDIDATOS_FILA_MAXIMO ordens mais antigas
+# (`criado_em ASC`) — o componente de espera pesa 0.6 contra 0.4 do risco
+# de estoque em priorizacao_fila.py, então qualquer pedido com espera
+# normalizada >= 0.4/0.6 (~32h) já pontua tanto quanto o teto máximo
+# possível só por risco (0.4, pedido novíssimo com risco=1); a pré-seleção
+# pelas mais antigas preserva o ranking na prática sem reintroduzir um
+# fetch sem teto. Não é uma garantia matemática absoluta em filas com mais
+# de CANDIDATOS_FILA_MAXIMO pedidos pendentes simultaneamente (ver
+# task-11-report.md, Fix round 1, item 5).
+CANDIDATOS_FILA_MAXIMO = 500
 
 
 async def transicionar_pedido(
@@ -78,9 +93,16 @@ async def fila_separacao(
     página só por não estar entre os N primeiros por `id`). O corte por
     página só pode acontecer depois que TODOS os candidatos elegíveis já
     foram pontuados e ordenados.
+
+    O FETCH em si é limitado a `CANDIDATOS_FILA_MAXIMO` (os mais antigos
+    por `criado_em`) — ver comentário da constante no topo do módulo para
+    o porquê disso preservar o ranking na prática.
     """
     result = await db.execute(
-        select(Pedido).where(Pedido.status == StatusPedido.AGUARDANDO_SEPARACAO.value)
+        select(Pedido)
+        .where(Pedido.status == StatusPedido.AGUARDANDO_SEPARACAO.value)
+        .order_by(Pedido.criado_em.asc(), Pedido.id.asc())
+        .limit(CANDIDATOS_FILA_MAXIMO)
     )
     pedidos = result.scalars().all()
 
@@ -88,32 +110,49 @@ async def fila_separacao(
     pagina = pedidos_pontuados[offset : offset + limit]
 
     return [
-        PedidoFilaOut(**PedidoOut.model_validate(pedido).model_dump(), score_risco=score)
+        PedidoFilaOut(**PedidoStaffOut.model_validate(pedido).model_dump(), score_risco=score)
         for pedido, score in pagina
     ]
 
 
-@router.patch("/{pedido_id}/start", response_model=PedidoOut)
+@router.patch("/{pedido_id}/start", response_model=PedidoStaffOut)
 async def iniciar_separacao(
     pedido_id: int,
     user: dict = Depends(requer_papel("separador")),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Claim-on-first-action: o primeiro separador a chamar esta rota vira o
-    `separador_id` do pedido, sem checar posse prévia — não há posse prévia
-    a checar, é exatamente o ato de reivindicar o pedido. A máquina de
-    estados protege contra uma segunda reivindicação (só
-    AGUARDANDO_SEPARACAO -> EM_SEPARACAO é uma transição válida; uma
-    segunda chamada, de outro separador, encontra o pedido já em
-    EM_SEPARACAO e `validar_transicao` rejeita com 400). Mesmo desenho de
-    `confirmar_coleta` em entrega.py — ver a nota lá para o raciocínio
-    completo.
+    Claim-on-first-action, COM uma exceção — corrigido no fix round 1
+    (reviewer finding #2): a premissa original de que "não há posse prévia
+    a checar" era falsa. `admin.py`'s `assign-picker` já pode setar
+    `separador_id` SEM mudar o status do pedido — um admin pode atribuir o
+    pedido X ao separador P1 enquanto ele ainda está em CRIADO/
+    AGUARDANDO_SEPARACAO. Sem honrar essa atribuição, quando o pedido
+    chegasse em AGUARDANDO_SEPARACAO, QUALQUER OUTRO separador P2 chamando
+    `/start` sobrescreveria `separador_id` para si (a transição continua
+    válida do ponto de vista da máquina de estados) e sequestraria o
+    pedido de P1 silenciosamente — e o gap #3 fix em `finish` passaria a
+    proteger o sequestrador, não P1. Por isso: se `separador_id` já está
+    definido E é de outra pessoa, rejeita. Se está vazio (ninguém
+    atribuiu) ou já é do próprio chamador (idempotente), segue o
+    claim-on-first-action normal.
+
+    A proteção contra DUAS chamadas concorrentes de `/start` no mesmo
+    pedido (não sequencial — corrida de verdade) é o `.with_for_update()`
+    abaixo: sem lock, duas transações sob READ COMMITTED podem ler o
+    mesmo `separador_id`/status, ambas passarem nas checagens acima e
+    ambas commitarem — CLAUDE.md regra 3 (fix round 1, reviewer finding
+    #3). O `.with_for_update()` serializa a segunda transação atrás da
+    primeira: ela só lê a linha depois que a primeira commita (ou
+    reverte), e nesse ponto vê o `separador_id` já preenchido.
     """
-    result = await db.execute(select(Pedido).where(Pedido.id == pedido_id))
+    result = await db.execute(select(Pedido).where(Pedido.id == pedido_id).with_for_update())
     pedido = result.scalar_one_or_none()
     if not pedido:
         raise HTTPException(404, "Pedido não encontrado")
+
+    if pedido.separador_id is not None and str(pedido.separador_id) != user["sub"]:
+        raise HTTPException(403, "Este pedido já foi atribuído a outro separador")
 
     pedido.separador_id = user["sub"]
     await db.flush()
@@ -121,7 +160,7 @@ async def iniciar_separacao(
     return await transicionar_pedido(db, pedido_id, StatusPedido.EM_SEPARACAO.value, user["sub"])
 
 
-@router.patch("/{pedido_id}/finish", response_model=PedidoOut)
+@router.patch("/{pedido_id}/finish", response_model=PedidoStaffOut)
 async def finalizar_separacao(
     pedido_id: int,
     user: dict = Depends(requer_papel("separador")),
