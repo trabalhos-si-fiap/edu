@@ -54,6 +54,12 @@ extend-immutable-calls = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
+# Sem isso, cada teste roda num event loop novo (padrão "function") enquanto
+# `test_engine` (Recipe C, scope="session") e seu pool asyncpg nascem presos
+# ao loop do primeiro teste — o segundo teste que toca o banco quebra com
+# "Future ... attached to a different loop". Loop também "session" alinha a
+# vida do loop com a do engine.
+asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
 markers = [

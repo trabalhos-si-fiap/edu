@@ -52,8 +52,29 @@ async def db_session(
 
 
 @pytest.fixture
+def _stub_publish_event(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`ASGITransport` never runs the app's lifespan (`init_publisher()` is
+    never called), so `app.events.publisher._publisher` stays disconnected —
+    any route that awaits `publish_event` (`/auth/register`,
+    `/auth/register-staff`) hits `RuntimeError("EventPublisher not
+    connected — call connect() first")` after the DB row is already
+    committed. Stub it at the router's own import site: `app/routers/auth.py`
+    does `from app.events.publisher import publish_event`, which binds its
+    own name in that module's namespace, so patching
+    `app.events.publisher.publish_event` would not affect the router's
+    already-bound reference.
+    """
+
+    async def _noop(routing_key: str, payload: dict) -> None:
+        return None
+
+    monkeypatch.setattr("app.routers.auth.publish_event", _noop)
+
+
+@pytest.fixture
 async def client(
     test_session_factory: async_sessionmaker[AsyncSession],
+    _stub_publish_event: None,
 ) -> AsyncIterator[AsyncClient]:
     async def _override_get_db() -> AsyncIterator[AsyncSession]:
         async with test_session_factory() as session:

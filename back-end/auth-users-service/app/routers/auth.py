@@ -126,10 +126,15 @@ async def login(payload: LoginIn, db: AsyncSession = Depends(get_db)):
     user = result.scalar_one_or_none()
 
     # DUMMY_PASSWORD_HASH garante que um bcrypt.checkpw completo rode mesmo
-    # quando o e-mail não existe — sem isso, um e-mail inexistente responderia
-    # mais rápido que uma senha errada, um timing attack de enumeração de usuários.
+    # quando o e-mail não existe. A chamada a verify_password NÃO pode ficar
+    # do lado direito de um `or`/`and` com `not user` — isso reintroduziria o
+    # short-circuit que pula o bcrypt.checkpw inteiro quando o usuário não
+    # existe (a defesa vira código morto sem nenhum erro de lint acusar:
+    # DUMMY_PASSWORD_HASH continua "usado" na atribuição). Por isso a
+    # avaliação é forçada numa variável antes do `if`.
     password_hash = user.senha_hash if user else DUMMY_PASSWORD_HASH
-    if not user or not verify_password(payload.password, password_hash):
+    senha_confere = verify_password(payload.password, password_hash)
+    if not user or not senha_confere:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "E-mail ou senha inválidos")
 
     if not user.ativo:

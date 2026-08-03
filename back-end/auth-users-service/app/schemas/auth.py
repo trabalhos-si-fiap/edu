@@ -2,12 +2,25 @@ from datetime import date
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, field_validator
+from edu_common.security import MAX_PASSWORD_BYTES
+from pydantic import BaseModel, ConfigDict, EmailStr, field_validator
 
 # Precisa bater exatamente com `_educationLevels` em register_screen.dart.
 EducationLevel = Literal["9º ano", "1º ano", "2º ano", "3º ano", "Vestibulando"]
 
 Role = Literal["student", "admin", "separador", "entregador"]
+
+
+def _validar_bytes_senha(v: str) -> None:
+    """bcrypt trunca (e `edu_common.hash_password` levanta `ValueError`) para
+    senhas acima de `MAX_PASSWORD_BYTES` em UTF-8. `Field(max_length=...)` do
+    Pydantic conta *caracteres*, não bytes — uma senha curta em caracteres
+    mas cheia de emoji/acentos passaria por ele e ainda estouraria o limite
+    do bcrypt, virando 500 em vez de 422. Checar aqui, nos três schemas que
+    carregam senha em texto plano, fecha essa lacuna antes do hash.
+    """
+    if len(v.encode("utf-8")) > MAX_PASSWORD_BYTES:
+        raise ValueError(f"Senha não pode passar de {MAX_PASSWORD_BYTES} bytes")
 
 
 class RegisterIn(BaseModel):
@@ -27,6 +40,7 @@ class RegisterIn(BaseModel):
             raise ValueError("Senha deve ter no mínimo 8 caracteres")
         if not any(c in '!@#$%^&*(),.?":{}|<>' for c in v):
             raise ValueError("Senha deve conter ao menos um caractere especial")
+        _validar_bytes_senha(v)
         return v
 
     @field_validator("birth_date")
@@ -50,6 +64,12 @@ class RegisterStaffIn(BaseModel):
     documento: str | None = None
     role: Role
 
+    @field_validator("senha")
+    @classmethod
+    def senha_dentro_do_limite(cls, v: str) -> str:
+        _validar_bytes_senha(v)
+        return v
+
 
 class LoginIn(BaseModel):
     """Payload de `POST /auth/login` — casa com `AuthApi.login()`."""
@@ -69,13 +89,12 @@ class TokensOut(BaseModel):
 
 
 class UserOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     name: str
     email: EmailStr
     role: str
-
-    class Config:
-        from_attributes = True
 
 
 class AuthResponseOut(BaseModel):
@@ -99,4 +118,5 @@ class PasswordResetConfirmIn(BaseModel):
     def senha_forte(cls, v: str) -> str:
         if len(v) < 8:
             raise ValueError("Senha deve ter no mínimo 8 caracteres")
+        _validar_bytes_senha(v)
         return v

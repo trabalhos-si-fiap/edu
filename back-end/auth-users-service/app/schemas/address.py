@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 class AddressIn(BaseModel):
@@ -42,6 +42,8 @@ class AddressPatch(BaseModel):
 
 
 class AddressOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     label: str
     zip_code: str
@@ -52,6 +54,3 @@ class AddressOut(BaseModel):
     city: str
     state: str
     is_favorite: bool
-
-    class Config:
-        from_attributes = True
