@@ -3832,6 +3832,8 @@ git commit -m "feat(infra): unify compose for legacy and microservices with per-
 - Modify: `CLAUDE.md` (tabela de documentação)
 - Modify: `docs/back-end/start-here.md` (aviso de que o monolito virou legacy)
 - Modify: `README.md`
+- Modify: `front-end-flutter/README.md` (referências a caminhos sob `back-end/`)
+- Modify: `Makefile` (comentário obsoleto sobre a porta padrão 8000, ~linha 18)
 
 **Interfaces:**
 - Consumes: o estado final das tasks 1-15
