@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,7 +21,9 @@ async def _desmarcar_outros_favoritos(db: AsyncSession, user_id: str, manter_id)
     )
 
 
-async def _buscar_endereco_do_usuario(db: AsyncSession, address_id: str, user_id: str) -> Address:
+async def _buscar_endereco_do_usuario(
+    db: AsyncSession, address_id: uuid.UUID, user_id: str
+) -> Address:
     result = await db.execute(
         select(Address).where(Address.id == address_id, Address.user_id == user_id)
     )
@@ -31,6 +35,8 @@ async def _buscar_endereco_do_usuario(db: AsyncSession, address_id: str, user_id
 
 @router.get("", response_model=list[AddressOut])
 async def listar_enderecos(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
@@ -39,6 +45,8 @@ async def listar_enderecos(
         select(Address)
         .where(Address.user_id == user_id)
         .order_by(Address.is_favorite.desc(), Address.criado_em.asc())
+        .limit(limit)
+        .offset(offset)
     )
     return result.scalars().all()
 
@@ -80,7 +88,7 @@ async def criar_endereco(
 
 @router.patch("/{address_id}", response_model=AddressOut)
 async def atualizar_endereco(
-    address_id: str,
+    address_id: uuid.UUID,
     payload: AddressPatch,
     user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
@@ -103,7 +111,7 @@ async def atualizar_endereco(
 
 @router.delete("/{address_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def remover_endereco(
-    address_id: str,
+    address_id: uuid.UUID,
     user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
