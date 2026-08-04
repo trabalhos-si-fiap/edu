@@ -22,6 +22,12 @@ dev = [
     "pytest-asyncio>=0.25.0",
     "pytest-cov>=6.0.0",
     "ruff>=0.8.0",
+    # tests/conftest.py importa httpx direto (ASGITransport/AsyncClient).
+    # Sem esta linha ele só chegava por transitividade do `groq`
+    # (`uv tree --invert --package httpx`: httpx <- groq <- analytics-service),
+    # então bastava o groq trocar de cliente HTTP para a suíte quebrar no
+    # import. Os outros sete projetos já declaram httpx.
+    "httpx>=0.28.0",
 ]
 
 [tool.uv.sources]
