@@ -36,11 +36,11 @@ FLUTTER := $(or $(FLUTTER),flutter)
 # working .env and in .env.example. Override with: make front API_PORT=8001
 #
 # The literal below is only reached when back-end/.env is missing entirely. It
-# still reads 8000, which no longer matches either compose (legacy defaults to
-# 8001; the unified compose still defaults to 8000). Left alone deliberately —
-# changing it is a behaviour change, not a doc fix. See task-16-report.md.
+# is 8001 to match both composes. Never make it 8000: another project on this
+# machine holds that port, so falling back to it would reach a different
+# backend and return wrong data instead of failing to connect.
 API_PORT := $(shell sed -n 's/^API_PORT_EXTERNAL=//p' $(BACK_ROOT)/.env 2>/dev/null | tr -d '[:space:]')
-API_PORT := $(or $(API_PORT),8000)
+API_PORT := $(or $(API_PORT),8001)
 
 # Host LAN IP, auto-detected for the current OS (Linux or macOS). Every target
 # on the same Wi-Fi — physical iPhone/Android, iOS simulator, Android emulator,

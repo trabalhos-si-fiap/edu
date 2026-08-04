@@ -143,7 +143,10 @@ services:
     env_file:
       - .env
     ports:
-      - "${API_PORT_EXTERNAL:-8000}:8000"
+      # Mesmo default do compose do legacy: 8001, nunca 8000. A faixa 80xx tem
+      # outros projetos nesta máquina e 8000 já é de um deles — cair nele seria
+      # colisão silenciosa, não erro.
+      - "${API_PORT_EXTERNAL:-8001}:8000"
     depends_on:
       postgres:
         condition: service_healthy
