@@ -22,19 +22,85 @@ def fake_message(payload: dict) -> MagicMock:
     return message
 
 
+def diagnostic_payload(acao: str, dominio_tema: float) -> dict:
+    """A forma exata que `learning-service` publica em `diagnostic.completed`
+    (`app/routers/diagnostico.py`): aluno_id, tema_id, dominio_tema, acao."""
+    return {
+        "aluno_id": STUDENT_ID,
+        "tema_id": 12,
+        "dominio_tema": dominio_tema,
+        "acao": acao,
+    }
+
+
 async def test_diagnostic_completed_creates_a_notification(
     db_session, test_session_factory, monkeypatch
 ):
     monkeypatch.setattr(consumer_module, "async_session", test_session_factory)
 
     await consumer_module.handle_diagnostic_completed(
-        fake_message({"aluno_id": STUDENT_ID, "acao": "avancar", "dominio": 0.9})
+        fake_message(diagnostic_payload("avancar", 0.9))
     )
 
     stored = (await db_session.execute(select(Notificacao))).scalars().all()
     assert len(stored) == 1
     assert stored[0].tipo == "estudo"
     assert "avançar" in stored[0].descricao
+
+
+async def test_diagnostic_retroceder_shows_the_real_dominio(
+    db_session, test_session_factory, monkeypatch
+):
+    """`retroceder` é uma das três ações que o produtor emite. Sem entrada
+    própria no dicionário ela caía no texto genérico, e como o handler lia a
+    chave errada (`dominio`) o aluno via sempre "Domínio calculado: 0%",
+    qualquer que fosse a nota real."""
+    monkeypatch.setattr(consumer_module, "async_session", test_session_factory)
+
+    await consumer_module.handle_diagnostic_completed(
+        fake_message(diagnostic_payload("retroceder", 0.25))
+    )
+
+    stored = (await db_session.execute(select(Notificacao))).scalars().all()
+    assert len(stored) == 1
+    assert "25%" in stored[0].descricao
+    assert "0%" not in stored[0].descricao
+
+
+async def test_every_published_action_has_its_own_message(
+    db_session, test_session_factory, monkeypatch
+):
+    """As três ações de `AcaoTema` — literais aqui de propósito, não
+    importadas — precisam de mensagem própria; nenhuma pode cair no texto
+    genérico de fallback."""
+    monkeypatch.setattr(consumer_module, "async_session", test_session_factory)
+
+    for acao in ("estudar", "avancar", "retroceder"):
+        await consumer_module.handle_diagnostic_completed(
+            fake_message(diagnostic_payload(acao, 0.5))
+        )
+
+    stored = (await db_session.execute(select(Notificacao))).scalars().all()
+    assert len(stored) == 3
+    for notificacao in stored:
+        assert "Domínio calculado" not in notificacao.descricao
+
+
+async def test_diagnostic_without_dominio_never_claims_zero_percent(
+    db_session, test_session_factory, monkeypatch
+):
+    """Payload malformado não pode explodir dentro do handler nem inventar
+    uma nota: o texto sai sem número, distinguível de um domínio real de 0%."""
+    monkeypatch.setattr(consumer_module, "async_session", test_session_factory)
+
+    await consumer_module.handle_diagnostic_completed(
+        fake_message({"aluno_id": STUDENT_ID, "tema_id": 12, "acao": "retroceder"})
+    )
+
+    stored = (await db_session.execute(select(Notificacao))).scalars().all()
+    assert len(stored) == 1
+    assert "%" not in stored[0].descricao
+    assert "não calculado" in stored[0].descricao
 
 
 async def test_order_status_changed_creates_a_notification(

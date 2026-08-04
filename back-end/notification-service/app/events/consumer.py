@@ -36,12 +36,22 @@ async def handle_diagnostic_completed(message: aio_pika.abc.AbstractIncomingMess
     async with message.process():
         payload = json.loads(message.body)
         acao = payload.get("acao")
-        dominio = payload.get("dominio", 0)
+        # `dominio_tema` é a chave que o Learning Service publica de fato
+        # (0.0 a 1.0). Sem default numérico de propósito: com `.get("...", 0)`
+        # um payload malformado renderizaria "0%" — indistinguível de um
+        # aluno que realmente zerou. Aqui ele vira um texto sem número.
+        dominio = payload.get("dominio_tema")
+        dominio_texto = f"{dominio:.0%}" if isinstance(dominio, int | float) else "não calculado"
 
+        # Uma entrada por ação que o produtor emite — `AcaoTema` tem
+        # exatamente estas três (learning-service/app/services/decisao.py).
         mensagens = {
             "estudar": "Identificamos uma lacuna nesse conteúdo. Vamos começar do zero!",
-            "revisar": "Bom progresso! Vale revisar esse conteúdo em breve.",
             "avancar": "Conteúdo dominado! Você já pode avançar para o próximo tema.",
+            "retroceder": (
+                f"Seu domínio ficou em {dominio_texto} nesse tema. Vamos reforçar a base "
+                "no tema anterior antes de seguir — você chega lá!"
+            ),
         }
 
         async with async_session() as db:
@@ -49,7 +59,7 @@ async def handle_diagnostic_completed(message: aio_pika.abc.AbstractIncomingMess
                 Notificacao(
                     aluno_id=payload["aluno_id"],
                     titulo="Resultado do diagnóstico",
-                    descricao=mensagens.get(acao, f"Domínio calculado: {dominio:.0%}"),
+                    descricao=mensagens.get(acao, f"Domínio calculado: {dominio_texto}"),
                     tipo="estudo",
                 )
             )
