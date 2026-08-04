@@ -88,11 +88,29 @@ workers Celery.
 
 ### Regra de contrato
 
-**Contrato público em inglês, código interno como veio.** Rotas e campos de
-schema expostos ficam em inglês (`/subjects`, `/diagnostic`, `/picking`,
-`/delivery`); models, services e nomes de função dos serviços importados seguem
-em português. Os routers ganham uma camada explícita de tradução — é uma
-anti-corruption layer deliberada, não acidente.
+**Contrato público em inglês, código interno como veio.** Rotas expostas ficam
+em inglês (`/subjects`, `/diagnostic`, `/picking`, `/delivery`); models,
+services e nomes de função dos serviços importados seguem em português. Os
+routers ganham uma camada explícita de tradução — é uma anti-corruption layer
+deliberada, não acidente.
+
+**Campos de schema: em inglês só onde há cliente.** A fase 1 aplicou a regra em
+dois níveis, e isso é intencional:
+
+| Serviço | Paths | Campos de schema | Por quê |
+|---|---|---|---|
+| `notification-service` | inglês | **inglês** | o Flutter consome hoje — `title`, `body`, `created_at`, `read_at` |
+| `learning-service`, `commerce-service`, `analytics-service` | inglês | português | sem cliente; `tema_id`, `dominio_tema`, `produto_id`, `quantidade` |
+
+Traduzir campo de schema de serviço sem cliente custa tempo e ainda dessincroniza
+o consumidor do seu produtor — `analytics-service` lê `tema_id`/`dominio_tema` do
+evento que o `learning-service` publica com esses nomes, e renomear só do lado da
+resposta criaria duas grafias para o mesmo dado.
+
+**Isso vira dívida na fase 4.** Quando o Flutter passar a falar com o gateway,
+todo campo que ele consumir precisa estar em inglês. O corte acima empurra a
+tradução para o momento em que existe um cliente para justificá-la — não a
+cancela.
 
 ## Fases
 
