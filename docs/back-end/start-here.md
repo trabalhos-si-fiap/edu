@@ -1,5 +1,16 @@
 # Start Here — Back-end Edu
 
+> **Nota:** este documento descreve o monolito modular, que vive em
+> `back-end/legacy/` e continua servindo o app na porta definida por
+> `API_PORT_EXTERNAL` no `back-end/.env`. A arquitetura
+> de microserviços que vai substituí-lo está em
+> [microservices.md](microservices.md). A migração está descrita em
+> `docs/superpowers/specs/2026-08-02-microservices-migration-design.md`.
+>
+> Os caminhos citados abaixo são relativos a `back-end/legacy/`: onde se lê
+> `app/modules/...`, o caminho completo no repositório é
+> `back-end/legacy/app/modules/...`.
+
 Guia de onboarding do back-end do **Edu - Estuda App**. Leia inteiro antes de escrever código; a arquitetura tem uma restrição central (preparar para virar microserviços) que condiciona quase todas as decisões.
 
 ---
@@ -40,7 +51,7 @@ Filosofia:
 ## 3. Estrutura de pastas
 
 ```
-back-end/
+back-end/legacy/
 ├── app/
 │   ├── __init__.py
 │   ├── main.py                 # FastAPI app, monta routers, endpoint /health
@@ -247,6 +258,17 @@ Todos a partir da raiz do repo.
 | `make back-test-e2e`            | Roda os testes e2e contra a stack viva (opt-in)    |
 | `make back-revision M="msg"`    | Gera nova revisão com autogenerate                 |
 | `make back-sync`                | `uv sync` no host (para IDE)                       |
+
+> ⚠️ **`make back-down` derruba a infra compartilhada.** O compose do legacy
+> declara o mesmo projeto Docker (`edu`) e os mesmos `container_name` do
+> Postgres, Redis, RabbitMQ e MinIO que os sete serviços novos usam. Rodar
+> `back-down` para essa infra — mas **não** para os containers dos serviços
+> novos, que não estão declarados naquele arquivo. Eles ficam de pé sem banco,
+> sem broker e sem cache.
+>
+> Isso é inerente ao desenho de infra única, não é bug. Com o stack unificado
+> no ar, use **`make stack-down`**; se derrubou sem querer, `make stack-up`
+> traz tudo de volta. Veja [microservices.md](microservices.md) §11.
 
 ---
 

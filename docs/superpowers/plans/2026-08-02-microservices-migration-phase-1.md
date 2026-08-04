@@ -17,7 +17,9 @@
 Valem para toda task deste plano.
 
 - **Python `>=3.12`** em todo `pyproject.toml`.
-- **O legacy não pode quebrar.** `back-end/legacy/` continua servindo o Flutter na porta host **8000** durante toda a fase 1. O gateway novo usa a porta host **8100** até a fase 4.
+- **O legacy não pode quebrar.** `back-end/legacy/` continua servindo o Flutter na porta host que já usa hoje — `API_PORT_EXTERNAL` do `back-end/.env`, **8001** nesta máquina — durante toda a fase 1. Nada no plano altera essa variável.
+- **Faixa de portas do stack novo: 81xx.** Gateway em **8100**, serviços em **8101-8106**. A faixa 80xx está ocupada nesta máquina (8000 por outro projeto, 8001 pelo legacy) — nenhum serviço novo pode publicar em 80xx.
+- **`back-end/.env` já existe e está em uso.** Nunca sobrescrever: as variáveis novas são *acrescentadas* ao arquivo existente. O plano só cria/atualiza o `.env.example`.
 - **ruff** com a mesma config do legacy: `target-version = "py312"`, `line-length = 100`, `select = ["E","F","I","N","UP","B","A","C4","SIM","RUF","ASYNC","S"]`, `ignore = ["S101"]`, e `per-file-ignores` de `"tests/**" = ["S","ASYNC"]` e `"alembic/**" = ["S","E501"]`.
 - **pytest** com `asyncio_mode = "auto"`, `addopts = "-ra --strict-markers"`, e a marca `slow` registrada para os testes que carregam modelo de embeddings real.
 - **Logging com loguru.** Nenhum `print()` sobrevive à importação. Nenhum segredo (token, código OTP, senha, JWT) vai para log.
@@ -28,12 +30,18 @@ Valem para toda task deste plano.
 - **Nenhum segredo commitado.** `.env` nunca; só `.env.example`.
 - **Conventional Commits**, uma unidade lógica por commit, `git diff --staged` antes de cada um.
 - **Nada de `datetime.utcnow()`** — sempre `datetime.now(UTC)`.
+- **Todo teste de regressão ou de segurança precisa ser provado não-vazio.** Antes de fechar a task: quebre de propósito o comportamento que o teste protege, veja o teste falhar, desfaça. Registre esse antes/depois no relatório. Três tasks seguidas entregaram testes verdes que não provavam nada — um `assert "code" not in body` contra uma resposta em português, um dublê que ignorava normalização, e um teste de vazamento consultando um id inexistente. Todos passariam contra o código quebrado que diziam proteger. Um teste que não pode falhar é pior que teste nenhum: ele compra confiança que não existe.
+- **Nunca use a constante da própria implementação como entrada do teste que verifica essa constante.** `decidir_acao(LIMIAR_AVANCAR)` continua verdadeiro se alguém mudar o limiar; `decidir_acao(0.70)` não. Limiares e fronteiras vão como literais no teste.
+- **Cada serviço tem seu `.env.example`.** As settings com campo obrigatório sem default fazem `uv run pytest` estourar no import num clone limpo — sem o `.env.example` ninguém descobre quais variáveis faltam. Listar toda variável obrigatória, com valor de exemplo e nunca com valor real.
+- **Cada task de serviço reescreve o `Dockerfile` do serviço** pela Recipe E, e prova que `docker build` passa. O arquivo que vem no zip referencia o `requirements.txt` que a própria importação apaga — deixá-lo para a task 15 mantém a árvore com Dockerfiles quebrados por dez tasks.
+- **`SettingsConfigDict`, nunca `class Config:`.** Os serviços importados usam a forma depreciada do Pydantic v1, que emite `PydanticDeprecatedSince20` e sai no v3. O monolito deste projeto já usa `SettingsConfigDict` (`back-end/legacy/app/core/config.py:5`) — todo serviço importado migra para ela.
+- **401 vs 403 é contrato, não detalhe.** Header `Authorization` ausente → **403**. Token inválido, expirado ou do `type` errado → **401**. O Flutter dispara o refresh do par de tokens *só* em 401 (`front-end-flutter/lib/core/network/auth_http_client.dart:43`), então 401 tem que significar exatamente "tenta renovar" — devolver 401 para requisição sem sessão nenhuma faria o app gastar um refresh à toa. O `HTTPBearer` do FastAPI 0.141 devolve 401 para header ausente, por isso `edu-common` usa `HTTPBearer(auto_error=False)` e levanta o 403 explicitamente. Isso é deliberado; não "corrigir".
 
 ---
 
 ## Decisões que este plano trava
 
-**Compose único, infra compartilhada.** Os dois compose declaram `container_name: edu-postgres` e ambos querem a porta 8000 — não dá para rodar os dois arquivos em paralelo. A fase 1 funde tudo em `back-end/docker-compose.yml`: uma instância de Postgres com vários bancos (`edu` do legacy, `auth_db`, `learning_db`, `commerce_db`, `notification_db`, `analytics_db`), um Redis, um RabbitMQ, um MinIO, mais `api`/`worker` do legacy e o gateway com os 6 serviços.
+**Compose único, infra compartilhada.** Os dois compose declaram `container_name: edu-postgres` — não dá para rodar os dois arquivos em paralelo. A fase 1 funde tudo em `back-end/docker-compose.yml`: uma instância de Postgres com vários bancos (`edu` do legacy, `auth_db`, `learning_db`, `commerce_db`, `notification_db`, `analytics_db`), um Redis, um RabbitMQ, um MinIO, mais `api`/`worker` do legacy e o gateway com os 6 serviços.
 
 **Sem uv workspace.** `auth-users-service` fixa `bcrypt==3.2.2` (limitação do passlib 1.7.4) e o legacy usa `bcrypt>=4.2.0`; num workspace o lock é único e os dois não coexistem. Cada serviço é um projeto uv independente, e `edu-common` entra como path dependency editável via `[tool.uv.sources]`. Além disso a task 2 **remove o passlib**, usando `bcrypt` direto como o legacy já faz — o formato de hash `$2b$` é o mesmo, então hashes existentes continuam válidos.
 
@@ -123,9 +131,26 @@ ignore = ["S101"]
 "tests/**" = ["S", "ASYNC"]
 "alembic/**" = ["S", "E501"]
 
+# `Depends(...)` como default de argumento é o idioma do FastAPI, não o
+# bug que o B008 procura. Declarar aqui evita espalhar `# noqa: B008`
+# por todo router dos sete serviços. `requer_papel` entra na lista pelo
+# mesmo motivo: `Depends(requer_papel("admin"))` é chamada inline por
+# design, e sem isso todo endpoint com papel exigido carregaria um noqa.
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Security",
+    "app.dependencies.requer_papel",
+]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# As duas linhas de loop_scope andam juntas. Só a de fixture não basta: o
+# default de teste é "function", e um engine asyncpg criado no loop da sessão
+# estoura no segundo teste que tocar o banco — falha que só aparece quando o
+# serviço ganha o seu segundo teste de banco, não no primeiro.
 asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
 markers = [
@@ -276,15 +301,130 @@ async def client(
     app.dependency_overrides.clear()
 ```
 
+**Serviços que publicam eventos precisam de mais uma fixture.** O `ASGITransport`
+não roda o lifespan do app, então o `init_publisher()` do startup nunca dispara e
+qualquer rota que publique evento estoura `RuntimeError: EventPublisher not
+connected` — depois de já ter gravado no banco. Sem isso, nenhum teste consegue
+exercitar as rotas de escrita. Acrescentar ao `conftest.py`:
+
+```python
+@pytest.fixture(autouse=True)
+def fake_event_publisher(monkeypatch) -> list[tuple[str, dict]]:
+    """Captura eventos em memória em vez de exigir um RabbitMQ de verdade.
+
+    Devolve a lista de `(routing_key, payload)` publicados, para que um teste
+    possa afirmar que a rota publicou o evento certo.
+    """
+    published: list[tuple[str, dict]] = []
+
+    async def _capture(routing_key: str, payload: dict) -> None:
+        published.append((routing_key, payload))
+
+    monkeypatch.setattr("app.events.publisher.publish_event", _capture)
+    return published
+```
+
+O alvo do `monkeypatch` precisa ser o nome **onde a rota importa** `publish_event`,
+não onde ele é definido. Se o router fez `from app.events.publisher import
+publish_event`, o alvo é `app.routers.<módulo>.publish_event`. Confirmar com
+`grep -rn "publish_event" app/` antes de escrever a fixture.
+
+### Recipe E — `Dockerfile` de um serviço
+
+Os serviços vieram com Dockerfile de `pip install -r requirements.txt`, e o
+`requirements.txt` é apagado na importação — o arquivo original fica quebrado no
+primeiro `docker build`. **Cada task de serviço reescreve o seu**, substituindo
+`<service>` pelo nome da pasta:
+
+```dockerfile
+FROM python:3.12-slim
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+# O container reproduz a MESMA disposição relativa do repositório
+# (/app/<service> ao lado de /app/packages/edu-common), para que o path
+# `../packages/edu-common` do [tool.uv.sources] valha no host e aqui dentro
+# sem precisar de source condicional.
+WORKDIR /app/<service>
+
+COPY packages/edu-common /app/packages/edu-common
+COPY <service>/pyproject.toml <service>/uv.lock* ./
+RUN uv sync --no-install-project
+
+COPY <service>/ ./
+
+CMD ["uv", "run", "granian", "--interface", "asgi", "--host", "0.0.0.0", "--port", "8000", "app.main:app"]
+```
+
+O `api-gateway` omite a linha do `edu-common`: ele é proxy burro e não valida
+JWT. A porta 8000 é a **interna** do container e não muda — o mapeamento para a
+porta do host (8100 no gateway, 8101-8106 nos serviços) é do compose, na task 15.
+
+O contexto de build é `back-end/`, com `dockerfile: <service>/Dockerfile`.
+
+Junto vai um `<service>/Dockerfile.dockerignore`. **Todo padrão precisa do prefixo
+`**/`**: os padrões são ancorados na raiz do contexto (`back-end/`), então `.venv/`
+sozinho casaria só com `back-end/.venv` — nunca com `back-end/<service>/.venv`, que
+é justamente o que `COPY <service>/ ./` arrasta para dentro da imagem, junto com o
+`.env` do serviço.
+
+```
+**/.env
+**/.env.*
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/.git
+```
+
+Provar que constrói **e** que a imagem está limpa antes de fechar a task:
+
+```bash
+cd back-end
+docker build -f <service>/Dockerfile -t edu-<service>-test .
+docker run --rm edu-<service>-test uv run python -c "import edu_common.security; print('ok')"
+# A imagem não pode conter .env nem caches do host:
+docker run --rm edu-<service>-test sh -c \
+  'find /app -maxdepth 3 \( -name ".env" -o -name "__pycache__" -o -name ".pytest_cache" -o -name ".ruff_cache" \) | head'
+# E o .venv precisa ser o do container, não o do host:
+docker run --rm edu-<service>-test cat /app/<service>/.venv/pyvenv.cfg
+```
+
+Expected: o `find` sem nenhuma saída, e o `pyvenv.cfg` apontando para o Python do
+container (`/usr/local`), não para um caminho do host.
+
+**Não procure pela ausência de `.venv`.** O `RUN uv sync` cria um `.venv` dentro da
+imagem antes do `COPY`, então "existe `.venv`" é o estado normal e esperado — um teste
+que exija a ausência dele nunca passa e, pior, some com a informação real. O que
+distingue vazamento de build correto é a *procedência*: o `pyvenv.cfg` do host aponta
+para o interpretador do host e uma versão diferente de Python/uv.
+
 ### Recipe D — baseline do Alembic a partir dos models
 
 1. `uv run alembic init -t async alembic` e substituir `alembic/env.py` pela Recipe B.
 2. Em `alembic.ini`, apagar a linha `sqlalchemy.url = ...` (o `env.py` define pela settings).
-3. Comparar `schema.sql` com os models: todo `CREATE INDEX` e toda constraint do SQL precisa existir no model (`index=True`, `UniqueConstraint`, `CheckConstraint`). A task lista as divergências conhecidas.
+3. Comparar `schema.sql` com os models **coluna a coluna**, não por amostragem. Precisam existir no model: todo `CREATE INDEX` (`index=True`), toda constraint (`UniqueConstraint`, `CheckConstraint`), e **todo `DEFAULT` de nível de banco** como `server_default=sa.text(...)`.
+
+   O `DEFAULT` é o que mais escapa, porque o `default=` do SQLAlchemy é client-side: ele só vale para inserts que passam por aquele caminho do ORM. Seed em SQL puro, painel admin, ou outro serviço escrevendo na mesma tabela recebem NULL. Dois serviços já perderam seus defaults exatamente assim. Manter os dois: `default=` para o ORM e `server_default=` para todo o resto.
+
+   No relatório, listar a comparação coluna a coluna — "nenhuma divergência" sem a lista não é verificação.
 4. `uv run alembic revision --autogenerate -m "baseline schema"` contra um banco vazio.
 5. `uv run alembic upgrade head`.
 6. **Prova de sincronia:** `uv run alembic revision --autogenerate -m "sync check"` deve gerar migration com `upgrade()` e `downgrade()` vazios (só `pass`). Apagar esse arquivo depois de conferir. Se não vier vazia, o model diverge do schema — corrigir o model e refazer o baseline.
-7. Apagar o `schema.sql` do serviço (o Alembic passa a ser a fonte da verdade) e remover a linha correspondente de `scripts/init-multiple-dbs.sh`.
+7. Apagar o `schema.sql` do serviço — o Alembic passa a ser a fonte da verdade. (O `scripts/init-multiple-dbs.sh` do zip original **não** é importado: a task 15 escreve um script próprio que só cria os bancos, sem aplicar schema. Não há nada a editar nele aqui.)
+
+O banco do serviço ainda não existe no Postgres compartilhado nesta altura — a task 15 é que automatiza a criação. Criar os dois bancos à mão antes de rodar o Alembic, lendo a senha do `back-end/legacy/.env` sem ecoá-la:
+
+```bash
+PGUSER=$(sed -n 's/^POSTGRES_USER=//p' back-end/legacy/.env | tr -d '[:space:]')
+for db in <service>_db <service>_test; do
+  docker exec -i edu-postgres psql -U "$PGUSER" -d postgres \
+    -c "SELECT 'CREATE DATABASE $db' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname='$db')\gexec"
+done
+```
+
+O Postgres do projeto já está de pé no container `edu-postgres`, publicado em `localhost:5433`.
 
 ---
 
@@ -346,11 +486,12 @@ grep -n "BACK_DIR" Makefile
 ```bash
 make back-up
 sleep 20
-curl -sf http://localhost:8000/health
+API_PORT=$(sed -n 's/^API_PORT_EXTERNAL=//p' back-end/.env | tr -d '[:space:]')
+curl -sf "http://localhost:${API_PORT:-8000}/health"
 make back-test
 ```
 
-Expected: `{"status":"ok"}` e a suíte inteira verde (59 arquivos de teste).
+Expected: `{"status":"ok"}` e a suíte inteira verde (**406 passed, 0 failed, 6 deselected** — baseline medido antes da task 1, com MinIO no ar).
 
 - [ ] **Step 6: Commit**
 
@@ -372,12 +513,13 @@ git commit -m "refactor(backend): move modular monolith into back-end/legacy/"
 **Interfaces:**
 - Consumes: nada
 - Produces:
-  - `hash_password(plain: str, rounds: int = 12) -> str`
+  - `DEFAULT_BCRYPT_ROUNDS: int`, `MAX_PASSWORD_BYTES: int`
+  - `hash_password(plain: str, rounds: int = DEFAULT_BCRYPT_ROUNDS) -> str` — levanta `ValueError` acima de `MAX_PASSWORD_BYTES`
   - `verify_password(plain: str, hashed: str) -> bool`
   - `DUMMY_PASSWORD_HASH: str`
   - `create_access_token(sub: str, role: str, secret: str, algorithm: str = "HS256", expires_minutes: int = 60) -> str`
   - `create_refresh_token(sub: str, role: str, secret: str, algorithm: str = "HS256", expires_days: int = 7) -> str`
-  - `decode_token(token: str, secret: str, algorithm: str = "HS256") -> dict | None`
+  - `decode_token(token: str, secret: str, algorithm: str = "HS256", expected_type: str | None = None) -> dict | None` — devolve `None` (nunca levanta) para assinatura inválida, expirado, malformado, segredo inutilizável, ou `type` diferente do esperado
 
 - [ ] **Step 1: Criar o esqueleto do pacote**
 
@@ -397,7 +539,7 @@ description = "Shared JWT/auth and RabbitMQ event helpers for the Edu microservi
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115.0",
-    "python-jose[cryptography]>=3.3.0",
+    "python-jose[cryptography]>=3.4.0",
     "bcrypt>=4.2.0",
     "aio-pika>=9.4.2",
     "loguru>=0.7.2",
@@ -551,6 +693,13 @@ Expected: FAIL com `ModuleNotFoundError: No module named 'edu_common.security'`.
 - [ ] **Step 4: Implementar**
 
 `back-end/packages/edu-common/src/edu_common/security.py`:
+
+> **O código abaixo é a versão original do plano e foi superado.** A revisão da
+> task 2 encontrou cinco falhas nele — `type` não verificável (refresh token
+> valendo como access), `ValueError` não tratado acima de 72 bytes, custo do
+> hash-isca desacoplado, `JWKError` escapando do `except`, e piso vulnerável do
+> `python-jose`. A implementação que vale é a que está no arquivo, commitada em
+> `757214f`. Não reescreva este arquivo a partir do bloco abaixo.
 
 ```python
 """Hash de senha e JWT compartilhados entre os serviços.
@@ -790,6 +939,15 @@ Expected: FAIL com `ModuleNotFoundError: No module named 'edu_common.deps'`.
 
 `back-end/packages/edu-common/src/edu_common/deps.py`:
 
+> **O código abaixo é a versão original do plano e foi superado.** A revisão da
+> task 3 encontrou que `build_auth_deps("")` montava um portão que validava
+> qualquer token (chave HMAC vazia assina qualquer coisa), e o `HTTPBearer` do
+> FastAPI 0.141 devolve 401 em header ausente, quebrando o contrato 401/403. A
+> implementação que vale está no arquivo, commitada em `e38bc9e`: valida o
+> segredo no build, usa `auto_error=False` com 403 explícito, e avisa no
+> docstring que o dict devolvido carrega o bearer token vivo. Não reescreva
+> este arquivo a partir do bloco abaixo.
+
 ```python
 """Dependências FastAPI de autenticação, parametrizadas pelo segredo do serviço.
 
@@ -820,8 +978,10 @@ def build_auth_deps(secret: str, algorithm: str = DEFAULT_ALGORITHM) -> AuthDeps
     async def get_current_user(
         credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     ) -> dict:
-        payload = decode_token(credentials.credentials, secret, algorithm)
-        if payload is None or payload.get("type") != "access":
+        # `expected_type="access"` faz o próprio decode_token recusar um refresh
+        # token — a checagem não fica espalhada por serviço.
+        payload = decode_token(credentials.credentials, secret, algorithm, expected_type="access")
+        if payload is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Token inválido ou expirado",
@@ -1432,7 +1592,7 @@ rm -f auth-users-service/.env auth-users-service/requirements.txt
 test ! -f auth-users-service/.env && echo "OK: .env de sandbox não foi copiado"
 ```
 
-O `.env` original continha `JWT_SECRET=teste_secreto_para_sandbox_1234567890abcdef`. Ele não entra no repositório em hipótese alguma.
+O `.env` original trazia um `JWT_SECRET` de sandbox commitado. Ele não entra no repositório em hipótese alguma — e o valor não é reproduzido aqui, porque um segredo citado em documentação continua sendo um segredo no repositório.
 
 - [ ] **Step 2: Criar o `pyproject.toml`**
 
@@ -1748,9 +1908,14 @@ async def test_request_returns_200_for_unknown_email_to_prevent_enumeration(clie
 
 
 async def test_request_never_returns_the_code(client):
+    # Procurar a substring "code" no corpo não prova nada: a resposta é em
+    # português ("código"), então a asserção passaria mesmo com os seis dígitos
+    # no meio da mensagem. O que precisa ser proibido é o número.
+    import re
+
     await client.post("/auth/register", json=REGISTER)
     response = await client.post("/auth/password-reset/request", json={"email": REGISTER["email"]})
-    assert "code" not in response.text.lower()
+    assert not re.search(r"\b\d{6}\b", response.text), f"OTP vazou na resposta: {response.text}"
 
 
 async def test_request_never_logs_the_code(client, captured_logs):
@@ -1781,51 +1946,17 @@ async def test_confirm_rejects_unknown_email_with_the_same_generic_error(client)
     assert response.json()["detail"] == "Código inválido ou expirado"
 ```
 
-- [ ] **Step 3: Rodar e confirmar que o teste do log falha**
+- [ ] **Step 3: Rodar e confirmar que estes testes já passam**
 
 ```bash
 cd /home/elias/programming/fiap/estuda_app/back-end/auth-users-service
 uv run pytest tests/test_password_reset.py -v
+grep -rn "print(\|utcnow\|random\." app/
 ```
 
-Expected: `test_request_never_logs_the_code` FAIL — o código hoje sai por `print()`, e os demais PASS.
+Expected: **todos PASS**, e o grep sem nenhuma ocorrência.
 
-- [ ] **Step 4: Remover o `print()` do OTP e usar timezone-aware**
-
-Em `back-end/auth-users-service/app/routers/auth.py`, no `password_reset_request`, trocar:
-
-```python
-        # MVP: sem provedor de e-mail/SMS configurado — logamos o código no
-        # console do serviço para permitir testar o fluxo manualmente.
-        print(f"[password-reset] código para {payload.email}: {codigo}")
-```
-
-por:
-
-```python
-        # O código é um segredo de curta duração — nunca vai para log. O envio
-        # real por e-mail entra na fase 3 da migração; até lá o fluxo só é
-        # testável pelo banco (tabela password_reset_codes).
-        logger.info("Código de reset gerado para user_id={}", user.id)
-```
-
-Acrescentar no topo do arquivo:
-
-```python
-from loguru import logger
-```
-
-E trocar as duas ocorrências de `datetime.utcnow()` por `datetime.now(UTC)`, ajustando o import:
-
-```python
-from datetime import UTC, datetime, timedelta
-```
-
-```bash
-grep -rn "print(\|utcnow" app/
-```
-
-Expected: nenhuma ocorrência.
+A task 6 já removeu o `print()` do código OTP, trocou `datetime.utcnow()` por `datetime.now(UTC)` e substituiu `random.randint()` por geração criptograficamente segura — são constraints globais incondicionais, não dava para deixar o serviço commitado violando-as. Estes testes são, portanto, **testes de regressão**: eles travam o comportamento para que ninguém reintroduza o vazamento. Se algum falhar aqui, é regressão de verdade — investigar antes de seguir.
 
 - [ ] **Step 5: Escrever os testes de paginação e ownership**
 
@@ -3621,45 +3752,43 @@ git commit -m "feat(analytics-service): import analytics-service on uv, alembic 
 - Create: `back-end/postgres/initdb.d/10-create-service-databases.sh`
 - Create: `back-end/scripts/create-service-databases.sh`
 - Modify: `Makefile`
-- Modify: cada `<service>/Dockerfile` (uv em vez de pip)
 
 **Interfaces:**
-- Consumes: os 7 serviços das tasks 5-14
-- Produces: `make up` sobe legacy + stack novo; `make services-test` roda as 8 suítes
+- Consumes: os 7 serviços das tasks 5-14, cada um já com seu `Dockerfile` escrito pela Recipe E
+- Produces: `make stack-up` sobe legacy + stack novo; `make services-test` roda as 8 suítes
 
-- [ ] **Step 1: Trocar os Dockerfiles para uv**
+- [ ] **Step 0a: Restaurar os `server_default` perdidos no `auth-users-service`**
 
-Cada serviço veio com um Dockerfile baseado em `pip install -r requirements.txt`. Substituir o conteúdo de cada `back-end/<service>/Dockerfile` por (trocando `<service>` pelo nome da pasta):
+O `auth-users-service` foi importado antes de a Recipe D exigir a conferência de defaults, e sua baseline perdeu os `DEFAULT` de banco que o `schema.sql` declarava: `users.role`, `users.ativo`, `addresses.label`, `addresses.complement`, `addresses.is_favorite`, `password_reset_codes.usado`, e o `uuid_generate_v4()` dos `id`. Acrescentar `server_default` nesses models e gerar uma migration para eles (ali a baseline já foi aplicada em mais de um banco, então **não** amendar — empilhar uma migration nova).
 
-```dockerfile
-FROM python:3.12-slim
+Conferir também `learning-service`, importado no mesmo intervalo.
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+- [ ] **Step 0: Garantir que os sete serviços têm `.env.example`**
 
-# O container reproduz a MESMA disposição relativa do repositório
-# (/app/<service> ao lado de /app/packages/edu-common), para que o path
-# `../packages/edu-common` do [tool.uv.sources] valha no host e aqui dentro
-# sem precisar de source condicional.
-WORKDIR /app/<service>
+`api-gateway`, `auth-users-service` e `learning-service` foram importados antes desta constraint existir — provavelmente falta neles. Conferir os sete e escrever o que faltar:
 
-COPY packages/edu-common /app/packages/edu-common
-COPY <service>/pyproject.toml <service>/uv.lock* ./
-RUN uv sync --no-install-project
-
-COPY <service>/ ./
-
-CMD ["uv", "run", "granian", "--interface", "asgi", "--host", "0.0.0.0", "--port", "8000", "app.main:app"]
+```bash
+cd back-end
+for s in api-gateway auth-users-service learning-service commerce-service chatbot-service notification-service analytics-service; do
+  test -f "$s/.env.example" && echo "$s ok" || echo "$s FALTA"
+done
 ```
 
-O `build.context` no compose é `back-end/` (a raiz que contém `packages/` e as pastas dos serviços), e `dockerfile` é `<service>/Dockerfile`. Validar num serviço antes de replicar:
+Cada um lista toda variável sem default em `app/config.py`, com valor de exemplo — nunca o valor real.
+
+- [ ] **Step 1: Conferir que os sete Dockerfiles constroem**
+
+Cada task de serviço já reescreveu o seu pela Recipe E — esta task só confirma que os sete constroem contra o contexto `back-end/`, que é o que o compose vai usar:
 
 ```bash
 cd /home/elias/programming/fiap/estuda_app/back-end
-docker build -f auth-users-service/Dockerfile -t edu-auth-test .
-docker run --rm edu-auth-test uv run python -c "import edu_common.security; print('edu-common ok')"
+for s in api-gateway auth-users-service learning-service commerce-service chatbot-service notification-service analytics-service; do
+  echo "→ $s"
+  docker build -q -f "$s/Dockerfile" -t "edu-$s-test" . || exit 1
+done
 ```
 
-Expected: `edu-common ok`.
+Expected: os sete constroem. Qualquer falha aqui é uma task de serviço que não cumpriu a Recipe E — corrigir o Dockerfile do serviço, não contornar no compose.
 
 - [ ] **Step 2: Criar o script de criação dos bancos**
 
@@ -3697,9 +3826,10 @@ Copiar o mesmo script para `back-end/scripts/create-service-databases.sh` — `i
 
 - Um só `postgres` (imagem `postgres:17.4-alpine3.21`), com `./postgres/initdb.d` e `./legacy/postgres/initdb.d` montados em `/docker-entrypoint-initdb.d`.
 - Um só `redis` (`redis:8.2.1-alpine`), um só `rabbitmq` (`rabbitmq:4.2.3-management-alpine`), um só `minio`.
-- `api` e `worker` do legacy com `build.context: ./legacy` e porta host **8000** (o Flutter não muda nesta fase).
-- `api-gateway` com `build.context: .`, `dockerfile: api-gateway/Dockerfile`, porta host **8100**.
-- Os 6 serviços com `build.context: .` e `dockerfile: <service>/Dockerfile`, portas host 8001-8006.
+- `api` e `worker` do legacy com `build.context: ./legacy` e porta host `${API_PORT_EXTERNAL:-8000}` — exatamente como o compose do legacy já faz. O Flutter não muda nesta fase.
+- `api-gateway` com `build.context: .`, `dockerfile: api-gateway/Dockerfile`, porta host `${GATEWAY_PORT_EXTERNAL:-8100}`.
+- Os 6 serviços com `build.context: .` e `dockerfile: <service>/Dockerfile`, portas host **8101-8106** (auth 8101, learning 8102, commerce 8103, chatbot 8104, notification 8105, analytics 8106). A faixa 80xx está ocupada — não usar.
+- As URLs internas entre serviços (`AUTH_SERVICE_URL` etc.) usam o hostname do compose e a porta **8000 interna** do container, que não muda: `http://auth-users-service:8000`.
 - Cada serviço com `DATABASE_URL` apontando para o seu banco no `postgres` compartilhado.
 - Todos os serviços novos com o **mesmo** `JWT_SECRET`, vindo do `.env`.
 - `depends_on` com `condition: service_healthy` em postgres e rabbitmq.
@@ -3724,9 +3854,12 @@ CORS_ORIGINS=["http://localhost:3000"]
 GROQ_API_KEY=
 GOOGLE_MAPS_API_KEY=
 
-# Portas host do stack novo (o legacy fica com a 8000 até a fase 4)
+# Porta host do gateway. Os seis serviços ficam em 8101-8106, fixos no compose.
+# A faixa 80xx é do legacy (API_PORT_EXTERNAL) e de outros projetos da máquina.
 GATEWAY_PORT_EXTERNAL=8100
 ```
+
+O `.env.example` é o contrato; o `back-end/.env` real **já existe e está em uso**. Este step só escreve o `.env.example`.
 
 - [ ] **Step 5: Acrescentar os alvos do Makefile**
 
@@ -3735,10 +3868,10 @@ No `Makefile` da raiz, na seção Backend, acrescentar:
 ```makefile
 SERVICES := packages/edu-common api-gateway auth-users-service learning-service commerce-service chatbot-service notification-service analytics-service
 
-up: ## Start the whole backend stack (legacy + microservices)
+stack-up: ## Start the whole backend stack (legacy + microservices)
 	cd back-end && $(COMPOSE) up -d
 
-down: ## Stop the whole backend stack
+stack-down: ## Stop the whole backend stack
 	cd back-end && $(COMPOSE) down
 
 services-dbs: ## Create the per-service databases on an existing volume
@@ -3770,22 +3903,29 @@ Acrescentar os nomes novos ao `.PHONY` da seção.
 
 - [ ] **Step 6: Subir tudo e provar que os dois stacks convivem**
 
+O `back-end/.env` já existe e está em uso — **acrescentar** as variáveis novas, nunca sobrescrever o arquivo:
+
 ```bash
 cd /home/elias/programming/fiap/estuda_app
-cp back-end/.env.example back-end/.env
-# editar back-end/.env com um JWT_SECRET real: openssl rand -hex 32
-make up
+grep -q '^JWT_SECRET=' back-end/.env || {
+  printf '\n# ── Microserviços ─────────────────────────────────────────\n' >> back-end/.env
+  printf 'JWT_SECRET=%s\n' "$(openssl rand -hex 32)" >> back-end/.env
+  printf 'JWT_ALGORITHM=HS256\nRABBITMQ_URL=amqp://edu:edu@rabbitmq:5672/\nEXCHANGE_NAME=edu.events\n' >> back-end/.env
+  printf 'CORS_ORIGINS=["http://localhost:3000"]\nGATEWAY_PORT_EXTERNAL=8100\nGROQ_API_KEY=\nGOOGLE_MAPS_API_KEY=\n' >> back-end/.env
+}
+make stack-up
 sleep 40
 make services-dbs
 make services-migrate
 ```
 
-Verificação:
+Verificação — a porta do legacy vem do próprio `.env`, não é fixa:
 
 ```bash
-curl -sf http://localhost:8000/health   # legacy — o que o Flutter usa
-curl -sf http://localhost:8100/health   # gateway novo
-for p in 8001 8002 8003 8004 8005 8006; do curl -sf "http://localhost:$p/openapi.json" >/dev/null && echo "$p ok"; done
+API_PORT=$(sed -n 's/^API_PORT_EXTERNAL=//p' back-end/.env | tr -d '[:space:]')
+curl -sf "http://localhost:${API_PORT:-8000}/health"   # legacy — o que o Flutter usa
+curl -sf http://localhost:8100/health                  # gateway novo
+for p in 8101 8102 8103 8104 8105 8106; do curl -sf "http://localhost:$p/openapi.json" >/dev/null && echo "$p ok"; done
 curl -s http://localhost:8100/api/rota-inexistente | grep -q "Nenhum serviço mapeado" && echo "gateway 404 ok"
 ```
 
@@ -3818,6 +3958,8 @@ git commit -m "feat(infra): unify compose for legacy and microservices with per-
 - Modify: `CLAUDE.md` (tabela de documentação)
 - Modify: `docs/back-end/start-here.md` (aviso de que o monolito virou legacy)
 - Modify: `README.md`
+- Modify: `front-end-flutter/README.md` (referências a caminhos sob `back-end/`)
+- Modify: `Makefile` (comentário obsoleto sobre a porta padrão 8000, ~linha 18)
 
 **Interfaces:**
 - Consumes: o estado final das tasks 1-15
@@ -3829,10 +3971,10 @@ Conteúdo obrigatório, todo verificado contra o código já mergeado:
 
 1. Tabela de serviços, porta host e responsabilidade.
 2. O mapa de rotas do gateway (`SERVICE_MAP`) em inglês, com a nota de que `products`, `orders`, `cart`, `payment-methods` e `support` ainda respondem 404 até a fase 2.
-3. Como subir: `make up`, `make services-dbs`, `make services-migrate`.
+3. Como subir: `make stack-up`, `make services-dbs`, `make services-migrate`.
 4. Como rodar testes: `make services-test`.
 5. `edu-common`: o que vive lá e por quê (JWT e eventos), e por que `config.py`/`database.py` seguem duplicados.
-6. Por que o legacy continua na porta 8000 e o gateway na 8100, e o que muda na fase 4.
+6. Por que o legacy continua na porta que o `.env` já define (`API_PORT_EXTERNAL`, 8001 nesta máquina), o gateway na 8100 e os serviços em 8101-8106, e o que muda na fase 4.
 7. Aviso: nenhum `.env` vai para o repositório; o `.env.example` é o contrato.
 
 Boa parte do conteúdo pode ser adaptada do `README.md` da refatoração original — mas toda afirmação precisa ser conferida contra o código, porque o README original descreve o estado do zip, não o estado pós-migração.
@@ -3851,7 +3993,8 @@ No topo de `docs/back-end/start-here.md`, acrescentar:
 
 ```markdown
 > **Nota:** este documento descreve o monolito modular, que vive em
-> `back-end/legacy/` e continua servindo o app na porta 8000. A arquitetura
+> `back-end/legacy/` e continua servindo o app na porta definida por
+> `API_PORT_EXTERNAL` no `back-end/.env`. A arquitetura
 > de microserviços que vai substituí-lo está em
 > [microservices.md](microservices.md). A migração está descrita em
 > `docs/superpowers/specs/2026-08-02-microservices-migration-design.md`.
@@ -3889,16 +4032,17 @@ Rodar tudo e confirmar antes de declarar a fase pronta:
 
 ```bash
 cd /home/elias/programming/fiap/estuda_app
-make up && sleep 40
+make stack-up && sleep 40
 make services-dbs && make services-migrate
 make services-test && make services-lint
 make back-test
-curl -sf http://localhost:8000/health && curl -sf http://localhost:8100/health
+API_PORT=$(sed -n 's/^API_PORT_EXTERNAL=//p' back-end/.env | tr -d '[:space:]')
+curl -sf "http://localhost:${API_PORT:-8000}/health" && curl -sf http://localhost:8100/health
 ```
 
 Critérios de aceite:
 
-1. Os 59 arquivos de teste do legacy seguem verdes e o app continua servido na porta 8000.
+1. A suíte do legacy segue com 406 testes verdes (6 deselected, e2e) e o app continua servido na porta que o `.env` define.
 2. Os 8 projetos novos (7 serviços + edu-common) têm suíte verde e ruff limpo.
 3. Nenhum `print()` e nenhum `datetime.utcnow()` sobrou nos serviços importados.
 4. Nenhum `.env` foi commitado; `git log --stat` não mostra nenhum arquivo `.env`.

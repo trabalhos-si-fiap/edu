@@ -20,7 +20,7 @@ O código nunca trafega nem é guardado em texto puro no Redis — só o hash. O
 ## 2. Estrutura de arquivos
 
 ```
-back-end/app/
+back-end/legacy/app/
 ├── core/
 │   ├── config.py                  # settings de e-mail + reset (ver §7)
 │   └── email/                     # CAMADA DE ADAPTER (Ports & Adapters)
@@ -39,7 +39,7 @@ back-end/app/
     └── routes.py                  # POST /auth/password-reset/{request,confirm}
 ```
 
-Testes correspondentes em `back-end/tests/core/email/` e `back-end/tests/modules/auth/test_password_reset_*.py`.
+Testes correspondentes em `back-end/legacy/tests/core/email/` e `back-end/legacy/tests/modules/auth/test_password_reset_*.py`.
 
 ---
 

@@ -18,9 +18,12 @@ interna de operadores — não faz parte do contrato do app mobile.
 
    (Conecte no Postgres com `make back-sh` + `psql`, ou pelo cliente de sua preferência.)
 
-2. Acesse `http://<host>:8000/admin` e faça login com **e-mail e senha** do
-   usuário admin. As credenciais são as mesmas do app (tabela `auth_users`,
-   hash bcrypt) — não há senha separada.
+2. Acesse `http://<host>:<API_PORT_EXTERNAL>/admin` e faça login com **e-mail e
+   senha** do usuário admin. `API_PORT_EXTERNAL` vem do `back-end/.env` e é
+   **8001** nos defaults do projeto (a 8000 é a porta interna do container e,
+   nesta máquina, já está tomada por outro projeto) — ou seja,
+   `http://localhost:8001/admin` localmente. As credenciais são as mesmas do
+   app (tabela `auth_users`, hash bcrypt) — não há senha separada.
 
 ## Autenticação
 

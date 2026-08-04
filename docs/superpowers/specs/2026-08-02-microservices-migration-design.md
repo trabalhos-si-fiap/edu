@@ -88,11 +88,29 @@ workers Celery.
 
 ### Regra de contrato
 
-**Contrato público em inglês, código interno como veio.** Rotas e campos de
-schema expostos ficam em inglês (`/subjects`, `/diagnostic`, `/picking`,
-`/delivery`); models, services e nomes de função dos serviços importados seguem
-em português. Os routers ganham uma camada explícita de tradução — é uma
-anti-corruption layer deliberada, não acidente.
+**Contrato público em inglês, código interno como veio.** Rotas expostas ficam
+em inglês (`/subjects`, `/diagnostic`, `/picking`, `/delivery`); models,
+services e nomes de função dos serviços importados seguem em português. Os
+routers ganham uma camada explícita de tradução — é uma anti-corruption layer
+deliberada, não acidente.
+
+**Campos de schema: em inglês só onde há cliente.** A fase 1 aplicou a regra em
+dois níveis, e isso é intencional:
+
+| Serviço | Paths | Campos de schema | Por quê |
+|---|---|---|---|
+| `notification-service` | inglês | **inglês** | o Flutter consome hoje — `title`, `body`, `created_at`, `read_at` |
+| `learning-service`, `commerce-service`, `analytics-service` | inglês | português | sem cliente; `tema_id`, `dominio_tema`, `produto_id`, `quantidade` |
+
+Traduzir campo de schema de serviço sem cliente custa tempo e ainda dessincroniza
+o consumidor do seu produtor — `analytics-service` lê `tema_id`/`dominio_tema` do
+evento que o `learning-service` publica com esses nomes, e renomear só do lado da
+resposta criaria duas grafias para o mesmo dado.
+
+**Isso vira dívida na fase 4.** Quando o Flutter passar a falar com o gateway,
+todo campo que ele consumir precisa estar em inglês. O corte acima empurra a
+tradução para o momento em que existe um cliente para justificá-la — não a
+cancela.
 
 ## Fases
 
@@ -149,11 +167,60 @@ mapeamento:
 O histórico completo dos 8 estados continua visível em
 `GET /orders/{id}/tracking`.
 
+### Divergências de contrato medidas na fase 1
+
+O design original dizia "portar products/cart/orders/payment-methods/tracking". A fase 1
+mediu, contra o código real do Flutter, **o que exatamente diverge** — e o problema é
+maior do que rota faltando: várias rotas existem, respondem, e ainda assim quebram o app.
+
+| O que o Flutter chama | O que ele espera | O que o commerce-service devolve hoje |
+|---|---|---|
+| `GET /products` | `{"items": [...]}`, `id` string (UUID) | array puro, `id` inteiro, sem `type`/`subtype`/`rating_avg`/`rating_count` |
+| `GET /orders` | array de pedidos com `items[]` | **405** — a listagem está em `/orders/mine` |
+| `POST /orders` | `{payment_method, address_id}` | **422** — exige `{endereco_entrega, itens[]}` |
+| `GET /orders/{id}/tracking` | objeto único | array de histórico de status |
+| `GET /products/{id}/reviews` | `{"items": [...]}` | **404** — rota não existe |
+| `GET /orders/{id}/route` | objeto de rota | **404** — rota não existe |
+| `GET /notifications` → `data.order_id` | UUID em string (legacy) | inteiro — mesma chave, tipo diferente |
+
+Duas consequências para o planejamento da fase 2:
+
+**O envelope de resposta é parte do contrato, não detalhe de formatação.** O Flutter faz
+`jsonDecode(body)['items']`; contra um array puro isso levanta um `TypeError` que o
+tratamento de erro do app não captura — a tela quebra sem nem virar mensagem de erro. O
+mesmo vale para `id`: o app faz `as String` sobre um inteiro. Traduzir o caminho da rota
+resolve metade do problema e esconde a outra metade atrás de um 200.
+
+**A fase 1 trocou 404 limpo por quase-acerto.** Ao mover o commerce para o mesmo espaço de
+nomes que o app usa, requisições que antes falhavam de forma óbvia passaram a falhar de
+forma sutil (405, 422, forma errada). Isso é aceitável enquanto o Flutter aponta para o
+legacy, mas significa que a fase 4 precisa de uma passagem de reconciliação de contrato
+campo a campo — não basta apontar o app para o gateway e ver se responde.
+
 ### Fase 3 — Paridade de plataforma
 
 E-mail real (Resend) e rate limit no reset de senha; push FCM no
 notification-service; Celery + Redis com as primitivas atômicas exigidas pelo
 CLAUDE.md; painel SQLAdmin; upload e storage de imagem de produto.
+
+**Mais um item, medido na fase 1: idempotência dos consumidores de evento.** Os
+cinco handlers do notification-service e o do analytics-service inserem
+incondicionalmente ao receber um evento, sem chave de deduplicação. O RabbitMQ
+entrega pelo menos uma vez: uma queda entre o commit e o ack reentrega a mensagem
+e gera notificação duplicada para o aluno e contagem inflada no painel. É a regra
+10 do CLAUDE.md.
+
+A correção não é local a nenhum dos dois serviços — o `EventPublisher` do
+`edu-common` não carimba id de mensagem, então não existe nada estável para
+deduplicar. O caminho é: o publisher passa a stampar um id único por evento, os
+consumidores ganham um registro de mensagens já processadas, e a checagem entra
+antes do insert. Fica na fase 3 porque é onde o Redis e as primitivas atômicas
+chegam. Deduplicar por chave de negócio agora seria pior que o buraco honesto:
+duas notificações de mesmo tipo para o mesmo pedido podem ser legítimas.
+
+Também nesta fase: o `UNIQUE(aluno_id, token)` de `device_tokens` permite o mesmo
+token físico registrado sob dois alunos — inofensivo enquanto não há push real,
+relevante no instante em que houver.
 
 ### Fase 4 — Desligamento
 

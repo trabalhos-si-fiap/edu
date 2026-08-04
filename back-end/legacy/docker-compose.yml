@@ -1,0 +1,167 @@
+# Nome do projeto fixo aqui, e não herdado de COMPOSE_PROJECT_NAME. O .env vive
+# em back-end/.env, um nível acima, e só chega neste arquivo via `--env-file
+# ../.env` (que todos os alvos `back-*` do Makefile passam). Quem invocar
+# `docker compose` à mão, sem a flag, não teria COMPOSE_PROJECT_NAME: o Compose
+# cairia no nome da pasta, `legacy`, criando um segundo conjunto de volumes
+# (`legacy_postgres_data`) e apresentando um banco vazio como se os dados
+# tivessem sumido. Fixar o nome torna os dois caminhos equivalentes.
+name: edu
+
+services:
+  postgres:
+    container_name: edu-postgres
+    image: postgres:17.4-alpine3.21
+    restart: unless-stopped
+    ports:
+      - "${POSTGRES_PORT_EXTERNAL:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+      - ./postgres/initdb.d:/docker-entrypoint-initdb.d:ro
+    env_file:
+      # Um único .env para os dois stacks, em back-end/.env. `env_file:` é
+      # resolvido relativo a ESTE arquivo; a interpolação de ${VAR} no YAML
+      # não é — ela lê o .env do project directory, por isso os alvos
+      # `back-*` do Makefile passam `--env-file ../.env`.
+      - ../.env
+    command: postgres -c max_connections=200
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:8.2.1-alpine
+    container_name: ${COMPOSE_PROJECT_NAME}-redis
+    ports:
+      - "${REDIS_PORT_EXTERNAL:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    env_file:
+      - ../.env
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:4.2.3-management-alpine
+    container_name: ${COMPOSE_PROJECT_NAME}-rabbitmq
+    restart: unless-stopped
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    ports:
+      - "${RABBITMQ_PORT_EXTERNAL:-5672}:5672"         # Porta do protocolo AMQP
+      - "${RABBITMQ_UI_PORT_EXTERNAL:-15672}:15672"   # Painel de Controle
+    env_file:
+      - ../.env
+    environment:
+      # The image reads RABBITMQ_DEFAULT_USER/PASS (not RABBITMQ_USER/PASSWORD),
+      # so map the project vars onto the names it expects. Only applied when the
+      # data volume is first initialised — see start-here docs to reset.
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-edu}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-edu}
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  migrate:
+    build: .
+    command: uv run alembic upgrade head
+    env_file:
+      - ../.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./:/app
+    restart: "no"
+
+  api:
+    build: .
+    command: granian --interface asgi --host 0.0.0.0 --port 8000 --reload app.main:app
+    env_file:
+      - ../.env
+    ports:
+      # Default 8001, não 8000: a faixa 80xx tem outros projetos nesta máquina e
+      # 8000 já é de um deles. Se o .env não for encontrado, cair em 8001 mantém
+      # o contrato que o app Flutter espera em vez de colidir silenciosamente.
+      - "${API_PORT_EXTERNAL:-8001}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - ./:/app
+      # Firebase service account (read-only). Lives at the repo root, outside
+      # the build context, and is git-ignored — never bake it into the image.
+      - ../../secrets:/app/secrets:ro
+    environment:
+      FIREBASE_CREDENTIALS_PATH: /app/secrets/edu-ia-29080-firebase-adminsdk-fbsvc-4b9cc9075d.json
+      # Sign presigned image URLs against the host LAN IP so physical devices can
+      # reach MinIO. Built from HOST_IP (exported by `make back-up`); falls back
+      # to the Android-emulator alias when HOST_IP is unset.
+      R2_PUBLIC_ENDPOINT_URL: "http://${HOST_IP:-10.0.2.2}:9000"
+
+  worker:
+    build: .
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info
+    env_file:
+      - ../.env
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - ./:/app
+      - ../../secrets:/app/secrets:ro
+    environment:
+      FIREBASE_CREDENTIALS_PATH: /app/secrets/edu-ia-29080-firebase-adminsdk-fbsvc-4b9cc9075d.json
+      # Sign presigned image URLs against the host LAN IP so physical devices can
+      # reach MinIO. Built from HOST_IP (exported by `make back-up`); falls back
+      # to the Android-emulator alias when HOST_IP is unset.
+      R2_PUBLIC_ENDPOINT_URL: "http://${HOST_IP:-10.0.2.2}:9000"
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: edu
+      MINIO_ROOT_PASSWORD: edu-secret
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 edu edu-secret; do echo waiting for minio; sleep 1; done;
+      mc mb --ignore-existing local/edu-media;
+      mc anonymous set none local/edu-media;
+      echo bucket-ready;
+      exit 0;
+      "
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:
+  minio_data:
