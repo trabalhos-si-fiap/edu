@@ -25,12 +25,17 @@ Sempre passe o endereço certo via `--dart-define`:
 
 | Alvo | API_BASE_URL |
 |---|---|
-| Simulador iOS | `http://localhost:8000/api` |
-| Emulador Android | `http://10.0.2.2:8000/api` (default) |
-| Dispositivo físico (mesma Wi-Fi) | `http://SEU_IP_LAN:8000/api` |
+| Simulador iOS | `http://localhost:8001/api` |
+| Emulador Android | `http://10.0.2.2:8001/api` |
+| Dispositivo físico (mesma Wi-Fi) | `http://SEU_IP_LAN:8001/api` |
 
-> A porta é a `API_PORT_EXTERNAL` do `back-end/.env` (default **8000**), a mesma
+> A porta é a `API_PORT_EXTERNAL` do `back-end/.env` — **8001** hoje, a mesma
 > publicada pelo `docker-compose`.
+>
+> ⚠️ O default embutido no `api_config.dart` continua sendo a **8000**, de
+> quando a API era publicada nessa porta. Ele não foi atualizado, então
+> `flutter run` sem `--dart-define` bate na porta errada em qualquer
+> plataforma. `make front` monta a URL a partir do `back-end/.env` e acerta.
 
 ## Simulador iOS
 
@@ -45,7 +50,7 @@ flutter devices
 # 3. Rode apontando para o backend via localhost
 flutter run \
   -d "iPhone 16e" \
-  --dart-define=API_BASE_URL=http://localhost:8000/api
+  --dart-define=API_BASE_URL=http://localhost:8001/api
 ```
 
 Pode passar o nome do device (`-d "iPhone 16e"`) ou o UUID do `flutter devices`.
@@ -64,11 +69,11 @@ Requer um time de assinatura configurado no Xcode
 ```bash
 flutter run \
   -d "<id-do-iphone>" \
-  --dart-define=API_BASE_URL=http://SEU_IP_LAN:8000/api
+  --dart-define=API_BASE_URL=http://SEU_IP_LAN:8001/api
 ```
 
 Descubra seu IP da LAN com `ipconfig getifaddr en0`. O backend já escuta em
-`0.0.0.0:8000`; garanta que o celular está na mesma Wi-Fi.
+`0.0.0.0:8000` dentro do container, publicado na **8001** do host; garanta que o celular está na mesma Wi-Fi.
 
 ## Notificações no simulador
 
@@ -81,7 +86,7 @@ dispositivo físico (veja [firebase_setup.md](firebase_setup.md)).
 
 | Sintoma | Causa provável | Correção |
 |---|---|---|
-| "Não foi possível conectar ao servidor" no login/cadastro | API_BASE_URL errado (porta/host) | Use `--dart-define=API_BASE_URL=http://localhost:8000/api` e confira `make back-up` |
+| "Não foi possível conectar ao servidor" no login/cadastro | API_BASE_URL errado (porta/host) | Use `--dart-define=API_BASE_URL=http://localhost:8001/api` e confira `make back-up` |
 | App trava após login (não abre a Home) | exceção não tratada no pós-login | Já corrigido: `syncToken()` é best-effort. Veja [messaging_service.dart](../../front-end-flutter/lib/features/notifications/data/messaging_service.dart) |
 | `APNS token has not been received` | simulador iOS sem APNS | Esperado; ignorado pelo app. Use device físico para push real |
 | Erro de build do Firebase / `firebase_options.dart` não encontrado | config não gerada | Rode `flutterfire configure` — veja [firebase_setup.md](firebase_setup.md) |
