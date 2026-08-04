@@ -119,18 +119,28 @@ async def test_student_timeline_returns_the_published_fields(client, db_session)
 
 async def test_student_timeline_never_returns_another_student(client, db_session):
     """O `payload["aluno_id"].astext == aluno_id` da query é a única garantia
-    de que a linha do tempo de um aluno não devolve a de outro."""
+    de que a linha do tempo de um aluno não devolve a de outro.
+
+    O `order.created` semeado aqui é do MESMO aluno e carrega `aluno_id`
+    (`commerce-service/app/routers/pedidos.py`), então só o filtro por
+    `tipo == "diagnostic.completed"` o mantém fora da linha do tempo — não é
+    vazamento entre alunos, mas é linha errada num contrato de eventos de
+    diagnóstico."""
     await seed_event(
         db_session, "diagnostic.completed", diagnostic_payload(ALUNO_A, 12, 0.85, "avancar"), 10
     )
     await seed_event(
         db_session, "diagnostic.completed", diagnostic_payload(ALUNO_B, 99, 0.15, "retroceder"), 5
     )
+    await seed_event(
+        db_session, "order.created", {"pedido_id": 7, "aluno_id": ALUNO_A, "valor_total": 99.9}, 1
+    )
 
     response = await client.get(f"/analytics/students/{ALUNO_A}", headers=headers_for("admin"))
 
     assert response.status_code == 200
     corpo = response.json()
+    assert len(corpo) == 1
     assert [linha["tema_id"] for linha in corpo] == [12]
 
 
