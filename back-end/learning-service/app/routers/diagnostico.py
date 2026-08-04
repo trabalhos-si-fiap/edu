@@ -257,9 +257,23 @@ async def contexto_questao(
     errou ou acertou.
 
     Só libera o gabarito se existir um registro de que ESTE aluno JÁ
-    respondeu ESTA questão (`DiagnosticoResposta`) — nunca expõe a
-    resposta certa de uma questão ainda não respondida, mesmo que o
-    aluno autenticado tente consultar o id de propósito.
+    respondeu ESTA questão (`DiagnosticoResposta`). Isso barra a leitura
+    do gabarito de outro aluno e a leitura direta de um id qualquer — mas
+    NÃO é uma garantia de que o aluno só vê gabarito de questão que ele
+    de fato estudou: ele mesmo consegue criar a linha que abre o portão.
+
+    # TODO(fase 2): auto-autorização em duas requisições. `POST
+    # /diagnostic/answer` (linha ~51) busca as questões por
+    # `Questao.id.in_(questao_ids)` sem amarrar nenhuma delas ao
+    # `payload.tema_id`, e grava um `DiagnosticoResposta` para qualquer id
+    # existente. O aluno manda um /answer com o id-alvo, recebe o 200, e o
+    # GET aqui passa a devolver o gabarito desse id. O portão abaixo checa
+    # exatamente a linha que a requisição anterior acabou de criar.
+    # Correção (fase 2): validar em /answer que `questao.subtema_id`
+    # pertence a um `Subtema` do `payload.tema_id`, rejeitando o resto.
+    # A falha é do código vendorizado (presente em 129db97, na importação),
+    # então a fase 1 congela o comportamento e só documenta — ver a regra
+    # de freeze-what-exists no plano da fase 1.
     """
     resposta_result = await db.execute(
         select(DiagnosticoResposta)
