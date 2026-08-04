@@ -19,6 +19,6 @@ class Notificacao(Base):
     # Flutter (NotificationModel.readAt) espera um valor de data, não bool.
     # `index=True` casa com o `idx_notificacoes_lido_em` do schema.sql
     # original — a listagem filtra por `lido_em IS NULL` quando
-    # `apenas_nao_lidas=True`.
+    # `unread_only=True`.
     lido_em = Column(DateTime(timezone=True), nullable=True, index=True)
     criado_em = Column(DateTime(timezone=True), server_default=func.now())

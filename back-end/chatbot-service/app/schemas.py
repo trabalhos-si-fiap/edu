@@ -2,9 +2,10 @@ from pydantic import BaseModel, Field
 
 
 class MensagemIn(BaseModel):
-    # `/chat/ask` é público (sem autenticação) — um limite de tamanho aqui
-    # não é só higiene de input, é a única barreira contra abuso (cada
-    # pergunta gera uma chamada real ao encoder + à API paga da Groq).
+    # `/chat/ask` exige autenticação (`get_current_student` em app/main.py),
+    # mas o limite de tamanho aqui continua sendo defesa de custo e não só
+    # higiene de input: cada pergunta gera uma chamada real ao encoder + à
+    # API paga da Groq, e o aluno autenticado ainda pode abusar do volume.
     pergunta: str = Field(..., min_length=1, max_length=1000)
 
 

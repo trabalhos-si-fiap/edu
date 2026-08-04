@@ -21,9 +21,10 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Necessário para o endpoint /chat/explain-question, que exige
-    # autenticação (autenticação encadeada com o Learning Service) — ver
-    # app/dependencies.py.
+    # Necessário para as duas rotas de chat: `/chat/ask` e
+    # `/chat/explain-question` exigem autenticação via `get_current_student`.
+    # Em `/chat/explain-question` o mesmo token ainda é repassado ao Learning
+    # Service (autenticação encadeada) — ver app/dependencies.py.
     jwt_secret: str
     jwt_algorithm: str = "HS256"
 
