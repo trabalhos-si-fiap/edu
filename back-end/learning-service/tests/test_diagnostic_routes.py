@@ -165,3 +165,65 @@ async def test_reviews_today_listing_has_a_default_cap_and_offset(
 async def test_reviews_today_listing_rejects_an_oversized_limit(client, auth_headers):
     response = await client.get("/reviews/today?limit=1000", headers=auth_headers)
     assert response.status_code == 422
+
+
+# ── B8: nada amarrava o payload que esta rota publica aos dois servicos
+# que o consomem. Renomear a chave `dominio_tema` no router deixava
+# learning (56), notification (20) e analytics (26) TODOS verdes — 102
+# testes cegos ao defeito. Causa: a fixture `_stub_publish_event` era um
+# noop que descartava o payload, e cada consumidor recriava um literal
+# local cuja docstring PROMETIA espelhar o produtor sem importar nada
+# dele. O produtor agora monta o payload por `edu_common.contracts`, os
+# consumidores constroem seus fixtures da mesma classe, e este teste fixa
+# o formato de barramento com LITERAIS — usar `DiagnosticCompleted.
+# ROUTING_KEY` ou os nomes dos campos aqui faria o teste seguir uma
+# renomeacao em vez de detecta-la. ─────────────────────────────────────
+
+
+async def test_answer_publishes_the_exact_diagnostic_completed_payload(
+    client, db_session, student_identity, _stub_publish_event
+):
+    from app.models.questao import Questao
+
+    materia = Materia(nome="Biologia")
+    db_session.add(materia)
+    await db_session.flush()
+    tema = Tema(materia_id=materia.id, nome="Citologia", ordem=1)
+    db_session.add(tema)
+    await db_session.flush()
+    subtema = Subtema(tema_id=tema.id, nome="Membrana", ordem=1)
+    db_session.add(subtema)
+    await db_session.flush()
+    questao = Questao(
+        subtema_id=subtema.id,
+        enunciado="Qual organela sintetiza proteinas?",
+        alternativas={"A": "Ribossomo", "B": "Lisossomo", "C": "Vacuolo", "D": "Centriolo"},
+        gabarito="A",
+        nivel_dificuldade=1,
+    )
+    db_session.add(questao)
+    await db_session.commit()
+
+    response = await client.post(
+        "/diagnostic/answer",
+        json={
+            "tema_id": tema.id,
+            "respostas": [{"questao_id": questao.id, "alternativa_escolhida": "A"}],
+        },
+        headers=student_identity.headers,
+    )
+    assert response.status_code == 200, response.text
+
+    publicados = [
+        (routing_key, payload)
+        for routing_key, payload in _stub_publish_event
+        if routing_key == "diagnostic.completed"
+    ]
+    assert len(publicados) == 1
+    _, payload = publicados[0]
+
+    assert set(payload) == {"aluno_id", "tema_id", "dominio_tema", "acao"}
+    assert payload["aluno_id"] == str(student_identity.aluno_id)
+    assert payload["tema_id"] == tema.id
+    assert isinstance(payload["dominio_tema"], float)
+    assert payload["acao"] in {"estudar", "avancar", "retroceder"}

@@ -52,7 +52,7 @@ async def db_session(
 
 
 @pytest.fixture
-def _stub_publish_event(monkeypatch: pytest.MonkeyPatch) -> None:
+def _stub_publish_event(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, dict]]:
     """`ASGITransport` never runs the app's lifespan (`init_publisher()` is
     never called), so `app.events.publisher._publisher` stays disconnected —
     any route that awaits `publish_event` (`/auth/register`,
@@ -63,18 +63,28 @@ def _stub_publish_event(monkeypatch: pytest.MonkeyPatch) -> None:
     own name in that module's namespace, so patching
     `app.events.publisher.publish_event` would not affect the router's
     already-bound reference.
+
+    Returns the captured events (`(routing_key, payload)`, in publish order).
+    It used to be a noop that DISCARDED the payload, which was half the cause
+    of finding B8: with the payload thrown away, nothing in this suite could
+    see what the route actually publishes, so renaming a key in the published
+    dict broke no test here nor in the services that consume it. Same shape as
+    commerce-service's equivalent fixture.
     """
+    eventos: list[tuple[str, dict]] = []
 
-    async def _noop(routing_key: str, payload: dict) -> None:
-        return None
+    async def _capturar(routing_key: str, payload: dict) -> None:
+        eventos.append((routing_key, payload))
 
-    monkeypatch.setattr("app.routers.auth.publish_event", _noop)
+    monkeypatch.setattr("app.routers.auth.publish_event", _capturar)
+
+    return eventos
 
 
 @pytest.fixture
 async def client(
     test_session_factory: async_sessionmaker[AsyncSession],
-    _stub_publish_event: None,
+    _stub_publish_event: list[tuple[str, dict]],
 ) -> AsyncIterator[AsyncClient]:
     async def _override_get_db() -> AsyncIterator[AsyncSession]:
         async with test_session_factory() as session:

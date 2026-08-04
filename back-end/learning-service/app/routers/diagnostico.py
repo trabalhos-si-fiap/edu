@@ -1,5 +1,6 @@
 from collections import defaultdict
 
+from edu_common.contracts import DiagnosticCompleted
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -208,14 +209,18 @@ async def responder_diagnostico(
 
     await db.commit()
 
+    # Payload montado pela definição compartilhada em edu-common, não por um
+    # dict literal: as suítes de notification e analytics constroem seus
+    # fixtures a partir da MESMA classe, então renomear um campo lá quebra os
+    # dois consumidores em vez de passar despercebido (ver contracts.py).
     await publish_event(
-        "diagnostic.completed",
-        {
-            "aluno_id": str(aluno_id),
-            "tema_id": tema.id,
-            "dominio_tema": dominio_tema,
-            "acao": acao.value,
-        },
+        DiagnosticCompleted.ROUTING_KEY,
+        DiagnosticCompleted(
+            aluno_id=str(aluno_id),
+            tema_id=tema.id,
+            dominio_tema=dominio_tema,
+            acao=acao.value,
+        ).to_payload(),
     )
 
     # Mensagem do tutor: o LLM só reescreve o resultado ACIMA (já 100%

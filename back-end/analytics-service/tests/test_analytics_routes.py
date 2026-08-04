@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
+from edu_common.contracts import DiagnosticCompleted
 from edu_common.security import create_access_token
 from sqlalchemy import select
 
@@ -20,15 +21,23 @@ def headers_for(role: str) -> dict[str, str]:
 
 
 def diagnostic_payload(aluno_id: str, tema_id: int, dominio_tema: float, acao: str) -> dict:
-    """A forma exata que `learning-service` publica em `diagnostic.completed`
-    (`app/routers/diagnostico.py`) — quatro chaves, sem `subtema_id`, sem
-    `dominio`."""
-    return {
-        "aluno_id": aluno_id,
-        "tema_id": tema_id,
-        "dominio_tema": dominio_tema,
-        "acao": acao,
-    }
+    """Construído pela MESMA definição que o produtor usa para publicar
+    (`edu_common.contracts.DiagnosticCompleted`, montada em
+    `learning-service/app/routers/diagnostico.py`) — não por um literal local.
+
+    Era um literal, com uma docstring prometendo espelhar o produtor sem
+    importar nada dele. A promessa era falsa e foi medida: renomear
+    `dominio_tema` no produtor deixava esta suíte inteira verde (achado B8).
+    Agora a renomeação chega até aqui pelo próprio payload — o
+    `payload.get("dominio_tema")` de `app/routers/analytics.py` devolve
+    `None`, e a asserção sobre os valores da linha do tempo falha.
+    """
+    return DiagnosticCompleted(
+        aluno_id=aluno_id,
+        tema_id=tema_id,
+        dominio_tema=dominio_tema,
+        acao=acao,
+    ).to_payload()
 
 
 async def seed_event(db_session, tipo: str, payload: dict, minutos_atras: int = 0) -> None:

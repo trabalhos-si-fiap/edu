@@ -2,6 +2,7 @@ import json
 from contextlib import asynccontextmanager
 from unittest.mock import MagicMock
 
+from edu_common.contracts import DiagnosticCompleted
 from sqlalchemy import select
 
 from app.events import consumer as consumer_module
@@ -23,14 +24,23 @@ def fake_message(payload: dict) -> MagicMock:
 
 
 def diagnostic_payload(acao: str, dominio_tema: float) -> dict:
-    """A forma exata que `learning-service` publica em `diagnostic.completed`
-    (`app/routers/diagnostico.py`): aluno_id, tema_id, dominio_tema, acao."""
-    return {
-        "aluno_id": STUDENT_ID,
-        "tema_id": 12,
-        "dominio_tema": dominio_tema,
-        "acao": acao,
-    }
+    """Construído pela MESMA definição que o produtor usa para publicar
+    (`edu_common.contracts.DiagnosticCompleted`, montada em
+    `learning-service/app/routers/diagnostico.py`) — não por um literal local.
+
+    Era um literal, com uma docstring prometendo espelhar o produtor sem
+    importar nada dele. A promessa era falsa e foi medida: renomear
+    `dominio_tema` no produtor deixava esta suíte inteira verde (achado B8).
+    Agora a renomeação chega até aqui pelo próprio payload — o handler
+    continua lendo a chave que espera, não acha mais nada, e o texto da
+    notificação muda. É isso que faz este teste falhar.
+    """
+    return DiagnosticCompleted(
+        aluno_id=STUDENT_ID,
+        tema_id=12,
+        dominio_tema=dominio_tema,
+        acao=acao,
+    ).to_payload()
 
 
 async def test_diagnostic_completed_creates_a_notification(

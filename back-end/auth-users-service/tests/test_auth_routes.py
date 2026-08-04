@@ -112,3 +112,33 @@ async def test_refresh_rejects_a_validly_signed_token_missing_the_role_claim(cli
     response = await client.post("/auth/refresh", json={"refresh_token": token})
 
     assert response.status_code == 401
+
+
+# ── B8: a fixture `_stub_publish_event` descartava o payload, entao nada
+# nesta suite via o que `/auth/register` realmente publica — e os dois
+# consumidores de `student.created` (learning-service, analytics-service)
+# recriavam o formato em literais locais. O router agora monta o payload
+# por `edu_common.contracts.StudentCreated`; este teste fixa o formato de
+# barramento com LITERAIS (usar `StudentCreated.ROUTING_KEY` ou os nomes
+# dos campos aqui faria o teste seguir uma renomeacao em vez de
+# detecta-la). ─────────────────────────────────────────────────────────
+
+
+async def test_register_publishes_the_exact_student_created_payload(client, _stub_publish_event):
+    response = await client.post("/auth/register", json=REGISTER)
+    assert response.status_code == 201
+    user_id = response.json()["user"]["id"]
+
+    publicados = [
+        (routing_key, payload)
+        for routing_key, payload in _stub_publish_event
+        if routing_key == "student.created"
+    ]
+    assert len(publicados) == 1
+    _, payload = publicados[0]
+
+    assert payload == {
+        "aluno_id": str(user_id),
+        "nome": "Maria Teste",
+        "email": "maria@teste.com",
+    }

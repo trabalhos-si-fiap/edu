@@ -1,6 +1,7 @@
 import secrets
 from datetime import UTC, date, datetime, timedelta
 
+from edu_common.contracts import StudentCreated
 from edu_common.security import (
     DUMMY_PASSWORD_HASH,
     create_access_token,
@@ -81,9 +82,14 @@ async def register(payload: RegisterIn, db: AsyncSession = Depends(get_db)):
     await db.commit()
     await db.refresh(user)
 
+    # Payload montado pela definição compartilhada em edu-common, não por um
+    # dict literal: learning-service e analytics-service consomem este evento
+    # e constroem seus fixtures a partir da MESMA classe, então renomear um
+    # campo lá quebra os consumidores em vez de passar despercebido
+    # (ver edu_common/contracts.py).
     await publish_event(
-        "student.created",
-        {"aluno_id": str(user.id), "nome": user.nome, "email": user.email},
+        StudentCreated.ROUTING_KEY,
+        StudentCreated(aluno_id=str(user.id), nome=user.nome, email=user.email).to_payload(),
     )
 
     return _montar_resposta_auth(user)

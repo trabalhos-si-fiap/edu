@@ -56,7 +56,7 @@ async def db_session(
 
 
 @pytest.fixture
-def _stub_publish_event(monkeypatch: pytest.MonkeyPatch) -> None:
+def _stub_publish_event(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, dict]]:
     """`ASGITransport` never roda o lifespan do app (`init_publisher()` nunca é
     chamado), então `app.events.publisher._publisher` fica sempre desconectado —
     qualquer rota que aguarde `publish_event` (`POST /diagnostic/answer`)
@@ -71,19 +71,32 @@ def _stub_publish_event(monkeypatch: pytest.MonkeyPatch) -> None:
     `app/scheduler.py::verificar_revisoes_pendentes` (job do APScheduler) —
     fix round 1 corrigiu esta fixture depois que a revisão encontrou que só o
     primeiro estava coberto. Confirmado com `grep -rn "publish_event" app/`.
+
+    Devolve a lista de eventos capturados (`(routing_key, payload)`, na ordem
+    de publicação), como a fixture equivalente do commerce-service já fazia.
+    Antes era um noop que DESCARTAVA o payload, e essa era metade da causa do
+    achado B8: com o payload jogado fora, nada nesta suíte conseguia enxergar
+    o que a rota realmente publica — renomear `dominio_tema` no router não
+    quebrava teste nenhum, nem aqui nem nos dois consumidores. O pytest
+    resolve a MESMA instância para `client` e para um teste que peça a fixture
+    diretamente (escopo `function`), então a lista abaixo é a que o `client`
+    está usando por baixo.
     """
+    eventos: list[tuple[str, dict]] = []
 
-    async def _noop(routing_key: str, payload: dict) -> None:
-        return None
+    async def _capturar(routing_key: str, payload: dict) -> None:
+        eventos.append((routing_key, payload))
 
-    monkeypatch.setattr("app.routers.diagnostico.publish_event", _noop)
-    monkeypatch.setattr("app.scheduler.publish_event", _noop)
+    monkeypatch.setattr("app.routers.diagnostico.publish_event", _capturar)
+    monkeypatch.setattr("app.scheduler.publish_event", _capturar)
+
+    return eventos
 
 
 @pytest.fixture
 async def client(
     test_session_factory: async_sessionmaker[AsyncSession],
-    _stub_publish_event: None,
+    _stub_publish_event: list[tuple[str, dict]],
 ) -> AsyncIterator[AsyncClient]:
     async def _override_get_db() -> AsyncIterator[AsyncSession]:
         async with test_session_factory() as session:
