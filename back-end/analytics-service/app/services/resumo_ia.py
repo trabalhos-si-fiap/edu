@@ -8,7 +8,7 @@ estruturado em texto legível para um dashboard.
 Se a chamada ao Groq falhar por qualquer motivo (sem API key, timeout,
 rate limit), cai automaticamente em `gerar_resumo_fallback` — um template
 determinístico. O campo `resumo_executivo` na resposta de
-`GET /analytics/resumo-executivo` nunca é nulo.
+`GET /analytics/executive-summary` nunca é nulo.
 """
 
 from groq import AsyncGroq

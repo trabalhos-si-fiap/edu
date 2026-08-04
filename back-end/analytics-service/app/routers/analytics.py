@@ -28,7 +28,7 @@ MAX_PAGE_SIZE = 200
 MAX_DIAS = 365
 
 
-@router.get("/aluno/{aluno_id}", response_model=list[AlunoEventoOut])
+@router.get("/students/{aluno_id}", response_model=list[AlunoEventoOut])
 async def evolucao_aluno(
     aluno_id: str,
     limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
@@ -59,7 +59,7 @@ async def evolucao_aluno(
     ]
 
 
-@router.get("/entregas", response_model=list[StatusContagemOut])
+@router.get("/deliveries", response_model=list[StatusContagemOut])
 async def metricas_entregas(
     user: dict = Depends(requer_papel("admin")),
     db: AsyncSession = Depends(get_db),
@@ -81,7 +81,7 @@ async def metricas_entregas(
     return [StatusContagemOut(status=row.status, total=row.total) for row in result.all()]
 
 
-@router.get("/resumo", response_model=list[TipoContagemOut])
+@router.get("/summary", response_model=list[TipoContagemOut])
 async def resumo_geral(
     user: dict = Depends(requer_papel("admin")),
     db: AsyncSession = Depends(get_db),
@@ -97,7 +97,7 @@ async def resumo_geral(
     return [TipoContagemOut(tipo=row.tipo, total=row.total) for row in result.all()]
 
 
-@router.get("/resumo-executivo", response_model=ResumoExecutivoOut)
+@router.get("/executive-summary", response_model=ResumoExecutivoOut)
 async def resumo_executivo(
     dias: int = Query(7, ge=1, le=MAX_DIAS),
     user: dict = Depends(requer_papel("admin")),
@@ -178,7 +178,7 @@ async def resumo_executivo(
     )
 
 
-@router.get("/anomalias", response_model=AnomaliasResponseOut)
+@router.get("/anomalies", response_model=AnomaliasResponseOut)
 async def anomalias_operacionais(
     dias_historico: int = Query(30, ge=1, le=MAX_DIAS),
     user: dict = Depends(requer_papel("admin")),

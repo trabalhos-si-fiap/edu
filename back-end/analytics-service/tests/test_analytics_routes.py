@@ -16,17 +16,31 @@ def headers_for(role: str) -> dict[str, str]:
 
 
 async def test_analytics_requires_authentication(client):
-    assert (await client.get("/analytics/anomalias")).status_code == 403
+    assert (await client.get("/analytics/anomalies")).status_code == 403
 
 
 async def test_analytics_forbids_students(client):
-    response = await client.get("/analytics/anomalias", headers=headers_for("student"))
+    response = await client.get("/analytics/anomalies", headers=headers_for("student"))
     assert response.status_code == 403
 
 
 async def test_analytics_allows_admin(client):
-    response = await client.get("/analytics/anomalias", headers=headers_for("admin"))
+    response = await client.get("/analytics/anomalies", headers=headers_for("admin"))
     assert response.status_code == 200
+
+
+async def test_public_paths_are_english(client):
+    """O contrato público é em inglês (design doc, "Regra de contrato").
+    Literais aqui de propósito: importar as rotas do router faria o teste
+    concordar com qualquer renomeação futura em vez de barrá-la."""
+    paths = (await client.get("/openapi.json")).json()["paths"]
+    assert sorted(p for p in paths if p.startswith("/analytics")) == [
+        "/analytics/anomalies",
+        "/analytics/deliveries",
+        "/analytics/executive-summary",
+        "/analytics/students/{aluno_id}",
+        "/analytics/summary",
+    ]
 
 
 async def test_every_analytics_route_is_admin_only(client):
