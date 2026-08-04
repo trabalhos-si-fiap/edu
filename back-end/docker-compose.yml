@@ -1,0 +1,322 @@
+# Stack completo do backend: infra compartilhada + monolito legacy + os 7
+# serviços novos.
+#
+# Este arquivo é um SUPERCONJUNTO ESTRITO de `legacy/docker-compose.yml`:
+# mesmo COMPOSE_PROJECT_NAME (do .env), mesmos nomes de volume e mesmos
+# container_name. É o que faz `make stack-up` reaproveitar o volume de
+# Postgres que o legacy já usa, em vez de criar um segundo e fazer o banco
+# do legacy "sumir".
+#
+# O `.env` é único e fica ao lado deste arquivo, em `back-end/.env`. Aqui
+# `env_file: - .env` e a interpolação de ${VAR} apontam ambos para ele sem
+# nenhum flag extra, porque o project directory é esta pasta.
+#
+# Portas host: legacy em ${API_PORT_EXTERNAL} (8001 nesta máquina), gateway
+# em ${GATEWAY_PORT_EXTERNAL} (8100) e os seis serviços em 8101-8106. A faixa
+# 80xx está ocupada (8000 por outro projeto, 8001 pelo legacy).
+
+# Bloco comum aos serviços novos. RABBITMQ_URL e as DATABASE_URL* são montadas
+# por interpolação para não hardcodar senha neste arquivo. Cada serviço
+# sobrescreve DATABASE_URL/DATABASE_URL_TEST com o SEU banco — sem isso o valor
+# do legacy vaza do .env compartilhado para dentro do container.
+x-service-env: &service-env
+  RABBITMQ_URL: amqp://${RABBITMQ_USER:-edu}:${RABBITMQ_PASSWORD:-edu}@rabbitmq:5672/
+  EXCHANGE_NAME: ${EXCHANGE_NAME:-edu.events}
+  JWT_SECRET: ${JWT_SECRET:?JWT_SECRET não definido em back-end/.env}
+  JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+
+x-depends-db-mq: &depends-db-mq
+  postgres:
+    condition: service_healthy
+  rabbitmq:
+    condition: service_healthy
+
+services:
+  # ── Infra compartilhada ────────────────────────────────────────────────
+  postgres:
+    container_name: edu-postgres
+    image: postgres:17.4-alpine3.21
+    restart: unless-stopped
+    ports:
+      - "${POSTGRES_PORT_EXTERNAL:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+      # Os dois initdb.d montados script a script: não dá para montar duas
+      # pastas no mesmo destino. O prefixo numérico define a ordem.
+      - ./legacy/postgres/initdb.d/init_test_db.sh:/docker-entrypoint-initdb.d/00-init_test_db.sh:ro
+      - ./postgres/initdb.d/10-create-service-databases.sh:/docker-entrypoint-initdb.d/10-create-service-databases.sh:ro
+    env_file:
+      - .env
+    command: postgres -c max_connections=200
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:8.2.1-alpine
+    container_name: ${COMPOSE_PROJECT_NAME}-redis
+    ports:
+      - "${REDIS_PORT_EXTERNAL:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:4.2.3-management-alpine
+    container_name: ${COMPOSE_PROJECT_NAME}-rabbitmq
+    restart: unless-stopped
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    ports:
+      - "${RABBITMQ_PORT_EXTERNAL:-5672}:5672"         # Porta do protocolo AMQP
+      - "${RABBITMQ_UI_PORT_EXTERNAL:-15672}:15672"   # Painel de Controle
+    env_file:
+      - .env
+    environment:
+      # The image reads RABBITMQ_DEFAULT_USER/PASS (not RABBITMQ_USER/PASSWORD),
+      # so map the project vars onto the names it expects. Only applied when the
+      # data volume is first initialised — see start-here docs to reset.
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-edu}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-edu}
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: edu
+      MINIO_ROOT_PASSWORD: edu-secret
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 edu edu-secret; do echo waiting for minio; sleep 1; done;
+      mc mb --ignore-existing local/edu-media;
+      mc anonymous set none local/edu-media;
+      echo bucket-ready;
+      exit 0;
+      "
+
+  # ── Monolito legacy — continua servindo o Flutter ──────────────────────
+  migrate:
+    build: ./legacy
+    command: uv run alembic upgrade head
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./legacy:/app
+    restart: "no"
+
+  api:
+    build: ./legacy
+    command: granian --interface asgi --host 0.0.0.0 --port 8000 --reload app.main:app
+    env_file:
+      - .env
+    ports:
+      - "${API_PORT_EXTERNAL:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - ./legacy:/app
+      # Firebase service account (read-only). Lives at the repo root, outside
+      # the build context, and is git-ignored — never bake it into the image.
+      - ../secrets:/app/secrets:ro
+    environment:
+      FIREBASE_CREDENTIALS_PATH: /app/secrets/edu-ia-29080-firebase-adminsdk-fbsvc-4b9cc9075d.json
+      # Sign presigned image URLs against the host LAN IP so physical devices can
+      # reach MinIO. Built from HOST_IP (exported by `make stack-up`); falls back
+      # to the Android-emulator alias when HOST_IP is unset.
+      R2_PUBLIC_ENDPOINT_URL: "http://${HOST_IP:-10.0.2.2}:9000"
+
+  worker:
+    build: ./legacy
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - ./legacy:/app
+      - ../secrets:/app/secrets:ro
+    environment:
+      FIREBASE_CREDENTIALS_PATH: /app/secrets/edu-ia-29080-firebase-adminsdk-fbsvc-4b9cc9075d.json
+      R2_PUBLIC_ENDPOINT_URL: "http://${HOST_IP:-10.0.2.2}:9000"
+
+  # ── Stack novo: gateway + 6 serviços ───────────────────────────────────
+  api-gateway:
+    build:
+      context: .
+      dockerfile: api-gateway/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "${GATEWAY_PORT_EXTERNAL:-8100}:8000"
+    environment:
+      # O .env compartilhado é o do legacy e define DATABASE_URL apontando para
+      # o banco dele. O gateway não tem banco: zerar evita que a credencial do
+      # legacy fique no ambiente de um container que não deveria alcançá-lo.
+      DATABASE_URL: ""
+      DATABASE_URL_TEST: ""
+      # As URLs internas usam o hostname do compose e a porta 8000 INTERNA do
+      # container, que não muda — o mapeamento 810x:8000 só vale de fora.
+      AUTH_SERVICE_URL: http://auth-users-service:8000
+      LEARNING_SERVICE_URL: http://learning-service:8000
+      COMMERCE_SERVICE_URL: http://commerce-service:8000
+      NOTIFICATION_SERVICE_URL: http://notification-service:8000
+      ANALYTICS_SERVICE_URL: http://analytics-service:8000
+      CHATBOT_SERVICE_URL: http://chatbot-service:8000
+    depends_on:
+      - auth-users-service
+      - learning-service
+      - commerce-service
+      - chatbot-service
+      - notification-service
+      - analytics-service
+
+  auth-users-service:
+    build:
+      context: .
+      dockerfile: auth-users-service/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8101:8000"
+    environment:
+      <<: *service-env
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/auth_db
+      DATABASE_URL_TEST: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/auth_test
+    depends_on: *depends-db-mq
+
+  learning-service:
+    build:
+      context: .
+      dockerfile: learning-service/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8102:8000"
+    environment:
+      <<: *service-env
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/learning_db
+      DATABASE_URL_TEST: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/learning_test
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+    depends_on: *depends-db-mq
+
+  commerce-service:
+    build:
+      context: .
+      dockerfile: commerce-service/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8103:8000"
+    environment:
+      <<: *service-env
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/commerce_db
+      DATABASE_URL_TEST: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/commerce_test
+      # O .env do legacy chama a chave do Maps de GOOGLE_MAPS_API_PLATAFORM; o
+      # commerce-service lê GOOGLE_MAPS_API_KEY. Ligar as duas evita ter a mesma
+      # chave duas vezes no .env. Hoje o campo é inerte no commerce (nenhum
+      # código o lê) — o rastreio com rota chega na fase 2.
+      GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_PLATAFORM:-}
+    depends_on: *depends-db-mq
+
+  chatbot-service:
+    build:
+      context: .
+      dockerfile: chatbot-service/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8104:8000"
+    environment:
+      # O chatbot não tem banco e não publica nem consome eventos (ver o
+      # docstring de app/config.py). DATABASE_URL é zerada pelo mesmo motivo
+      # do gateway: o .env compartilhado traz a do legacy.
+      DATABASE_URL: ""
+      DATABASE_URL_TEST: ""
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET não definido em back-end/.env}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      LEARNING_SERVICE_URL: http://learning-service:8000
+    depends_on:
+      - learning-service
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: notification-service/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8105:8000"
+    environment:
+      <<: *service-env
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/notification_db
+      DATABASE_URL_TEST: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/notification_test
+    depends_on: *depends-db-mq
+
+  analytics-service:
+    build:
+      context: .
+      dockerfile: analytics-service/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8106:8000"
+    environment:
+      <<: *service-env
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/analytics_db
+      DATABASE_URL_TEST: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/analytics_test
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+    depends_on: *depends-db-mq
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:
+  minio_data:
