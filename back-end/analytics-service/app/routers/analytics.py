@@ -27,6 +27,11 @@ MAX_PAGE_SIZE = 200
 # gigante na tabela de log de eventos.
 MAX_DIAS = 365
 
+# Sentinelas para as chaves de agrupamento do resumo executivo quando o payload
+# logado não traz a chave — ver comentário em `resumo_executivo`.
+SEM_CHAVE_STATUS = "sem_status"
+SEM_CHAVE_ACAO = "sem_acao"
+
 
 @router.get("/students/{aluno_id}", response_model=list[AlunoEventoOut])
 async def evolucao_aluno(
@@ -124,7 +129,12 @@ async def resumo_executivo(
         .where(EventLog.tipo == "order.status_changed", EventLog.criado_em >= desde)
         .group_by(text("status"))
     )
-    pedidos_por_status = {row.status: row.total for row in status_result.all()}
+    # `astext` devolve NULL quando o payload logado não traz a chave. JSON não
+    # admite chave nula, então deixar o None chegar ao schema o serializaria
+    # como a string "None" — `repr` do Python vazando para o contrato público,
+    # e para o prompt do LLM junto. O sentinela garante a invariante aqui, na
+    # origem, e mantém `dict[str, int]` honesto no schema.
+    pedidos_por_status = {row.status or SEM_CHAVE_STATUS: row.total for row in status_result.all()}
 
     ocorrencias_abertas_result = await db.execute(
         select(func.count()).where(
@@ -150,7 +160,9 @@ async def resumo_executivo(
         .where(EventLog.tipo == "diagnostic.completed", EventLog.criado_em >= desde)
         .group_by(text("acao"))
     )
-    diagnosticos_por_acao = {row.acao: row.total for row in diagnosticos_result.all()}
+    diagnosticos_por_acao = {
+        row.acao or SEM_CHAVE_ACAO: row.total for row in diagnosticos_result.all()
+    }
 
     contexto = {
         "periodo_dias": dias,

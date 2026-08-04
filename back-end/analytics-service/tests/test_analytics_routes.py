@@ -81,8 +81,14 @@ async def test_every_analytics_route_is_admin_only(client):
 
 async def test_null_grouping_key_does_not_break_the_executive_summary(client, db_session):
     """`payload["status"].astext` devolve NULL quando a chave não existe no
-    payload, e o agregado sai como `{None: n}`. Analytics loga payload bruto
-    produzido por outros serviços — um evento sem a chave não pode virar 500."""
+    payload. Analytics loga payload bruto produzido por outros serviços — um
+    evento sem a chave não pode virar 500.
+
+    A rota substitui esse NULL por um sentinela de verdade antes de montar o
+    agregado. Sem isso, `{None: n}` sairia no JSON como a string `"None"` —
+    o `repr` do Python vazando para um contrato público — e ia parar assim no
+    prompt do LLM (`_montar_prompt_usuario`). "None" é literal aqui de
+    propósito: é exatamente o que não pode voltar a aparecer."""
     await seed_event(db_session, "order.status_changed", {"pedido_id": 1})
     await seed_event(db_session, "diagnostic.completed", {"aluno_id": ALUNO_A})
 
@@ -92,6 +98,10 @@ async def test_null_grouping_key_does_not_break_the_executive_summary(client, db
     metricas = response.json()["metricas"]
     assert sum(metricas["pedidos_por_status"].values()) == 1
     assert sum(metricas["diagnosticos_por_acao"].values()) == 1
+    assert metricas["pedidos_por_status"] == {"sem_status": 1}
+    assert metricas["diagnosticos_por_acao"] == {"sem_acao": 1}
+    assert "None" not in metricas["pedidos_por_status"]
+    assert "None" not in metricas["diagnosticos_por_acao"]
 
 
 async def test_student_timeline_returns_the_published_fields(client, db_session):
