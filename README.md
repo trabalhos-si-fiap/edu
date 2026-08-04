@@ -52,17 +52,28 @@ Docs detalhados: [front-end-flutter/README.md](front-end-flutter/README.md)
 
 ### Backend (`back-end/`)
 
-API em **Python 3.12** com **FastAPI** (async), servida pelo **Granian**. Estrutura modular preparada para microservicos:
+API em **Python 3.12** com **FastAPI** (async), servida pelo **Granian**. A pasta abriga hoje **dois stacks lado a lado**: o monolito modular que serve o app, em `back-end/legacy/`, e os sete microservicos que vao substitui-lo.
 
 ```
-app/
-├── core/                # Config, database, celery, logging
-├── bff/                 # Backend for Frontend (agregacao)
-├── modules/             # Modulos de dominio (futuros microservicos)
-└── main.py              # Entry point FastAPI
+back-end/
+├── legacy/              # Monolito modular — backend de producao do app hoje
+│   ├── app/             # core/, bff/, modules/, main.py
+│   ├── alembic/
+│   └── tests/
+├── packages/edu-common/ # JWT/auth + publisher/consumer RabbitMQ
+├── api-gateway/         # Proxy por prefixo de path
+├── auth-users-service/  # Auth, users, addresses, reset de senha
+├── learning-service/    # Diagnostico adaptativo, SM-2, embeddings
+├── commerce-service/    # Catalogo, pedidos, separacao, entrega
+├── chatbot-service/     # RAG (FAISS + Groq)
+├── notification-service/# Notificacoes in-app + device tokens
+├── analytics-service/   # Event log, metricas, anomalias
+└── docker-compose.yml   # Infra compartilhada + os dois stacks
 ```
 
-**Infra**: PostgreSQL (banco), Redis (cache/locks), RabbitMQ (mensageria), Celery (tasks async).
+**Infra**: PostgreSQL (banco), Redis (cache/locks), RabbitMQ (mensageria), Celery (tasks async), MinIO (object storage).
+
+Detalhes da arquitetura de microservicos: [docs/back-end/microservices.md](docs/back-end/microservices.md).
 
 ---
 
@@ -96,17 +107,25 @@ cd estuda_app
 # Copiar variaveis de ambiente
 cp back-end/.env.example back-end/.env
 
-# Subir toda a stack (postgres, redis, rabbitmq, api, worker)
-make back-up
+# Subir toda a stack (infra + legacy + os 7 microservicos)
+make stack-up
 
-# Rodar migracoes do banco
-make back-migrate
+# Criar os bancos por servico e aplicar as migracoes
+make services-dbs
+make services-migrate
 
 # Verificar logs
-make back-logs
+make stack-logs SVC=api-gateway
 ```
 
-A API estara disponivel em `http://localhost:8000`.
+A API do monolito, que e a que o app consome, fica em `http://localhost:8001`
+(porta `API_PORT_EXTERNAL` do `back-end/.env`). O gateway dos microservicos
+fica em `http://localhost:8100` e os servicos em 8101-8106 — veja
+[docs/back-end/microservices.md](docs/back-end/microservices.md).
+
+> Para mexer so no monolito, `make back-up` sobe a stack antiga sozinha. Nao
+> misture com `make stack-up`: os dois compartilham infra, e `make back-down`
+> derruba o Postgres/Redis/RabbitMQ debaixo dos servicos novos.
 
 ### 3. Setup do Frontend
 
@@ -125,9 +144,13 @@ make front-linux        # Linux desktop
 ### 4. Verificar tudo
 
 ```bash
-# Backend
+# Backend — monolito
 make back-test          # testes
 make back-lint          # linter
+
+# Backend — microservicos
+make services-test      # suite dos 8 projetos
+make services-lint      # ruff em cada projeto
 
 # Frontend
 make front-analyze      # analise estatica
@@ -166,17 +189,35 @@ Rode `make help` para ver todos. Resumo:
 | `make back-sh` | Shell dentro do container da API |
 | `make back-sync` | Sync deps no host (para IDE) |
 
+### Microservicos
+
+| Comando | Descricao |
+|---------|-----------|
+| `make stack-up` | Sobe o stack inteiro (legacy + microservicos) |
+| `make stack-down` | Para o stack inteiro |
+| `make stack-logs` | Logs de um servico (`SVC=analytics-service`) |
+| `make services-dbs` | Cria os bancos por servico num volume existente |
+| `make services-migrate` | Aplica as migracoes de cada servico com banco |
+| `make services-test` | Roda a suite dos 8 projetos |
+| `make services-lint` | Roda ruff em cada projeto |
+| `make services-sync` | Sync deps de cada projeto no host (para IDE) |
+
 ---
 
 ## Stack Completa
 
+Portas publicadas no host. A porta interna de todo container de API e 8000.
+
 | Camada | Tecnologia | Porta |
 |--------|-----------|-------|
 | App mobile | Flutter/Dart | - |
-| API | FastAPI + Granian | 8000 |
-| Banco de dados | PostgreSQL 17 | 5432 |
-| Cache / Locks | Redis 8 | 6379 |
-| Mensageria | RabbitMQ 4 | 5672 (AMQP), 15672 (UI) |
+| API do monolito (legacy) | FastAPI + Granian | 8001 |
+| API Gateway | FastAPI | 8100 |
+| Microservicos (6) | FastAPI | 8101-8106 |
+| Banco de dados | PostgreSQL 17 | 5433 |
+| Cache / Locks | Redis 8 | 6380 |
+| Mensageria | RabbitMQ 4 | 5673 (AMQP), 15673 (UI) |
+| Object storage | MinIO | 9000 (API), 9001 (console) |
 | Tasks async | Celery 5 | - |
 
 ---
@@ -190,13 +231,22 @@ estuda_app/
 │   ├── assets/              # Imagens
 │   ├── docs/                # Docs do frontend
 │   └── pubspec.yaml
-├── back-end/                # API Python
-│   ├── app/                 # Codigo da aplicacao
-│   ├── alembic/             # Migracoes de banco
-│   ├── tests/               # Testes
-│   ├── docker-compose.yml
-│   ├── Dockerfile
-│   └── pyproject.toml
+├── back-end/                # Backend Python (dois stacks lado a lado)
+│   ├── legacy/              # Monolito modular — serve o app hoje
+│   │   ├── app/             # Codigo da aplicacao
+│   │   ├── alembic/         # Migracoes de banco
+│   │   ├── tests/           # Testes
+│   │   └── pyproject.toml
+│   ├── packages/edu-common/ # JWT/auth + eventos RabbitMQ
+│   ├── api-gateway/         # Proxy por prefixo de path
+│   ├── auth-users-service/  # Um projeto uv por servico:
+│   ├── learning-service/    #   pyproject.toml, alembic/, tests/, Dockerfile
+│   ├── commerce-service/
+│   ├── chatbot-service/
+│   ├── notification-service/
+│   ├── analytics-service/
+│   ├── docker-compose.yml   # Infra compartilhada + os dois stacks
+│   └── .env.example         # Contrato de variaveis (o .env nunca vai pro git)
 ├── Makefile                 # Comandos centralizados
 ├── CLAUDE.md                # Guidelines para AI/dev
 └── README.md                # Este arquivo
