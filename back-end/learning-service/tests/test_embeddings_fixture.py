@@ -48,7 +48,7 @@ def test_similaridade_cosseno_texto_consigo_mesmo_e_exatamente_um():
     texto contra si mesmo dava 86.0, não 1.0. `similaridade_cosseno` só É a
     similaridade de cosseno se os vetores tiverem norma 1 (ver seu
     docstring); a fixture agora normaliza quando o kwarg é passado, exatamente
-    como todo call site real (`embeddings.py:38,47`) passa.
+    como todo call site real (`embeddings.py:38,52`) passa.
     """
     vetor = gerar_embedding("Metabolismo Energético")
     assert similaridade_cosseno(vetor, vetor) == pytest.approx(1.0)

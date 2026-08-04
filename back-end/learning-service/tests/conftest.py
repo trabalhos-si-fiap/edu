@@ -59,7 +59,7 @@ async def db_session(
 def _stub_publish_event(monkeypatch: pytest.MonkeyPatch) -> None:
     """`ASGITransport` never roda o lifespan do app (`init_publisher()` nunca é
     chamado), então `app.events.publisher._publisher` fica sempre desconectado —
-    qualquer rota que aguarde `publish_event` (`POST /diagnostico/responder`)
+    qualquer rota que aguarde `publish_event` (`POST /diagnostic/answer`)
     estouraria `RuntimeError("EventPublisher not connected — call connect()
     first")` depois que o progresso/resposta já foi gravado no banco.
 
@@ -190,7 +190,7 @@ def fake_encoder(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
                 ]
             )
             # fix round 1: a versão anterior ignorava `normalize_embeddings`
-            # (presente em TODA chamada real, embeddings.py:38,47), então
+            # (presente em TODA chamada real, embeddings.py:38,52), então
             # `similaridade_cosseno` — que só É a similaridade de cosseno
             # porque assume vetores de norma 1 — devolvia o produto escalar
             # bruto (ex.: 86.0 em vez de 1.0 para um texto comparado consigo
