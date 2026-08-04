@@ -70,11 +70,12 @@ lendo a porta do `back-end/.env`:
 | **Chrome / Web** | `http://localhost:8001/api` | `flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:8001/api` |
 | **Desktop (macOS/Linux)** | `http://localhost:8001/api` | `flutter run -d macos` / `make front-linux` |
 
-> ⚠️ **O default embutido no código está desatualizado.** O
-> `ApiConfig.baseUrl` ([api_config.dart](lib/core/network/api_config.dart))
-> ainda aponta para `http://10.0.2.2:8000/api`, de quando a API era publicada
-> na 8000. Um `flutter run` **sem** `--dart-define` bate na porta errada. Use
-> `make front` (que passa a porta certa) ou passe o `--dart-define` na mão.
+> O default embutido no `ApiConfig.baseUrl`
+> ([api_config.dart](lib/core/network/api_config.dart)) é
+> `http://10.0.2.2:8001/api` — o alias do **emulador Android** para o host, na
+> porta certa. Um `flutter run` sem `--dart-define` só funciona nesse alvo; em
+> qualquer outro passe o `--dart-define` da tabela acima ou use `make front`,
+> que monta a URL sozinho.
 >
 > A porta tem que bater com a `API_PORT_EXTERNAL` do `back-end/.env` — **8001**
 > nesta máquina. Guia detalhado de iOS (simulador, device, troubleshooting):

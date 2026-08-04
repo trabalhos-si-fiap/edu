@@ -17,9 +17,9 @@ Guia para rodar o frontend Flutter no iOS. Para a configuração do Firebase
 
 O `baseUrl` padrão do app
 ([api_config.dart](../../front-end-flutter/lib/core/network/api_config.dart))
-aponta para `http://10.0.2.2:8000/api`, que é o alias **do emulador Android**
-para a máquina host. **No simulador iOS esse alias não existe** — o simulador
-compartilha a rede do host, então use `localhost`.
+aponta para `http://10.0.2.2:8001/api`. O `10.0.2.2` é o alias **do emulador
+Android** para a máquina host. **No simulador iOS esse alias não existe** — o
+simulador compartilha a rede do host, então use `localhost`.
 
 Sempre passe o endereço certo via `--dart-define`:
 
@@ -30,12 +30,10 @@ Sempre passe o endereço certo via `--dart-define`:
 | Dispositivo físico (mesma Wi-Fi) | `http://SEU_IP_LAN:8001/api` |
 
 > A porta é a `API_PORT_EXTERNAL` do `back-end/.env` — **8001** hoje, a mesma
-> publicada pelo `docker-compose`.
->
-> ⚠️ O default embutido no `api_config.dart` continua sendo a **8000**, de
-> quando a API era publicada nessa porta. Ele não foi atualizado, então
-> `flutter run` sem `--dart-define` bate na porta errada em qualquer
-> plataforma. `make front` monta a URL a partir do `back-end/.env` e acerta.
+> publicada pelo `docker-compose` e a mesma do default do `api_config.dart`.
+> O que muda entre alvos é o **host**, não a porta: `flutter run` sem
+> `--dart-define` só acerta no emulador Android. `make front` monta a URL a
+> partir do `back-end/.env` e acerta em qualquer alvo.
 
 ## Simulador iOS
 
