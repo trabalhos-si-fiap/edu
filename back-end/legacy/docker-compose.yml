@@ -1,3 +1,12 @@
+# Nome do projeto fixo aqui, e não herdado de COMPOSE_PROJECT_NAME. O .env vive
+# em back-end/.env, um nível acima, e só chega neste arquivo via `--env-file
+# ../.env` (que todos os alvos `back-*` do Makefile passam). Quem invocar
+# `docker compose` à mão, sem a flag, não teria COMPOSE_PROJECT_NAME: o Compose
+# cairia no nome da pasta, `legacy`, criando um segundo conjunto de volumes
+# (`legacy_postgres_data`) e apresentando um banco vazio como se os dados
+# tivessem sumido. Fixar o nome torna os dois caminhos equivalentes.
+name: edu
+
 services:
   postgres:
     container_name: edu-postgres
@@ -79,7 +88,10 @@ services:
     env_file:
       - ../.env
     ports:
-      - "${API_PORT_EXTERNAL:-8000}:8000"
+      # Default 8001, não 8000: a faixa 80xx tem outros projetos nesta máquina e
+      # 8000 já é de um deles. Se o .env não for encontrado, cair em 8001 mantém
+      # o contrato que o app Flutter espera em vez de colidir silenciosamente.
+      - "${API_PORT_EXTERNAL:-8001}:8000"
     depends_on:
       postgres:
         condition: service_healthy

@@ -43,6 +43,11 @@ services:
       - postgres_data:/var/lib/postgresql/data/
       # Os dois initdb.d montados script a script: não dá para montar duas
       # pastas no mesmo destino. O prefixo numérico define a ordem.
+      #
+      # ATENÇÃO: por ser script a script e não pasta inteira, um arquivo novo
+      # em qualquer um dos dois initdb.d NÃO passa a rodar sozinho — ele vira
+      # um no-op silencioso aqui, ainda que funcione no compose do legacy, que
+      # monta a pasta toda. Ao acrescentar um script, acrescente a linha aqui.
       - ./legacy/postgres/initdb.d/init_test_db.sh:/docker-entrypoint-initdb.d/00-init_test_db.sh:ro
       - ./postgres/initdb.d/10-create-service-databases.sh:/docker-entrypoint-initdb.d/10-create-service-databases.sh:ro
     env_file:
