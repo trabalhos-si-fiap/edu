@@ -89,8 +89,13 @@ async def test_every_published_action_has_its_own_message(
 async def test_diagnostic_without_dominio_never_claims_zero_percent(
     db_session, test_session_factory, monkeypatch
 ):
-    """Payload malformado não pode explodir dentro do handler nem inventar
-    uma nota: o texto sai sem número, distinguível de um domínio real de 0%."""
+    """Um payload sem `dominio_tema` não pode inventar uma nota: o texto sai sem
+    número, distinguível de um domínio real de 0%.
+
+    O escopo é só a leitura de `dominio_tema` — é ela que tolera a chave
+    ausente. O handler NÃO é imune a payload malformado em geral: ele ainda faz
+    `payload["aluno_id"]`, que levanta `KeyError` se essa chave faltar. Esse
+    comportamento é pré-existente e não está coberto aqui."""
     monkeypatch.setattr(consumer_module, "async_session", test_session_factory)
 
     await consumer_module.handle_diagnostic_completed(
