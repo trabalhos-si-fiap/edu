@@ -1,5 +1,6 @@
 import json
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 from edu_common.security import create_access_token
@@ -9,10 +10,36 @@ from app.config import settings
 from app.events import consumer as consumer_module
 from app.models.event_log import EventLog
 
+ALUNO_A = "11111111-1111-1111-1111-111111111111"
+ALUNO_B = "22222222-2222-2222-2222-222222222222"
+
 
 def headers_for(role: str) -> dict[str, str]:
     token = create_access_token("00000000-0000-0000-0000-000000000001", role, settings.jwt_secret)
     return {"Authorization": f"Bearer {token}"}
+
+
+def diagnostic_payload(aluno_id: str, tema_id: int, dominio_tema: float, acao: str) -> dict:
+    """A forma exata que `learning-service` publica em `diagnostic.completed`
+    (`app/routers/diagnostico.py`) — quatro chaves, sem `subtema_id`, sem
+    `dominio`."""
+    return {
+        "aluno_id": aluno_id,
+        "tema_id": tema_id,
+        "dominio_tema": dominio_tema,
+        "acao": acao,
+    }
+
+
+async def seed_event(db_session, tipo: str, payload: dict, minutos_atras: int = 0) -> None:
+    db_session.add(
+        EventLog(
+            tipo=tipo,
+            payload=payload,
+            criado_em=datetime.now(UTC) - timedelta(minutes=minutos_atras),
+        )
+    )
+    await db_session.commit()
 
 
 async def test_analytics_requires_authentication(client):
@@ -50,6 +77,21 @@ async def test_every_analytics_route_is_admin_only(client):
             continue
         response = await client.get(path, headers=headers_for("student"))
         assert response.status_code in (403, 405), f"{path} não é admin-only"
+
+
+async def test_null_grouping_key_does_not_break_the_executive_summary(client, db_session):
+    """`payload["status"].astext` devolve NULL quando a chave não existe no
+    payload, e o agregado sai como `{None: n}`. Analytics loga payload bruto
+    produzido por outros serviços — um evento sem a chave não pode virar 500."""
+    await seed_event(db_session, "order.status_changed", {"pedido_id": 1})
+    await seed_event(db_session, "diagnostic.completed", {"aluno_id": ALUNO_A})
+
+    response = await client.get("/analytics/executive-summary", headers=headers_for("admin"))
+
+    assert response.status_code == 200
+    metricas = response.json()["metricas"]
+    assert sum(metricas["pedidos_por_status"].values()) == 1
+    assert sum(metricas["diagnosticos_por_acao"].values()) == 1
 
 
 def fake_message(routing_key: str, payload: dict) -> MagicMock:
