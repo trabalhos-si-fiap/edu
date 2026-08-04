@@ -40,8 +40,13 @@ async def handle_diagnostic_completed(message: aio_pika.abc.AbstractIncomingMess
         # (0.0 a 1.0). Sem default numérico de propósito: com `.get("...", 0)`
         # um payload malformado renderizaria "0%" — indistinguível de um
         # aluno que realmente zerou. Aqui ele vira um texto sem número.
+        # `bool` é subtipo de `int`, então `isinstance(True, int)` passaria e
+        # renderizaria "100%" para um aluno que está retrocedendo (e "0%" para
+        # `False`). O produtor de hoje só publica `float`, mas o custo de
+        # excluir o bool aqui é uma cláusula.
         dominio = payload.get("dominio_tema")
-        dominio_texto = f"{dominio:.0%}" if isinstance(dominio, int | float) else "não calculado"
+        dominio_valido = isinstance(dominio, int | float) and not isinstance(dominio, bool)
+        dominio_texto = f"{dominio:.0%}" if dominio_valido else "não calculado"
 
         # Uma entrada por ação que o produtor emite — `AcaoTema` tem
         # exatamente estas três (learning-service/app/services/decisao.py).

@@ -103,6 +103,39 @@ async def test_diagnostic_without_dominio_never_claims_zero_percent(
     assert "não calculado" in stored[0].descricao
 
 
+async def test_boolean_dominio_never_renders_as_a_percentage(
+    db_session, test_session_factory, monkeypatch
+):
+    """`bool` é subtipo de `int` em Python, então `isinstance(True, int)` é
+    verdadeiro e um `dominio_tema` booleano passaria pelo teste de tipo:
+    `True` formataria como "100%" — dizendo a um aluno que está retrocedendo
+    que ele dominou o tema — e `False` como "0%".
+
+    Inalcançável pelo produtor de hoje (`calcular_dominio_tema` devolve
+    `float`), então é seguro barato, não bug vivo: é a mesma classe do payload
+    sem a chave, invertida — ali o risco era inventar 0%, aqui é inventar
+    100%."""
+    monkeypatch.setattr(consumer_module, "async_session", test_session_factory)
+
+    for dominio in (True, False):
+        await consumer_module.handle_diagnostic_completed(
+            fake_message(
+                {
+                    "aluno_id": STUDENT_ID,
+                    "tema_id": 12,
+                    "dominio_tema": dominio,
+                    "acao": "retroceder",
+                }
+            )
+        )
+
+    stored = (await db_session.execute(select(Notificacao))).scalars().all()
+    assert len(stored) == 2
+    for notificacao in stored:
+        assert "%" not in notificacao.descricao
+        assert "não calculado" in notificacao.descricao
+
+
 async def test_order_status_changed_creates_a_notification(
     db_session, test_session_factory, monkeypatch
 ):
