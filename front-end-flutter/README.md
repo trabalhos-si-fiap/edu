@@ -35,8 +35,12 @@ make back-migrate        # aplica as migrações do banco (primeira vez)
 make back-seed           # (opcional) popula o catálogo de produtos
 ```
 
-A API fica publicada em `http://localhost:8000` (porta `API_PORT_EXTERNAL` do
-`back-end/.env`, default **8000**). Confira os logs com `make back-logs`.
+A API fica publicada na porta `API_PORT_EXTERNAL` do `back-end/.env` — hoje
+**8001** (`http://localhost:8001`). Confira os logs com `make back-logs`.
+
+> O app continua falando com o monolito. O stack de microserviços sobe ao lado
+> dele (`make stack-up`, gateway em `:8100`) e ainda não serve o app — veja
+> [microservices.md](../docs/back-end/microservices.md).
 
 ### 3. Configure o Firebase
 
@@ -53,29 +57,34 @@ Passo a passo completo, alternativa manual e templates `*.example` em
 
 ### 4. Rode o app
 
-⚠️ **O endereço da API muda por plataforma.** O default
-([api_config.dart](lib/core/network/api_config.dart)) é `http://10.0.2.2:8000/api`
-(alias do **emulador Android** para o host). Em outras plataformas, passe o
-endereço certo via `--dart-define=API_BASE_URL=...`:
+⚠️ **O endereço da API muda por plataforma.** Passe o endereço certo via
+`--dart-define=API_BASE_URL=...`, ou use `make front`, que monta a URL sozinho
+lendo a porta do `back-end/.env`:
 
 | Plataforma | API_BASE_URL | Comando |
 |---|---|---|
-| **Emulador Android** | `http://10.0.2.2:8000/api` (default) | `make front` ou `flutter run` |
-| **Simulador iOS** | `http://localhost:8000/api` | `flutter run -d <sim> --dart-define=API_BASE_URL=http://localhost:8000/api` |
-| **Dispositivo físico (Wi-Fi)** | `http://SEU_IP_LAN:8000/api` | `make front` (auto-detecta o IP da LAN) |
-| **Dispositivo USB (Android)** | `http://localhost:8000/api` via `adb reverse` | `make front-device` |
-| **Chrome / Web** | `http://localhost:8000/api` | `flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:8000/api` |
-| **Desktop (macOS/Linux)** | `http://localhost:8000/api` | `flutter run -d macos` / `make front-linux` |
+| **Emulador Android** | `http://10.0.2.2:8001/api` | `make front` ou `flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8001/api` |
+| **Simulador iOS** | `http://localhost:8001/api` | `flutter run -d <sim> --dart-define=API_BASE_URL=http://localhost:8001/api` |
+| **Dispositivo físico (Wi-Fi)** | `http://SEU_IP_LAN:8001/api` | `make front` (auto-detecta o IP da LAN) |
+| **Dispositivo USB (Android)** | `http://localhost:8001/api` via `adb reverse` | `make front-device` |
+| **Chrome / Web** | `http://localhost:8001/api` | `flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:8001/api` |
+| **Desktop (macOS/Linux)** | `http://localhost:8001/api` | `flutter run -d macos` / `make front-linux` |
 
-> A porta deve bater com a `API_PORT_EXTERNAL` do `back-end/.env` (default 8000).
-> Guia detalhado de iOS (simulador, device, troubleshooting):
+> ⚠️ **O default embutido no código está desatualizado.** O
+> `ApiConfig.baseUrl` ([api_config.dart](lib/core/network/api_config.dart))
+> ainda aponta para `http://10.0.2.2:8000/api`, de quando a API era publicada
+> na 8000. Um `flutter run` **sem** `--dart-define` bate na porta errada. Use
+> `make front` (que passa a porta certa) ou passe o `--dart-define` na mão.
+>
+> A porta tem que bater com a `API_PORT_EXTERNAL` do `back-end/.env` — **8001**
+> nesta máquina. Guia detalhado de iOS (simulador, device, troubleshooting):
 > [running_ios.md](../docs/front-end/running_ios.md).
 
 #### Atalhos do Makefile (raiz do projeto)
 
 ```bash
 make front            # roda em device/emulador (auto-detecta IP da LAN p/ Wi-Fi)
-make front-device     # roda em celular USB (adb reverse → localhost:8000)
+make front-device     # roda em celular USB (adb reverse → localhost:8001)
 make front-web        # roda no Chrome
 make front-linux      # roda no Linux desktop
 make front-devices    # lista devices/emuladores disponíveis
