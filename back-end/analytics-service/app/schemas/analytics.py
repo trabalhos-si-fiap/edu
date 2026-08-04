@@ -8,10 +8,15 @@ from pydantic import BaseModel
 
 
 class AlunoEventoOut(BaseModel):
-    """Um evento `diagnostic.completed` na linha do tempo do aluno."""
+    """Um evento `diagnostic.completed` na linha do tempo do aluno.
 
-    subtema_id: int | None = None
-    dominio: float | None = None
+    Os nomes dos campos seguem o payload que o produtor realmente publica
+    (`learning-service/app/routers/diagnostico.py`): `tema_id` e
+    `dominio_tema` — o domínio é do *tema* avaliado, não de um subtema.
+    """
+
+    tema_id: int | None = None
+    dominio_tema: float | None = None
     acao: str | None = None
     data: datetime | None = None
 

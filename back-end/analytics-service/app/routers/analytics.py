@@ -50,8 +50,8 @@ async def evolucao_aluno(
     eventos = result.scalars().all()
     return [
         AlunoEventoOut(
-            subtema_id=e.payload.get("subtema_id"),
-            dominio=e.payload.get("dominio"),
+            tema_id=e.payload.get("tema_id"),
+            dominio_tema=e.payload.get("dominio_tema"),
             acao=e.payload.get("acao"),
             data=e.criado_em,
         )
