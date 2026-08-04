@@ -108,3 +108,62 @@ async def test_my_orders_response_does_not_leak_staff_assignee_ids(client, db_se
     }
     assert "separador_id" not in order
     assert "entregador_id" not in order
+
+
+# ── B7: nada provava que o `.limit(limit).offset(offset)` de
+# `rastreio_pedido` (app/routers/pedidos.py) roda — apagar a clausula
+# deixava a suite verde. `PedidoStatusHistoricoOut` nao expoe `id`, entao
+# a fronteira entre paginas e conferida por `observacao`, que vai unica
+# por linha. `criado_em` vai explicito e crescente porque a rota ordena
+# por `criado_em.asc()`: com o `server_default=func.now()` as 55 linhas
+# empatariam no mesmo timestamp e a paginacao ficaria nao-deterministica.
+
+
+async def test_order_tracking_actually_applies_limit_and_offset(client, db_session):
+    from datetime import UTC, datetime, timedelta
+
+    from app.models.pedido import PedidoStatusHistorico
+
+    aluno_id = str(uuid.uuid4())
+    pedido = Pedido(
+        aluno_id=aluno_id,
+        status=StatusPedido.CRIADO.value,
+        endereco_entrega="Rua Teste, 123",
+        valor_total=Decimal("100.00"),
+    )
+    db_session.add(pedido)
+    await db_session.commit()
+    await db_session.refresh(pedido)
+
+    base = datetime(2026, 1, 1, tzinfo=UTC)
+    total = 55
+    for i in range(total):
+        db_session.add(
+            PedidoStatusHistorico(
+                pedido_id=pedido.id,
+                status=StatusPedido.CRIADO.value,
+                observacao=f"evento-{i}",
+                criado_em=base + timedelta(minutes=i),
+            )
+        )
+    await db_session.commit()
+
+    headers = headers_for("student", aluno_id)
+
+    first_page = await client.get(f"/orders/{pedido.id}/tracking?limit=10", headers=headers)
+    assert first_page.status_code == 200
+    first_body = first_page.json()
+    assert len(first_body) == 10
+    assert first_body[0]["observacao"] == "evento-0"
+
+    last_page = await client.get(
+        f"/orders/{pedido.id}/tracking?limit=10&offset=50", headers=headers
+    )
+    assert last_page.status_code == 200
+    last_body = last_page.json()
+    assert len(last_body) == total - 50
+    assert last_body[0]["observacao"] == "evento-50"
+
+    marcas_first = {row["observacao"] for row in first_body}
+    marcas_last = {row["observacao"] for row in last_body}
+    assert marcas_first.isdisjoint(marcas_last)

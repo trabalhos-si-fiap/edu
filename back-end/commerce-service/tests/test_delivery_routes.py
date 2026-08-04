@@ -158,3 +158,70 @@ async def test_collect_allows_the_deliverer_admin_already_assigned(client, db_se
         f"/delivery/{pedido.id}/collect", headers=headers_for("entregador", sub=DELIVERER_A)
     )
     assert response.status_code == 200
+
+
+# ── B7: `test_delivery_queue_rejects_limit_above_the_cap` so exercita a
+# validacao do `Query(le=200)`; apagar `.limit(limit).offset(offset)` das
+# duas queries de `app/routers/entrega.py` o deixa verde. Estes dois
+# semeiam mais linhas que o limite pedido e conferem a contagem exata. ──
+
+
+async def test_delivery_queue_actually_applies_limit_and_offset(client, db_session):
+    total = 55
+    for i in range(total):
+        db_session.add(
+            Pedido(
+                aluno_id=str(uuid.uuid4()),
+                status=StatusPedido.AGUARDANDO_COLETA.value,
+                endereco_entrega=f"Rua Teste, {i}",
+                valor_total=Decimal("100.00"),
+            )
+        )
+    await db_session.commit()
+
+    first_page = await client.get(
+        "/delivery/queue?limit=10", headers=headers_for("entregador", DELIVERER_A)
+    )
+    assert first_page.status_code == 200
+    first_body = first_page.json()
+    assert len(first_body) == 10
+
+    last_page = await client.get(
+        "/delivery/queue?limit=10&offset=50", headers=headers_for("entregador", DELIVERER_A)
+    )
+    assert last_page.status_code == 200
+    last_body = last_page.json()
+    assert len(last_body) == total - 50
+
+    assert {row["id"] for row in first_body}.isdisjoint({row["id"] for row in last_body})
+
+
+async def test_delivery_mine_actually_applies_limit_and_offset(client, db_session):
+    total = 55
+    for i in range(total):
+        db_session.add(
+            Pedido(
+                aluno_id=str(uuid.uuid4()),
+                status=StatusPedido.EM_TRANSITO.value,
+                endereco_entrega=f"Rua Teste, {i}",
+                valor_total=Decimal("100.00"),
+                entregador_id=DELIVERER_A,
+            )
+        )
+    await db_session.commit()
+
+    first_page = await client.get(
+        "/delivery/mine?limit=10", headers=headers_for("entregador", DELIVERER_A)
+    )
+    assert first_page.status_code == 200
+    first_body = first_page.json()
+    assert len(first_body) == 10
+
+    last_page = await client.get(
+        "/delivery/mine?limit=10&offset=50", headers=headers_for("entregador", DELIVERER_A)
+    )
+    assert last_page.status_code == 200
+    last_body = last_page.json()
+    assert len(last_body) == total - 50
+
+    assert {row["id"] for row in first_body}.isdisjoint({row["id"] for row in last_body})

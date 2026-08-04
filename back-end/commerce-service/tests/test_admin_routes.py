@@ -122,3 +122,69 @@ async def test_confirm_payment_is_idempotent_against_a_sequential_double_call(
     ]
     assert len(status_changed_events) == 1
     assert status_changed_events[0]["pedido_id"] == pedido.id
+
+
+# ── B7: o cap declarado nao provava que o `.limit()`/`.offset()` da query
+# roda. Os testes de cap acima so exercitam a validacao do `Query(le=200)`
+# — apagar `.limit(limit).offset(offset)` do `select()` os deixa verdes.
+# Estes dois semeiam mais linhas que o limite pedido e conferem a
+# contagem exata, seguindo o padrao ja usado em learning-service
+# `test_reviews_today_listing_has_a_default_cap_and_offset`. ────────────
+
+
+async def test_orders_listing_actually_applies_limit_and_offset(client, db_session):
+    total = 55
+    for i in range(total):
+        db_session.add(
+            Pedido(
+                aluno_id=str(uuid.uuid4()),
+                status=StatusPedido.CRIADO.value,
+                endereco_entrega=f"Rua Teste, {i}",
+                valor_total=Decimal("100.00"),
+            )
+        )
+    await db_session.commit()
+
+    first_page = await client.get("/admin/orders?limit=10", headers=headers_for("admin"))
+    assert first_page.status_code == 200
+    first_body = first_page.json()
+    assert len(first_body) == 10
+
+    last_page = await client.get("/admin/orders?limit=10&offset=50", headers=headers_for("admin"))
+    assert last_page.status_code == 200
+    last_body = last_page.json()
+    assert len(last_body) == total - 50
+
+    ids_first = {row["id"] for row in first_body}
+    ids_last = {row["id"] for row in last_body}
+    assert ids_first.isdisjoint(ids_last)
+
+
+async def test_inventory_listing_actually_applies_limit_and_offset(client, db_session):
+    fornecedor = Fornecedor(nome="Distribuidora X")
+    db_session.add(fornecedor)
+    await db_session.flush()
+
+    total = 55
+    for i in range(total):
+        produto = Produto(nome=f"Caderno {i}", preco=Decimal("19.90"), categoria="papelaria")
+        db_session.add(produto)
+        await db_session.flush()
+        db_session.add(Estoque(produto_id=produto.id, fornecedor_id=fornecedor.id, quantidade=i))
+    await db_session.commit()
+
+    first_page = await client.get("/admin/inventory?limit=10", headers=headers_for("admin"))
+    assert first_page.status_code == 200
+    first_body = first_page.json()
+    assert len(first_body) == 10
+
+    last_page = await client.get(
+        "/admin/inventory?limit=10&offset=50", headers=headers_for("admin")
+    )
+    assert last_page.status_code == 200
+    last_body = last_page.json()
+    assert len(last_body) == total - 50
+
+    ids_first = {row["id"] for row in first_body}
+    ids_last = {row["id"] for row in last_body}
+    assert ids_first.isdisjoint(ids_last)

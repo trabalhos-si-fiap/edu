@@ -234,3 +234,49 @@ async def test_occurrences_for_order_listing_is_paginated(client, db_session):
         f"/occurrences/order/{pedido.id}?limit=5000", headers=headers_for("admin", sub=ADMIN)
     )
     assert response.status_code == 422
+
+
+# ── B7: nada provava que o `.limit(limit).offset(offset)` de
+# `listar_ocorrencias_pedido` (app/routers/ocorrencias.py) roda de fato —
+# apagar a clausula deixava a suite verde. `criado_em` vai explicito e
+# distinto por linha porque a rota ordena por `criado_em.desc()`: com o
+# `server_default=func.now()` as 55 linhas empatariam no mesmo timestamp
+# e a fronteira entre as paginas ficaria nao-deterministica. ────────────
+
+
+async def test_order_occurrences_listing_actually_applies_limit_and_offset(client, db_session):
+    from datetime import UTC, datetime, timedelta
+
+    pedido = await _seed_pedido(db_session, StatusPedido.CRIADO.value)
+
+    base = datetime(2026, 1, 1, tzinfo=UTC)
+    total = 55
+    for i in range(total):
+        db_session.add(
+            Ocorrencia(
+                pedido_id=pedido.id,
+                tipo="ATRASO_ENTREGA",
+                status="ABERTA",
+                motivo=f"Ocorrencia {i}",
+                criado_por=ADMIN,
+                criado_em=base + timedelta(minutes=i),
+            )
+        )
+    await db_session.commit()
+
+    first_page = await client.get(
+        f"/occurrences/order/{pedido.id}?limit=10", headers=headers_for("admin", ADMIN)
+    )
+    assert first_page.status_code == 200
+    first_body = first_page.json()
+    assert len(first_body) == 10
+
+    last_page = await client.get(
+        f"/occurrences/order/{pedido.id}?limit=10&offset=50",
+        headers=headers_for("admin", ADMIN),
+    )
+    assert last_page.status_code == 200
+    last_body = last_page.json()
+    assert len(last_body) == total - 50
+
+    assert {row["id"] for row in first_body}.isdisjoint({row["id"] for row in last_body})
