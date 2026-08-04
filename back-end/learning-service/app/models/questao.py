@@ -20,5 +20,5 @@ class Questao(Base):
     alternativas = Column(JSONB, nullable=False)  # {"A": "...", "B": "...", ...}
     gabarito = Column(String(1), nullable=False)
     nivel_dificuldade = Column(Integer, nullable=False)  # 1=fácil, 2=médio, 3=difícil
-    fonte = Column(String(50), default="ENEM")
+    fonte = Column(String(50), default="ENEM", server_default="ENEM")
     ano = Column(Integer, nullable=True)
