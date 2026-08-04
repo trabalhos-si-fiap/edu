@@ -9,8 +9,11 @@ ADB = adb
 # Compose resolves `env_file:` relative to the compose file, but resolves
 # ${VAR} interpolation from the project directory. The legacy compose lives in
 # back-end/legacy/, so its interpolation looks for back-end/legacy/.env — which
-# does not exist. Without --env-file, ${API_PORT_EXTERNAL:-8000} silently falls
-# back to 8000 and the legacy API moves off the port the Flutter app uses.
+# does not exist. Without --env-file, ${API_PORT_EXTERNAL:-8001} falls back to
+# its literal default and the project name falls back to `legacy`, which would
+# create a SECOND set of volumes and present an empty database as if the data
+# were gone. Both are pinned in the legacy compose now, but the flag stays:
+# it is what keeps the value coming from the real .env instead of a default.
 # The unified compose in back-end/ needs no flag: the .env is already beside it.
 BACK_ENV_FILE = ../.env
 
@@ -28,8 +31,14 @@ FLUTTER ?= $(shell \
 	done)
 FLUTTER := $(or $(FLUTTER),flutter)
 
-# Host port the API is published on. Read from $(BACK_ROOT)/.env (API_PORT_EXTERNAL),
-# matching the docker-compose default of 8000. Override with: make front API_PORT=8000
+# Host port the legacy API is published on — the port the Flutter app talks to.
+# Read from $(BACK_ROOT)/.env (API_PORT_EXTERNAL), which is 8001 both in the
+# working .env and in .env.example. Override with: make front API_PORT=8001
+#
+# The literal below is only reached when back-end/.env is missing entirely. It
+# still reads 8000, which no longer matches either compose (legacy defaults to
+# 8001; the unified compose still defaults to 8000). Left alone deliberately —
+# changing it is a behaviour change, not a doc fix. See task-16-report.md.
 API_PORT := $(shell sed -n 's/^API_PORT_EXTERNAL=//p' $(BACK_ROOT)/.env 2>/dev/null | tr -d '[:space:]')
 API_PORT := $(or $(API_PORT),8000)
 
