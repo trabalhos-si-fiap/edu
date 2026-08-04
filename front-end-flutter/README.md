@@ -232,8 +232,8 @@ Navegacao via `Navigator` com rotas nomeadas definidas em `main.dart`:
 
 ## Documentacao Adicional
 
-- [Arquitetura e Guidelines](docs/archtecture.md) -- Padroes de codigo, arquitetura feature-first, convencoes
-- [Guia de Estilo Visual](docs/visual_guide.md) -- Padroes de UI, componentes reutilizaveis, layout
+- [Arquitetura e Guidelines](../docs/front-end/archtecture.md) -- Padroes de codigo, arquitetura feature-first, convencoes
+- [Guia de Estilo Visual](../docs/front-end/visual_guide.md) -- Padroes de UI, componentes reutilizaveis, layout
 - [Modulo Marketplace](../docs/front-end/marketplace.md) -- Loja, produto, carrinho e pagamento (modelos, stores, telas)
 - [Setup do Firebase](../docs/front-end/firebase_setup.md) -- Config do FCM, templates `*.example`, chaves fora do git
 - [Rodando no iOS](../docs/front-end/running_ios.md) -- Simulador/device, `API_BASE_URL` por plataforma, troubleshooting
