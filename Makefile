@@ -151,7 +151,7 @@ back-sync: ## Sync deps on host (for IDE support)
 SERVICES := packages/edu-common api-gateway auth-users-service learning-service commerce-service chatbot-service notification-service analytics-service
 DB_SERVICES := auth-users-service learning-service commerce-service notification-service analytics-service
 
-.PHONY: stack-up stack-down stack-logs services-dbs services-migrate services-test services-lint services-sync
+.PHONY: stack-up stack-down stack-logs services-env services-dbs services-migrate services-test services-lint services-sync
 
 stack-up: ## Start the whole backend stack (legacy + microservices)
 	@echo "→ R2_PUBLIC_ENDPOINT_URL host: $(if $(HOST_IP),$(HOST_IP),10.0.2.2 (emulator fallback — set HOST_IP for physical devices))"
@@ -172,7 +172,22 @@ services-migrate: ## Apply alembic migrations on every service that has a databa
 		(cd $(BACK_ROOT) && $(COMPOSE) exec -T $$s uv run alembic upgrade head) || exit 1; \
 	done
 
-services-test: ## Run every service test suite on the host
+# Cada serviço lê o .env do próprio diretório quando roda no host (fora do
+# compose, que injeta tudo por environment). Os campos obrigatórios não têm
+# default, então num clone limpo `uv run pytest` estoura no import — não numa
+# assertion, o que torna o sintoma confuso. Este alvo cria o que falta a partir
+# do .env.example e NUNCA sobrescreve um .env existente.
+services-env: ## Create each service's .env from its .env.example (never overwrites)
+	@for s in $(SERVICES); do \
+		if [ -f $(BACK_ROOT)/$$s/.env.example ] && [ ! -f $(BACK_ROOT)/$$s/.env ]; then \
+			cp $(BACK_ROOT)/$$s/.env.example $(BACK_ROOT)/$$s/.env; \
+			echo "criado  $$s/.env"; \
+		else \
+			echo "mantido $$s/.env"; \
+		fi; \
+	done
+
+services-test: ## Run every service test suite on the host (run services-env first on a clean clone)
 	@for s in $(SERVICES); do \
 		echo "→ $$s"; \
 		(cd $(BACK_ROOT)/$$s && uv run pytest -q) || exit 1; \

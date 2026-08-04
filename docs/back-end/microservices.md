@@ -215,9 +215,19 @@ make services-sync                  # uv sync em cada projeto, para o IDE
 ## 6. Como rodar os testes
 
 ```bash
+make services-env      # num clone limpo, primeiro: cria cada .env a partir do .env.example
 make services-test     # roda a suíte dos 8 projetos (edu-common + 7 serviços) no host
 make services-lint     # ruff check em cada um
 ```
+
+**`make services-env` é obrigatório num clone limpo.** Rodando no host, cada
+serviço lê o `.env` do próprio diretório (dentro do compose é diferente: o
+`docker-compose.yml` injeta tudo por `environment`). Como os campos
+obrigatórios não têm default, sem esse passo o `pytest` estoura **no import**,
+com um `ValidationError` do pydantic — não numa assertion, o que torna o
+sintoma confuso para quem clonou o repositório agora. O alvo copia de cada
+`.env.example` e **nunca sobrescreve** um `.env` existente, então é seguro
+rodar de novo a qualquer momento.
 
 Os testes rodam **no host**, não dentro dos containers, e usam os bancos
 `*_test` pelas portas publicadas — o stack precisa estar de pé. Cada projeto é
