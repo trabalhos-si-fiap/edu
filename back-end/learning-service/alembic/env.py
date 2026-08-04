@@ -36,7 +36,15 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata)
+    # compare_server_default: sem isso o autogenerate ignora DEFAULT de banco,
+    # e a checagem de sincronia model<->migration passa mesmo com o DEFAULT
+    # ausente. Foi assim que a baseline deste serviço perdeu os DEFAULT que o
+    # schema.sql original declarava, sem nenhum sinal.
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        compare_server_default=True,
+    )
     with context.begin_transaction():
         context.run_migrations()
 
