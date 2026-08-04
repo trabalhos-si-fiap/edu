@@ -134,6 +134,37 @@ async def test_student_timeline_never_returns_another_student(client, db_session
     assert [linha["tema_id"] for linha in corpo] == [12]
 
 
+async def test_student_timeline_applies_limit_and_offset(client, db_session):
+    """Os testes de teto provam que `limit=201` devolve 422; nenhum provava que
+    o `limit` chega à query. Sem isto, apagar `.limit()`/`.offset()` do
+    `select()` deixaria um admin puxar a tabela de eventos inteira com a suíte
+    inteira verde — a paginação obrigatória do plano viraria decoração."""
+    await seed_event(
+        db_session, "diagnostic.completed", diagnostic_payload(ALUNO_A, 1, 0.10, "estudar"), 30
+    )
+    await seed_event(
+        db_session, "diagnostic.completed", diagnostic_payload(ALUNO_A, 2, 0.50, "retroceder"), 20
+    )
+    await seed_event(
+        db_session, "diagnostic.completed", diagnostic_payload(ALUNO_A, 3, 0.90, "avancar"), 10
+    )
+
+    primeira = await client.get(
+        f"/analytics/students/{ALUNO_A}?limit=2", headers=headers_for("admin")
+    )
+
+    assert primeira.status_code == 200
+    # Ordenado por `criado_em` ascendente: os dois mais antigos, e só eles.
+    assert [linha["tema_id"] for linha in primeira.json()] == [1, 2]
+
+    segunda = await client.get(
+        f"/analytics/students/{ALUNO_A}?limit=2&offset=2", headers=headers_for("admin")
+    )
+
+    assert segunda.status_code == 200
+    assert [linha["tema_id"] for linha in segunda.json()] == [3]
+
+
 async def test_deliveries_counts_orders_by_status(client, db_session):
     await seed_event(db_session, "order.status_changed", {"pedido_id": 1, "status": "EM_TRANSITO"})
     await seed_event(db_session, "order.status_changed", {"pedido_id": 2, "status": "EM_TRANSITO"})
