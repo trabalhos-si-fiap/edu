@@ -94,6 +94,133 @@ async def test_null_grouping_key_does_not_break_the_executive_summary(client, db
     assert sum(metricas["diagnosticos_por_acao"].values()) == 1
 
 
+async def test_student_timeline_returns_the_published_fields(client, db_session):
+    """Corpo da resposta, não só o status. Os quatro campos vêm do payload que
+    `learning-service` publica de fato — foi lendo `subtema_id`/`dominio`, que
+    nunca existiram, que a rota devolvia null em todo evento real."""
+    await seed_event(
+        db_session, "diagnostic.completed", diagnostic_payload(ALUNO_A, 12, 0.85, "avancar"), 10
+    )
+    await seed_event(
+        db_session, "diagnostic.completed", diagnostic_payload(ALUNO_A, 34, 0.25, "retroceder"), 5
+    )
+
+    response = await client.get(f"/analytics/students/{ALUNO_A}", headers=headers_for("admin"))
+
+    assert response.status_code == 200
+    corpo = response.json()
+    assert len(corpo) == 2
+    # Ordenado por `criado_em` ascendente: o de 10 minutos atrás vem primeiro.
+    assert [linha["tema_id"] for linha in corpo] == [12, 34]
+    assert [linha["dominio_tema"] for linha in corpo] == [0.85, 0.25]
+    assert [linha["acao"] for linha in corpo] == ["avancar", "retroceder"]
+    assert all(linha["data"] is not None for linha in corpo)
+
+
+async def test_student_timeline_never_returns_another_student(client, db_session):
+    """O `payload["aluno_id"].astext == aluno_id` da query é a única garantia
+    de que a linha do tempo de um aluno não devolve a de outro."""
+    await seed_event(
+        db_session, "diagnostic.completed", diagnostic_payload(ALUNO_A, 12, 0.85, "avancar"), 10
+    )
+    await seed_event(
+        db_session, "diagnostic.completed", diagnostic_payload(ALUNO_B, 99, 0.15, "retroceder"), 5
+    )
+
+    response = await client.get(f"/analytics/students/{ALUNO_A}", headers=headers_for("admin"))
+
+    assert response.status_code == 200
+    corpo = response.json()
+    assert [linha["tema_id"] for linha in corpo] == [12]
+
+
+async def test_deliveries_counts_orders_by_status(client, db_session):
+    await seed_event(db_session, "order.status_changed", {"pedido_id": 1, "status": "EM_TRANSITO"})
+    await seed_event(db_session, "order.status_changed", {"pedido_id": 2, "status": "EM_TRANSITO"})
+    await seed_event(db_session, "order.status_changed", {"pedido_id": 3, "status": "ENTREGUE"})
+    # Tipo diferente: não pode entrar na contagem de entregas.
+    await seed_event(db_session, "order.created", {"pedido_id": 4})
+
+    response = await client.get("/analytics/deliveries", headers=headers_for("admin"))
+
+    assert response.status_code == 200
+    assert {linha["status"]: linha["total"] for linha in response.json()} == {
+        "EM_TRANSITO": 2,
+        "ENTREGUE": 1,
+    }
+
+
+async def test_summary_counts_events_by_type(client, db_session):
+    await seed_event(db_session, "order.created", {"pedido_id": 1})
+    await seed_event(db_session, "order.created", {"pedido_id": 2})
+    await seed_event(
+        db_session, "diagnostic.completed", diagnostic_payload(ALUNO_A, 12, 0.85, "avancar")
+    )
+
+    response = await client.get("/analytics/summary", headers=headers_for("admin"))
+
+    assert response.status_code == 200
+    assert {linha["tipo"]: linha["total"] for linha in response.json()} == {
+        "order.created": 2,
+        "diagnostic.completed": 1,
+    }
+
+
+async def test_student_timeline_accepts_the_cap_and_rejects_above_it(client):
+    """Teto de paginação como literal: `MAX_PAGE_SIZE + 1` continuaria
+    verdadeiro se alguém apagasse o `le=`."""
+    no_teto = await client.get(
+        f"/analytics/students/{ALUNO_A}?limit=200", headers=headers_for("admin")
+    )
+    assert no_teto.status_code == 200
+
+    acima = await client.get(
+        f"/analytics/students/{ALUNO_A}?limit=201", headers=headers_for("admin")
+    )
+    assert acima.status_code == 422
+
+
+async def test_executive_summary_accepts_the_cap_and_rejects_above_it(client):
+    no_teto = await client.get(
+        "/analytics/executive-summary?dias=365", headers=headers_for("admin")
+    )
+    assert no_teto.status_code == 200
+
+    acima = await client.get("/analytics/executive-summary?dias=366", headers=headers_for("admin"))
+    assert acima.status_code == 422
+
+
+async def test_anomalies_accepts_the_cap_and_rejects_above_it(client):
+    no_teto = await client.get(
+        "/analytics/anomalies?dias_historico=365", headers=headers_for("admin")
+    )
+    assert no_teto.status_code == 200
+
+    acima = await client.get(
+        "/analytics/anomalies?dias_historico=366", headers=headers_for("admin")
+    )
+    assert acima.status_code == 422
+
+
+def test_every_choreography_routing_key_is_bound():
+    """Congela `ROUTING_KEYS` contra a lista literal das nove chaves, cada uma
+    verificada contra um `publish_event(...)` real dos outros serviços. O
+    trabalho inteiro deste serviço é logar todo evento de coreografia: uma
+    chave apagada em silêncio vira dashboard sem dado, e nada mais na suíte
+    perceberia — os testes de rota semeiam `EventLog` direto."""
+    assert consumer_module.ROUTING_KEYS == [
+        "student.created",
+        "staff.created",
+        "diagnostic.completed",
+        "revision.scheduled",
+        "order.created",
+        "order.status_changed",
+        "order.stock_issue",
+        "order.delivery_delayed",
+        "order.occurrence_resolved",
+    ]
+
+
 def fake_message(routing_key: str, payload: dict) -> MagicMock:
     message = MagicMock()
     message.body = json.dumps(payload).encode()
