@@ -1,7 +1,18 @@
 FRONT_DIR = front-end-flutter
+BACK_ROOT = back-end
 BACK_DIR = back-end/legacy
 COMPOSE = docker compose
 ADB = adb
+
+# There is ONE .env for both stacks, at back-end/.env.
+#
+# Compose resolves `env_file:` relative to the compose file, but resolves
+# ${VAR} interpolation from the project directory. The legacy compose lives in
+# back-end/legacy/, so its interpolation looks for back-end/legacy/.env — which
+# does not exist. Without --env-file, ${API_PORT_EXTERNAL:-8000} silently falls
+# back to 8000 and the legacy API moves off the port the Flutter app uses.
+# The unified compose in back-end/ needs no flag: the .env is already beside it.
+BACK_ENV_FILE = ../.env
 
 # Resolve the Flutter binary in an environment-agnostic way:
 #   1. honor an explicit override (env var or `make front FLUTTER=/path/to/flutter`)
@@ -17,9 +28,9 @@ FLUTTER ?= $(shell \
 	done)
 FLUTTER := $(or $(FLUTTER),flutter)
 
-# Host port the API is published on. Read from $(BACK_DIR)/.env (API_PORT_EXTERNAL),
+# Host port the API is published on. Read from $(BACK_ROOT)/.env (API_PORT_EXTERNAL),
 # matching the docker-compose default of 8000. Override with: make front API_PORT=8000
-API_PORT := $(shell sed -n 's/^API_PORT_EXTERNAL=//p' $(BACK_DIR)/.env 2>/dev/null | tr -d '[:space:]')
+API_PORT := $(shell sed -n 's/^API_PORT_EXTERNAL=//p' $(BACK_ROOT)/.env 2>/dev/null | tr -d '[:space:]')
 API_PORT := $(or $(API_PORT),8000)
 
 # Host LAN IP, auto-detected for the current OS (Linux or macOS). Every target
@@ -77,19 +88,19 @@ front-test: ## Run Flutter tests
 
 back-up: ## Start backend stack (postgres, redis, rabbitmq, api, worker)
 	@echo "→ R2_PUBLIC_ENDPOINT_URL host: $(if $(HOST_IP),$(HOST_IP),10.0.2.2 (emulator fallback — set HOST_IP for physical devices))"
-	cd $(BACK_DIR) && HOST_IP=$(HOST_IP) $(COMPOSE) up -d
+	cd $(BACK_DIR) && HOST_IP=$(HOST_IP) $(COMPOSE) --env-file $(BACK_ENV_FILE) up -d
 
 back-down: ## Stop backend stack
-	cd $(BACK_DIR) && $(COMPOSE) down
+	cd $(BACK_DIR) && $(COMPOSE) --env-file $(BACK_ENV_FILE) down
 
 back-logs: ## Tail backend api logs (use SVC=worker for worker)
-	cd $(BACK_DIR) && $(COMPOSE) logs -f $(or $(SVC),api)
+	cd $(BACK_DIR) && $(COMPOSE) --env-file $(BACK_ENV_FILE) logs -f $(or $(SVC),api)
 
 back-sh: ## Open shell inside api container
-	cd $(BACK_DIR) && $(COMPOSE) exec api bash
+	cd $(BACK_DIR) && $(COMPOSE) --env-file $(BACK_ENV_FILE) exec api bash
 
 back-test: ## Run backend unit + integration tests inside the container (excludes e2e)
-	cd $(BACK_DIR) && $(COMPOSE) exec api uv run pytest
+	cd $(BACK_DIR) && $(COMPOSE) --env-file $(BACK_ENV_FILE) exec api uv run pytest
 
 back-test-host: ## Run backend tests on the host (points DB/Redis/MinIO at the exposed ports; stack must be up)
 	cd $(BACK_DIR) && \
@@ -99,25 +110,73 @@ back-test-host: ## Run backend tests on the host (points DB/Redis/MinIO at the e
 		uv run pytest $(ARGS)
 
 back-test-e2e: ## Run e2e tests against the live stack (stack must be up via back-up)
-	cd $(BACK_DIR) && $(COMPOSE) exec -e E2E_BASE_URL=http://localhost:8000 api uv run pytest -m e2e tests/e2e/
+	cd $(BACK_DIR) && $(COMPOSE) --env-file $(BACK_ENV_FILE) exec -e E2E_BASE_URL=http://localhost:8000 api uv run pytest -m e2e tests/e2e/
 
 back-lint: ## Run ruff check
-	cd $(BACK_DIR) && $(COMPOSE) exec api uv run ruff check .
+	cd $(BACK_DIR) && $(COMPOSE) --env-file $(BACK_ENV_FILE) exec api uv run ruff check .
 
 back-format: ## Run ruff format
-	cd $(BACK_DIR) && $(COMPOSE) exec api uv run ruff format .
+	cd $(BACK_DIR) && $(COMPOSE) --env-file $(BACK_ENV_FILE) exec api uv run ruff format .
 
 back-migrate: ## Apply alembic migrations
-	cd $(BACK_DIR) && $(COMPOSE) exec api uv run alembic upgrade head
+	cd $(BACK_DIR) && $(COMPOSE) --env-file $(BACK_ENV_FILE) exec api uv run alembic upgrade head
 
 back-seed: ## Seed the products catalog (idempotent)
-	cd $(BACK_DIR) && $(COMPOSE) exec api uv run python -m app.seeds.products
+	cd $(BACK_DIR) && $(COMPOSE) --env-file $(BACK_ENV_FILE) exec api uv run python -m app.seeds.products
 
 back-revision: ## Create new alembic revision (use M="message")
-	cd $(BACK_DIR) && $(COMPOSE) exec api uv run alembic revision --autogenerate -m "$(M)"
+	cd $(BACK_DIR) && $(COMPOSE) --env-file $(BACK_ENV_FILE) exec api uv run alembic revision --autogenerate -m "$(M)"
 
 back-sync: ## Sync deps on host (for IDE support)
 	cd $(BACK_DIR) && uv sync
+
+# ── Microservices stack ───────────────────────────────────
+#
+# The unified compose in back-end/ starts the legacy stack AND the seven new
+# services against the same Postgres/Redis/RabbitMQ/MinIO, under the same
+# project name, so it reuses the volumes the legacy already has.
+#
+# Host ports: legacy on API_PORT_EXTERNAL (8001 here), gateway on
+# GATEWAY_PORT_EXTERNAL (8100), the six services fixed on 8101-8106.
+
+SERVICES := packages/edu-common api-gateway auth-users-service learning-service commerce-service chatbot-service notification-service analytics-service
+DB_SERVICES := auth-users-service learning-service commerce-service notification-service analytics-service
+
+.PHONY: stack-up stack-down stack-logs services-dbs services-migrate services-test services-lint services-sync
+
+stack-up: ## Start the whole backend stack (legacy + microservices)
+	@echo "→ R2_PUBLIC_ENDPOINT_URL host: $(if $(HOST_IP),$(HOST_IP),10.0.2.2 (emulator fallback — set HOST_IP for physical devices))"
+	cd $(BACK_ROOT) && HOST_IP=$(HOST_IP) $(COMPOSE) up -d
+
+stack-down: ## Stop the whole backend stack
+	cd $(BACK_ROOT) && $(COMPOSE) down
+
+stack-logs: ## Tail logs of one stack service (use SVC=analytics-service)
+	cd $(BACK_ROOT) && $(COMPOSE) logs -f $(or $(SVC),api-gateway)
+
+services-dbs: ## Create the per-service databases on an existing volume
+	cd $(BACK_ROOT) && $(COMPOSE) exec -T postgres bash < scripts/create-service-databases.sh
+
+services-migrate: ## Apply alembic migrations on every service that has a database
+	@for s in $(DB_SERVICES); do \
+		echo "→ $$s"; \
+		(cd $(BACK_ROOT) && $(COMPOSE) exec -T $$s uv run alembic upgrade head) || exit 1; \
+	done
+
+services-test: ## Run every service test suite on the host
+	@for s in $(SERVICES); do \
+		echo "→ $$s"; \
+		(cd $(BACK_ROOT)/$$s && uv run pytest -q) || exit 1; \
+	done
+
+services-lint: ## Run ruff across every service
+	@for s in $(SERVICES); do \
+		echo "→ $$s"; \
+		(cd $(BACK_ROOT)/$$s && uv run ruff check .) || exit 1; \
+	done
+
+services-sync: ## Sync deps of every service on the host (for IDE support)
+	@for s in $(SERVICES); do (cd $(BACK_ROOT)/$$s && uv sync) || exit 1; done
 
 # ── Help ──────────────────────────────────────────────────
 
