@@ -14,7 +14,10 @@ seedado) para `get_recomendacao`, e dois testes travando a validação de
 `k` em `get_subtemas_relacionados` (SPEC ❌ 2).
 """
 
+import asyncio
 from datetime import UTC, datetime, timedelta
+
+from sqlalchemy import select
 
 from app.models.progresso import AlunoTemaProgresso
 from app.models.questao import Questao
@@ -334,3 +337,85 @@ async def test_answer_rejects_more_responses_than_the_cap(client, student_identi
         headers=student_identity.headers,
     )
     assert response.status_code == 422
+
+
+async def test_concurrent_answers_on_the_same_subtopic_do_not_collide(
+    client, db_session, student_identity, monkeypatch
+):
+    """Duas chamadas SIMULTANEAS ao /answer no mesmo subtema somam, sem 500.
+
+    Este teste precisa ser concorrente E precisa forcar a intercalacao. Em
+    serie o defeito nao aparece: o SELECT da segunda chamada enxerga a linha
+    ja commitada pela primeira e o `+= len(respostas)` chega a 2 sozinho. E
+    um `asyncio.gather` puro tambem nao basta — as queries locais voltam
+    rapido demais para o event loop trocar de tarefa, entao as duas
+    requisicoes rodam de ponta a ponta uma depois da outra (medido).
+
+    O encontro e feito sem `sleep`, para nao depender de tempo: a PRIMEIRA
+    requisicao para dentro de `publish_event` e so segue quando a SEGUNDA
+    avisa que ja passou pelo seu proprio SELECT de progresso. O aviso sai de
+    `atualizar_revisao`, que roda entre o SELECT e a escrita — logo as duas
+    leram "nao existe" antes de qualquer uma escrever, que e exatamente a
+    corrida que o `ON CONFLICT` fecha.
+
+    Contra o codigo antigo uma das duas termina em IntegrityError
+    (`uq_aluno_subtema`) DEPOIS de ja ter gravado as respostas.
+    """
+    import app.routers.diagnostico as mod
+
+    materia = Materia(nome="Biologia")
+    db_session.add(materia)
+    await db_session.flush()
+    tema = Tema(materia_id=materia.id, nome="Citologia", ordem=1)
+    db_session.add(tema)
+    await db_session.flush()
+    subtema = Subtema(tema_id=tema.id, nome="Membrana", ordem=1)
+    db_session.add(subtema)
+    await db_session.flush()
+    questao = Questao(
+        subtema_id=subtema.id,
+        enunciado="O que e a bicamada lipidica?",
+        alternativas={"A": "a", "B": "b", "C": "c", "D": "d"},
+        gabarito="A",
+        nivel_dificuldade=1,
+    )
+    db_session.add(questao)
+    await db_session.commit()
+
+    a_segunda_leu = asyncio.Event()
+    estado = {"leituras": 0, "ja_esperou": False}
+    atualizar_real = mod.atualizar_revisao
+
+    def _avisar_na_segunda_leitura(*args, **kwargs):
+        estado["leituras"] += 1
+        if estado["leituras"] == 2:
+            a_segunda_leu.set()
+        return atualizar_real(*args, **kwargs)
+
+    async def _publicar_segurando_a_primeira(routing_key, payload):
+        if not estado["ja_esperou"]:
+            estado["ja_esperou"] = True
+            await a_segunda_leu.wait()
+
+    monkeypatch.setattr(mod, "atualizar_revisao", _avisar_na_segunda_leitura)
+    monkeypatch.setattr(mod, "publish_event", _publicar_segurando_a_primeira)
+
+    corpo = {
+        "tema_id": tema.id,
+        "respostas": [{"questao_id": questao.id, "alternativa_escolhida": "A"}],
+    }
+    primeira, segunda = await asyncio.gather(
+        client.post("/diagnostic/answer", json=corpo, headers=student_identity.headers),
+        client.post("/diagnostic/answer", json=corpo, headers=student_identity.headers),
+    )
+    assert primeira.status_code == 200, primeira.text
+    assert segunda.status_code == 200, segunda.text
+
+    result = await db_session.execute(
+        select(AlunoTemaProgresso).where(
+            AlunoTemaProgresso.aluno_id == student_identity.aluno_id,
+            AlunoTemaProgresso.subtema_id == subtema.id,
+        )
+    )
+    progresso = result.scalar_one()
+    assert progresso.total_respondidas == 2

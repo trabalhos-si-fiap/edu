@@ -3,6 +3,7 @@ from collections import defaultdict
 from edu_common.contracts import DiagnosticCompleted
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -108,28 +109,32 @@ async def responder_diagnostico(
         # Atualiza (ou cria) o progresso do aluno neste subtema. Isso roda
         # SEMPRE, para todo subtema respondido — a repetição espaçada não
         # depende do resultado geral do tema (estudar/avançar/retroceder).
+        # Upsert atômico (regra 3 do CLAUDE.md). O caminho anterior era
+        # SELECT -> decidir -> INSERT/UPDATE com `total_respondidas += n` em
+        # Python: duas requisições concorrentes do mesmo aluno no mesmo
+        # subtema liam "não existe" as duas e a segunda estourava
+        # `uq_aluno_subtema` DEPOIS de já ter gravado as respostas.
+        #
+        # `total_respondidas` soma no próprio SQL (`excluded` não serve: ele
+        # carrega o valor que a linha NOVA traria, não o acumulado da linha
+        # existente). Os outros campos são substituição, não acumulação.
         progresso_result = await db.execute(
             select(AlunoTemaProgresso).where(
                 AlunoTemaProgresso.aluno_id == aluno_id,
                 AlunoTemaProgresso.subtema_id == subtema_id,
             )
         )
-        progresso = progresso_result.scalar_one_or_none()
-        intervalo_atual = progresso.intervalo_dias if progresso else 1.0
-        streak_atual = progresso.streak_acertos if progresso else 0
+        progresso_atual = progresso_result.scalar_one_or_none()
+        intervalo_atual = progresso_atual.intervalo_dias if progresso_atual else 1.0
+        streak_atual = progresso_atual.streak_acertos if progresso_atual else 0
 
         novo_intervalo, novo_streak, proxima_revisao = atualizar_revisao(
             dominio, intervalo_atual, streak_atual
         )
 
-        if progresso:
-            progresso.nivel_dominio = dominio
-            progresso.intervalo_dias = novo_intervalo
-            progresso.streak_acertos = novo_streak
-            progresso.proxima_revisao = proxima_revisao
-            progresso.total_respondidas += len(respostas)
-        else:
-            progresso = AlunoTemaProgresso(
+        stmt = (
+            pg_insert(AlunoTemaProgresso)
+            .values(
                 aluno_id=aluno_id,
                 subtema_id=subtema_id,
                 nivel_dominio=dominio,
@@ -138,7 +143,18 @@ async def responder_diagnostico(
                 proxima_revisao=proxima_revisao,
                 total_respondidas=len(respostas),
             )
-            db.add(progresso)
+            .on_conflict_do_update(
+                constraint="uq_aluno_subtema",
+                set_={
+                    "nivel_dominio": dominio,
+                    "intervalo_dias": novo_intervalo,
+                    "streak_acertos": novo_streak,
+                    "proxima_revisao": proxima_revisao,
+                    "total_respondidas": (AlunoTemaProgresso.total_respondidas + len(respostas)),
+                },
+            )
+        )
+        await db.execute(stmt)
 
         classificacao = classificar_subtema(dominio)
         subtema = subtemas_por_id[subtema_id]
