@@ -210,15 +210,11 @@ async def responder_diagnostico(
                 )
             )
 
-        await publish_event(
-            "revision.scheduled",
-            {
-                "aluno_id": str(aluno_id),
-                "subtema_id": subtema_id,
-                "proxima_revisao": proxima_revisao.isoformat(),
-            },
-        )
-
+    # `revision.scheduled` NÃO sai daqui. Ele significa "há uma revisão
+    # vencida agora", e no fim de um diagnóstico a próxima revisão está a
+    # dias de distância — publicá-la aqui gerava uma notificação "Hora de
+    # revisar!" no segundo em que o aluno terminou o questionário, uma por
+    # subtema respondido. Quem publica é `app/scheduler.py`, quando vence.
     dominio_tema = calcular_dominio_tema(dominios_por_subtema)
 
     tema_anterior = await buscar_tema_anterior(db, tema)

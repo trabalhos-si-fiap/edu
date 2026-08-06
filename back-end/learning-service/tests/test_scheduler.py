@@ -120,3 +120,13 @@ async def test_a_new_due_date_makes_the_revision_eligible_again(db_session, _stu
 
     await verificar_revisoes_pendentes()
     assert len(_stub_publish_event) == 2
+
+
+async def test_scheduler_payload_carries_the_subtopic_name(db_session, _stub_publish_event):
+    aluno_id = uuid.uuid4()
+    await _seed_progresso_vencido(db_session, aluno_id)
+
+    await verificar_revisoes_pendentes()
+
+    _routing_key, payload = _stub_publish_event[0]
+    assert payload["subtema_nome"] == "Membrana"

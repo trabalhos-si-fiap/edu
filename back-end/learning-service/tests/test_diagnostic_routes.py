@@ -419,3 +419,47 @@ async def test_concurrent_answers_on_the_same_subtopic_do_not_collide(
     )
     progresso = result.scalar_one()
     assert progresso.total_respondidas == 2
+
+
+async def test_answer_does_not_publish_a_revision_notification(
+    client, db_session, student_identity, _stub_publish_event
+):
+    """Revisão agendada para daqui a dias não vira notificação agora."""
+    materia = Materia(nome="Biologia")
+    db_session.add(materia)
+    await db_session.flush()
+    tema = Tema(materia_id=materia.id, nome="Citologia", ordem=1)
+    db_session.add(tema)
+    await db_session.flush()
+    subtemas = [
+        Subtema(tema_id=tema.id, nome=nome, ordem=i)
+        for i, nome in enumerate(["Membrana", "Organelas", "Núcleo"])
+    ]
+    db_session.add_all(subtemas)
+    await db_session.flush()
+    questoes = [
+        Questao(
+            subtema_id=s.id,
+            enunciado=f"Pergunta de {s.nome}",
+            alternativas={"A": "a", "B": "b", "C": "c", "D": "d"},
+            gabarito="A",
+            nivel_dificuldade=1,
+        )
+        for s in subtemas
+    ]
+    db_session.add_all(questoes)
+    await db_session.commit()
+
+    response = await client.post(
+        "/diagnostic/answer",
+        json={
+            "tema_id": tema.id,
+            "respostas": [{"questao_id": q.id, "alternativa_escolhida": "B"} for q in questoes],
+        },
+        headers=student_identity.headers,
+    )
+    assert response.status_code == 200
+
+    chaves = [routing_key for routing_key, _ in _stub_publish_event]
+    assert "revision.scheduled" not in chaves
+    assert chaves == ["diagnostic.completed"]

@@ -6,6 +6,7 @@ from sqlalchemy import or_, select
 from app.database import async_session
 from app.events.publisher import publish_event
 from app.models.progresso import AlunoTemaProgresso
+from app.models.subtema import Subtema
 
 _scheduler: AsyncIOScheduler | None = None
 
@@ -23,8 +24,13 @@ async def verificar_revisoes_pendentes() -> None:
         # `proxima_revisao` no futuro, que passa a ser maior que
         # `ultima_revisao` — e a linha volta a ficar elegível sozinha, sem
         # precisar de reset.
+        # O join em Subtema carrega `subtema_nome` para o payload: o
+        # notification-service não tem banco de conteúdo e escrevia uma
+        # constante ("seu conteúdo") em toda notificação de revisão.
         result = await db.execute(
-            select(AlunoTemaProgresso).where(
+            select(AlunoTemaProgresso, Subtema.nome)
+            .join(Subtema, AlunoTemaProgresso.subtema_id == Subtema.id)
+            .where(
                 AlunoTemaProgresso.proxima_revisao <= agora,
                 or_(
                     AlunoTemaProgresso.ultima_revisao.is_(None),
@@ -32,14 +38,15 @@ async def verificar_revisoes_pendentes() -> None:
                 ),
             )
         )
-        pendentes = result.scalars().all()
+        pendentes = result.all()
 
-        for item in pendentes:
+        for item, subtema_nome in pendentes:
             await publish_event(
                 "revision.scheduled",
                 {
                     "aluno_id": str(item.aluno_id),
                     "subtema_id": item.subtema_id,
+                    "subtema_nome": subtema_nome,
                     "proxima_revisao": item.proxima_revisao.isoformat(),
                 },
             )
