@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
@@ -46,9 +46,20 @@ class RegisterIn(BaseModel):
     @field_validator("birth_date")
     @classmethod
     def data_valida(cls, v: str) -> str:
+        """Aceita exatamente `DD/MM/AAAA`.
+
+        A versão anterior fazia `date.fromisoformat("-".join(reversed(
+        v.split("/"))))`, que para `"2000-01-15"` (sem barra nenhuma)
+        devolve a própria string e é aceita — o validador passava e o
+        router estourava `ValueError: not enough values to unpack` ao
+        desempacotar em três partes. 500 não autenticado.
+
+        `datetime.strptime` com formato fixo rejeita ISO, `31/02/2000` e
+        qualquer variação de separador de uma vez só.
+        """
         try:
-            date.fromisoformat("-".join(reversed(v.split("/"))))
-        except (ValueError, IndexError) as exc:
+            datetime.strptime(v, "%d/%m/%Y").date()  # data civil, sem fuso
+        except ValueError as exc:
             raise ValueError("Data de nascimento deve estar no formato DD/MM/AAAA") from exc
         return v
 

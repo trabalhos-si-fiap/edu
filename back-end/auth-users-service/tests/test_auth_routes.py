@@ -142,3 +142,49 @@ async def test_register_publishes_the_exact_student_created_payload(client, _stu
         "nome": "Maria Teste",
         "email": "maria@teste.com",
     }
+
+
+async def test_register_rejects_an_iso_birth_date_with_422(client):
+    """`birth_date` em ISO passava pelo validador e estourava no router."""
+    response = await client.post(
+        "/auth/register",
+        json={
+            "name": "Ana",
+            "email": "ana.iso@example.com",
+            "phone": "11999999999",
+            "birth_date": "2000-01-15",
+            "education_level": "3º ano",
+            "password": "senha!forte1",
+        },
+    )
+    assert response.status_code == 422
+
+
+async def test_register_rejects_an_impossible_date_with_422(client):
+    response = await client.post(
+        "/auth/register",
+        json={
+            "name": "Ana",
+            "email": "ana.31fev@example.com",
+            "phone": "11999999999",
+            "birth_date": "31/02/2000",
+            "education_level": "3º ano",
+            "password": "senha!forte1",
+        },
+    )
+    assert response.status_code == 422
+
+
+async def test_register_accepts_the_documented_format(client):
+    response = await client.post(
+        "/auth/register",
+        json={
+            "name": "Ana",
+            "email": "ana.ok@example.com",
+            "phone": "11999999999",
+            "birth_date": "15/01/2000",
+            "education_level": "3º ano",
+            "password": "senha!forte1",
+        },
+    )
+    assert response.status_code == 201

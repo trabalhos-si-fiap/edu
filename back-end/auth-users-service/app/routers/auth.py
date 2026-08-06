@@ -58,8 +58,9 @@ def _montar_resposta_auth(user: User) -> AuthResponseOut:
 
 
 def _parse_birth_date(valor: str) -> date:
-    dia, mes, ano = valor.split("/")
-    return date(int(ano), int(mes), int(dia))
+    """`RegisterIn.data_valida` já garantiu o formato — este parse não pode
+    mais ser a primeira validação (era, e por isso um ISO virava 500)."""
+    return datetime.strptime(valor, "%d/%m/%Y").date()  # data civil, sem fuso
 
 
 @router.post("/register", response_model=AuthResponseOut, status_code=status.HTTP_201_CREATED)
