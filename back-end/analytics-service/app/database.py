@@ -1,12 +1,17 @@
 from collections.abc import AsyncIterator
 
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import declarative_base
 
 from app.config import settings
 
 engine = create_async_engine(settings.database_url, echo=False)
-async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+# `async_sessionmaker` é a fábrica tipada do SQLAlchemy 2.x. O
+# `sessionmaker(..., class_=AsyncSession)` que estava aqui é a forma da 1.4:
+# funciona, mas devolve `sessionmaker` sem parâmetro de tipo, então nada
+# checa que `async_session()` produz uma `AsyncSession`. Os conftests já
+# usavam a forma nova — só `app/database.py` ficou para trás.
+async_session = async_sessionmaker(engine, expire_on_commit=False)
 Base = declarative_base()
 
 
