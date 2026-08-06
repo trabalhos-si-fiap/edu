@@ -452,3 +452,62 @@ async def test_a_failed_commit_publishes_nothing(
         )
 
     assert _stub_publish_event == []
+
+
+async def test_a_picker_cannot_read_occurrences_of_an_order_they_do_not_hold(client, db_session):
+    pedido = await _seed_pedido(db_session, StatusPedido.EM_SEPARACAO.value, separador_id=PICKER_A)
+
+    response = await client.get(
+        f"/occurrences/order/{pedido.id}", headers=headers_for("separador", sub=PICKER_B)
+    )
+    assert response.status_code == 403
+
+
+async def test_a_courier_cannot_read_occurrences_of_an_order_they_do_not_hold(client, db_session):
+    pedido = await _seed_pedido(
+        db_session, StatusPedido.EM_TRANSITO.value, entregador_id=DELIVERER_A
+    )
+
+    response = await client.get(
+        f"/occurrences/order/{pedido.id}",
+        headers=headers_for("entregador", sub=str(uuid.uuid4())),
+    )
+    assert response.status_code == 403
+
+
+async def test_a_picker_with_no_assignment_at_all_is_also_refused(client, db_session):
+    """`separador_id is None` não pode ser lido como "é meu"."""
+    pedido = await _seed_pedido(db_session, StatusPedido.AGUARDANDO_SEPARACAO.value)
+
+    response = await client.get(
+        f"/occurrences/order/{pedido.id}", headers=headers_for("separador", sub=PICKER_A)
+    )
+    assert response.status_code == 403
+
+
+async def test_the_assigned_picker_can_read_them(client, db_session):
+    pedido = await _seed_pedido(db_session, StatusPedido.EM_SEPARACAO.value, separador_id=PICKER_A)
+
+    response = await client.get(
+        f"/occurrences/order/{pedido.id}", headers=headers_for("separador", sub=PICKER_A)
+    )
+    assert response.status_code == 200
+
+
+async def test_an_admin_still_reads_any_order(client, db_session):
+    pedido = await _seed_pedido(db_session, StatusPedido.EM_SEPARACAO.value, separador_id=PICKER_A)
+    response = await client.get(
+        f"/occurrences/order/{pedido.id}", headers=headers_for("admin", sub=ADMIN)
+    )
+    assert response.status_code == 200
+
+
+async def test_occurrence_detail_applies_the_same_rule(client, db_session):
+    produto = await _seed_produto(db_session)
+    pedido = await _seed_pedido(db_session, StatusPedido.EM_SEPARACAO.value, separador_id=PICKER_A)
+    ocorrencia = await _seed_ocorrencia_falta_estoque(db_session, pedido, produto)
+
+    response = await client.get(
+        f"/occurrences/{ocorrencia.id}", headers=headers_for("separador", sub=PICKER_B)
+    )
+    assert response.status_code == 403

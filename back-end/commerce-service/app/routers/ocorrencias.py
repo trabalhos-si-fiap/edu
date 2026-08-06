@@ -24,6 +24,26 @@ from app.services.substituicao_ia import sugerir_substitutos
 router = APIRouter(prefix="/occurrences", tags=["occurrences"])
 
 
+def _pode_ver_pedido(user: dict, pedido: Pedido) -> bool:
+    """Mesma regra que `reportar_falta_estoque`/`reportar_atraso_entrega` já
+    aplicam na escrita: admin vê tudo, aluno vê o próprio pedido, e
+    separador/entregador só veem o pedido que reivindicaram.
+
+    A leitura era staff-wide: qualquer separador lia a ocorrência de qualquer
+    pedido, incluindo os que ele não está trabalhando.
+    """
+    papel = user.get("role")
+    if papel == "admin":
+        return True
+    if papel == "student":
+        return str(pedido.aluno_id) == user["sub"]
+    if papel == "separador":
+        return pedido.separador_id is not None and str(pedido.separador_id) == user["sub"]
+    if papel == "entregador":
+        return pedido.entregador_id is not None and str(pedido.entregador_id) == user["sub"]
+    return False
+
+
 @router.post("/stock-shortage", response_model=OcorrenciaDetalheOut, status_code=201)
 async def reportar_falta_estoque(
     payload: FaltaEstoqueIn,
@@ -142,8 +162,7 @@ async def listar_ocorrencias_pedido(
     if not pedido:
         raise HTTPException(404, "Pedido não encontrado")
 
-    # Aluno só pode ver ocorrências do próprio pedido
-    if user["role"] == "student" and str(pedido.aluno_id) != user["sub"]:
+    if not _pode_ver_pedido(user, pedido):
         raise HTTPException(403, "Sem permissão para ver este pedido")
 
     query = select(Ocorrencia).where(Ocorrencia.pedido_id == pedido_id)
@@ -193,11 +212,10 @@ async def detalhe_ocorrencia(
     if not ocorrencia:
         raise HTTPException(404, "Ocorrência não encontrada")
 
-    if user["role"] == "student":
-        pedido_result = await db.execute(select(Pedido).where(Pedido.id == ocorrencia.pedido_id))
-        pedido = pedido_result.scalar_one_or_none()
-        if not pedido or str(pedido.aluno_id) != user["sub"]:
-            raise HTTPException(403, "Sem permissão para ver esta ocorrência")
+    pedido_result = await db.execute(select(Pedido).where(Pedido.id == ocorrencia.pedido_id))
+    pedido = pedido_result.scalar_one_or_none()
+    if not pedido or not _pode_ver_pedido(user, pedido):
+        raise HTTPException(403, "Sem permissão para ver esta ocorrência")
 
     return await _montar_detalhe(db, ocorrencia)
 
