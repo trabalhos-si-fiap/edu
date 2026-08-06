@@ -18,9 +18,6 @@ import 'core/theme/app_theme.dart';
 import 'features/cart/data/cart_store.dart';
 import 'features/notifications/data/messaging_service.dart';
 import 'features/auth/presentation/login_screen.dart';
-import 'features/auth/presentation/logistics_login_screen.dart';
-import 'features/logistics/presentation/logistics_dashboard_screen.dart';
-import 'features/logistics/presentation/order_picking_screen.dart';
 import 'features/auth/presentation/register_screen.dart';
 import 'features/auth/presentation/forgot_password_screen.dart';
 import 'features/auth/presentation/reset_password_screen.dart';
@@ -31,13 +28,23 @@ import 'features/profile/presentation/address_form_screen.dart';
 import 'features/support/presentation/support_screen.dart';
 import 'firebase_options.dart';
 
+// NOTA: as rotas nomeadas '/logistics', '/logistics-dashboard' e
+// '/logistics-picking' (e as telas LogisticsLoginScreen,
+// LogisticsDashboardScreen, OrderPickingScreen que elas apontavam) foram
+// removidas. Com o RBAC unificado no Auth + Users Service, separador e
+// entregador agora entram pelo MESMO '/login' e são redirecionados
+// automaticamente para SeparadorFilaScreen/EntregadorFilaScreen
+// (features/logistics/presentation/) com base no claim `role` do JWT — ver
+// `_redirecionarPorPapel()` em login_screen.dart. Os três arquivos antigos
+// podem ser deletados do projeto; ver STATUS.md.
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform, 
+    options: DefaultFirebaseOptions.currentPlatform,
   );
-  
+
   FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
   runApp(const MyApp());
 }
@@ -71,9 +78,6 @@ class _MyAppState extends State<MyApp> {
         initialRoute: '/login',
         routes: {
           '/login': (_) => const LoginScreen(),
-          '/logistics': (_) => const LogisticsLoginScreen(),
-          '/logistics-dashboard': (_) => const LogisticsDashboardScreen(),
-          '/logistics-picking': (_) => const OrderPickingScreen(),
           '/register': (_) => const RegisterScreen(),
           '/forgot-password': (_) => ForgotPasswordScreen(),
           '/reset-password': (_) => ResetPasswordScreen(),

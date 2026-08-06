@@ -1,13 +1,13 @@
 import 'package:edu_ia/core/theme/app_colors.dart';
 import 'package:edu_ia/features/components/nav_bar.dart';
+import 'package:edu_ia/features/marketplace/presentation/incident_resolution_screen.dart';
 import 'package:flutter/material.dart';
 
 import '../data/notifications_api.dart';
 import '../domain/notification_model.dart';
 
 class NotificationsScreen extends StatefulWidget {
-  const NotificationsScreen({super.key, NotificationsApi? api})
-    : _api = api;
+  const NotificationsScreen({super.key, NotificationsApi? api}) : _api = api;
 
   final NotificationsApi? _api;
 
@@ -28,6 +28,25 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   Future<void> _refresh() async {
     setState(() => _future = _api.list());
     await _future.catchError((_) => <NotificationModel>[]);
+  }
+
+  /// Notificações de falta de estoque/atraso de entrega carregam um
+  /// `ocorrencia_id` em `data` — tocar nelas leva direto para a tela de
+  /// resolução (`OcorrenciaResolucaoScreen`). Demais notificações
+  /// continuam sem ação de toque, como antes.
+  Future<void> _abrirNotificacao(NotificationModel notification) async {
+    final ocorrenciaId = notification.data?['ocorrencia_id'];
+    if (ocorrenciaId is! int && ocorrenciaId is! num) return;
+
+    final resolvido = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => OcorrenciaResolucaoScreen(
+          ocorrenciaId: (ocorrenciaId as num).toInt(),
+        ),
+      ),
+    );
+    if (resolvido == true) await _refresh();
   }
 
   @override
@@ -84,10 +103,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       );
     }
     if (snapshot.hasError) {
-      return _Placeholder(
-        icon: Icons.cloud_off,
-        message: snapshot.error.toString(),
-      );
+      return _Placeholder(icon: Icons.cloud_off, message: snapshot.error.toString());
     }
     final notifications = snapshot.data ?? const [];
     if (notifications.isEmpty) {
@@ -98,7 +114,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }
     return Column(
       children: notifications
-          .map((n) => _NotificationCard(notification: n))
+          .map((n) => _NotificationCard(notification: n, onTap: () => _abrirNotificacao(n)))
           .toList(),
     );
   }
@@ -119,11 +135,7 @@ class _Placeholder extends StatelessWidget {
           children: [
             Icon(icon, size: 48, color: Colors.white70),
             const SizedBox(height: 12),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.white),
-            ),
+            Text(message, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white)),
           ],
         ),
       ),
@@ -132,11 +144,15 @@ class _Placeholder extends StatelessWidget {
 }
 
 class _NotificationCard extends StatelessWidget {
-  const _NotificationCard({required this.notification});
+  const _NotificationCard({required this.notification, this.onTap});
 
   final NotificationModel notification;
+  final VoidCallback? onTap;
+
+  bool get _precisaDeAcao => notification.data?['ocorrencia_id'] != null;
 
   IconData get _icon {
+    if (_precisaDeAcao) return Icons.warning_amber_rounded;
     switch (notification.type) {
       case 'order_status':
         return Icons.local_shipping;
@@ -147,34 +163,53 @@ class _NotificationCard extends StatelessWidget {
     }
   }
 
+  Color get _iconColor => _precisaDeAcao ? const Color(0xFFB86E00) : AppColors.purple;
+
   @override
   Widget build(BuildContext context) {
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 8),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          children: [
-            Icon(_icon, color: AppColors.purple, size: 24),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    notification.title,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: notification.readAt == null
+            ? const BorderSide(color: AppColors.purple, width: 1.5)
+            : BorderSide.none,
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              Icon(_icon, color: _iconColor, size: 24),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      notification.title,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(notification.body, style: const TextStyle(fontSize: 14)),
-                ],
+                    const SizedBox(height: 4),
+                    Text(notification.body, style: const TextStyle(fontSize: 14)),
+                    if (_precisaDeAcao) ...[
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Toque para decidir',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFFB86E00),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
