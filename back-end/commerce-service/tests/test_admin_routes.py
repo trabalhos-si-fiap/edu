@@ -160,6 +160,32 @@ async def test_orders_listing_actually_applies_limit_and_offset(client, db_sessi
     assert ids_first.isdisjoint(ids_last)
 
 
+async def test_inventory_adjust_rejects_a_negative_quantity(client, db_session):
+    estoque = await _seed_estoque(db_session)
+    quantidade_inicial = estoque.quantidade
+
+    response = await client.patch(
+        f"/admin/inventory/{estoque.id}/adjust?quantidade=-50",
+        headers=headers_for("admin"),
+    )
+
+    assert response.status_code == 422
+    await db_session.refresh(estoque)
+    assert estoque.quantidade == quantidade_inicial
+
+
+async def test_inventory_adjust_accepts_zero(client, db_session):
+    """Zero é um ajuste legítimo — "acabou o estoque" não é o mesmo que
+    "valor inválido". O piso é 0, não 1."""
+    estoque = await _seed_estoque(db_session)
+    response = await client.patch(
+        f"/admin/inventory/{estoque.id}/adjust?quantidade=0",
+        headers=headers_for("admin"),
+    )
+    assert response.status_code == 200
+    assert response.json()["quantidade"] == 0
+
+
 async def test_inventory_listing_actually_applies_limit_and_offset(client, db_session):
     fornecedor = Fornecedor(nome="Distribuidora X")
     db_session.add(fornecedor)

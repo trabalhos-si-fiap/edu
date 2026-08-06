@@ -96,11 +96,19 @@ async def listar_estoque(
 @router.patch("/inventory/{estoque_id}/adjust", response_model=EstoqueOut)
 async def ajustar_estoque(
     estoque_id: int,
-    quantidade: int,
+    # `ge=0`: sem piso, um admin gravava estoque negativo e a separação
+    # passava a trabalhar contra um número que não existe no mundo físico.
+    quantidade: int = Query(ge=0),
     user: dict = Depends(requer_papel("admin")),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(Estoque).where(Estoque.id == estoque_id))
+    # `with_for_update()`: o ajuste é um read→write sobre recurso compartilhado
+    # (regra 3 do CLAUDE.md) — serializa dois ajustes concorrentes na mesma
+    # linha em vez de deixá-los correr em paralelo contra o mesmo SELECT.
+    # Não muda QUEM vence: esta rota grava um valor absoluto, não um delta,
+    # então o último commit sempre define o valor final, com ou sem lock —
+    # medido em task-11-report.md, não é apenas suposição.
+    result = await db.execute(select(Estoque).where(Estoque.id == estoque_id).with_for_update())
     estoque = result.scalar_one_or_none()
     if not estoque:
         raise HTTPException(404, "Registro de estoque não encontrado")
