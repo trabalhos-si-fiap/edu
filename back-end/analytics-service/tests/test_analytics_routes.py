@@ -210,6 +210,29 @@ async def test_deliveries_counts_orders_by_status(client, db_session):
     }
 
 
+async def test_deliveries_reports_a_missing_status_as_the_sentinel(client, db_session):
+    """Um `order.status_changed` sem a chave `status` no payload."""
+    await seed_event(db_session, "order.status_changed", {"pedido_id": 1, "aluno_id": "x"})
+
+    response = await client.get("/analytics/deliveries", headers=headers_for("admin"))
+
+    assert response.status_code == 200
+    linhas = response.json()
+    assert len(linhas) == 1
+    assert linhas[0]["status"] == "sem_status"
+
+
+async def test_deliveries_and_executive_summary_agree_on_the_sentinel(client, db_session):
+    await seed_event(db_session, "order.status_changed", {"pedido_id": 1, "aluno_id": "x"})
+
+    deliveries = await client.get("/analytics/deliveries", headers=headers_for("admin"))
+    resumo = await client.get("/analytics/executive-summary", headers=headers_for("admin"))
+
+    chave_deliveries = deliveries.json()[0]["status"]
+    chaves_resumo = list(resumo.json()["metricas"]["pedidos_por_status"].keys())
+    assert chave_deliveries in chaves_resumo
+
+
 async def test_summary_counts_events_by_type(client, db_session):
     await seed_event(db_session, "order.created", {"pedido_id": 1})
     await seed_event(db_session, "order.created", {"pedido_id": 2})

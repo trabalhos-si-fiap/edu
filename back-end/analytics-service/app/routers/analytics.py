@@ -27,8 +27,10 @@ MAX_PAGE_SIZE = 200
 # gigante na tabela de log de eventos.
 MAX_DIAS = 365
 
-# Sentinelas para as chaves de agrupamento do resumo executivo quando o payload
-# logado não traz a chave — ver comentário em `resumo_executivo`.
+# Sentinelas para as chaves de agrupamento quando o payload logado não traz a
+# chave. SEM_CHAVE_STATUS é usada tanto por `metricas_entregas` quanto por
+# `resumo_executivo` — a mesma ausência de status não pode ter duas formas na
+# mesma API. SEM_CHAVE_ACAO só é usada por `resumo_executivo`.
 SEM_CHAVE_STATUS = "sem_status"
 SEM_CHAVE_ACAO = "sem_acao"
 
@@ -74,6 +76,11 @@ async def metricas_entregas(
     Sem paginação: o resultado tem no máximo uma linha por status de pedido —
     um conjunto pequeno e fixo definido pelo Commerce Service, não uma
     listagem que cresce com o volume de dados.
+
+    `astext` devolve NULL quando o payload logado não traz a chave `status`.
+    A sentinela `SEM_CHAVE_STATUS` resolve esse NULL aqui, na origem, com a
+    MESMA sentinela que `/executive-summary` usa para `pedidos_por_status` —
+    a mesma ausência não pode ter duas formas na mesma API.
     """
     result = await db.execute(
         select(
@@ -83,7 +90,10 @@ async def metricas_entregas(
         .where(EventLog.tipo == "order.status_changed")
         .group_by(text("status"))
     )
-    return [StatusContagemOut(status=row.status, total=row.total) for row in result.all()]
+    return [
+        StatusContagemOut(status=row.status or SEM_CHAVE_STATUS, total=row.total)
+        for row in result.all()
+    ]
 
 
 @router.get("/summary", response_model=list[TipoContagemOut])

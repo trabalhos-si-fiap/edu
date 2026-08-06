@@ -22,7 +22,18 @@ class AlunoEventoOut(BaseModel):
 
 
 class StatusContagemOut(BaseModel):
-    status: str | None = None
+    """`status` nunca é nulo.
+
+    `EventLog.payload["status"].astext` devolve NULL quando o payload logado
+    não traz a chave — este serviço grava payload bruto de outros serviços e
+    não controla o formato. As duas rotas que agrupam por status resolvem
+    esse NULL na origem com a MESMA sentinela (`SEM_CHAVE_STATUS`), porque
+    `/executive-summary` agrupa num `dict[str, int]` e JSON não admite chave
+    nula. Manter `str | None` aqui deixava a mesma ausência com duas formas
+    na mesma API.
+    """
+
+    status: str
     total: int
 
 
@@ -39,7 +50,11 @@ class ResumoMetricasOut(BaseModel):
     trocando-o pelos sentinelas `sem_status`/`sem_acao` (`routers/analytics.py`),
     de modo que um evento sem a chave agrega como "sem valor" sem derrubar a
     rota com um 500. Tipar a chave como `str | None` seria mentira em JSON, que
-    não admite chave nula: o None sairia serializado como a string "None"."""
+    não admite chave nula: o None sairia serializado como a string "None".
+
+    `sem_status` não é exclusiva desta rota: é a MESMA sentinela que
+    `StatusContagemOut.status` (`/analytics/deliveries`) usa para a mesma
+    ausência — as duas rotas que agrupam por status concordam na forma."""
 
     pedidos_criados: int
     pedidos_por_status: dict[str, int]
