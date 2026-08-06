@@ -151,8 +151,14 @@ async def login(payload: LoginIn, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/refresh", response_model=TokensOut)
-async def refresh(payload: RefreshIn):
-    """Resposta plana (sem wrapper `tokens`) — casa com `TokenRefresher.refresh()`."""
+async def refresh(payload: RefreshIn, db: AsyncSession = Depends(get_db)):
+    """Resposta plana (sem wrapper `tokens`) — casa com `TokenRefresher.refresh()`.
+
+    Consulta o banco de propósito, apesar de o token já vir assinado: sem
+    isso, desativar ou rebaixar um usuário não tinha efeito nenhum até o
+    refresh token expirar (14 dias com o `.env` compartilhado em vigor). O
+    papel do token novo vem da coluna, não da claim do token velho.
+    """
     # `expected_type="refresh"` deixa o próprio decode_token recusar um access
     # token aqui, em vez de checar `decoded.get("type")` manualmente.
     decoded = decode_token(
@@ -164,24 +170,34 @@ async def refresh(payload: RefreshIn):
     # `decoded` só vem de tokens assinados por este serviço, mas um payload
     # forjado por outro emissor com o mesmo segredo (ou um token antigo,
     # gerado antes de `role` existir nas claims) pode passar em `decode_token`
-    # sem carregar `sub`/`role`. Acessar via índice levantaria `KeyError`, que
-    # o FastAPI transforma em 500 — aqui isso é só mais um refresh token
+    # sem carregar `sub`. Acessar via índice levantaria `KeyError`, que o
+    # FastAPI transforma em 500 — aqui isso é só mais um refresh token
     # inválido, então cai no mesmo 401 genérico dos outros casos.
+    #
+    # `role` NÃO é mais exigido na claim: ele passa a vir da coluna logo
+    # abaixo. Um token legado sem `role` funciona e recebe o papel real.
     sub = decoded.get("sub")
-    role = decoded.get("role")
-    if sub is None or role is None:
+    if sub is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Refresh token inválido ou expirado")
+
+    result = await db.execute(select(User).where(User.id == sub))
+    user = result.scalar_one_or_none()
+    # Mesmo 401 genérico para usuário inexistente e usuário desativado: a
+    # distinção seria um oráculo de enumeração e não muda nada para o app,
+    # que trata os dois com logout.
+    if user is None or not user.ativo:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Refresh token inválido ou expirado")
 
     access_token = create_access_token(
-        sub,
-        role,
+        str(user.id),
+        user.role,
         settings.jwt_secret,
         settings.jwt_algorithm,
         settings.access_token_expire_minutes,
     )
     novo_refresh_token = create_refresh_token(
-        sub,
-        role,
+        str(user.id),
+        user.role,
         settings.jwt_secret,
         settings.jwt_algorithm,
         settings.refresh_token_expire_days,
