@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import get_current_student_id, get_current_user
+from app.dependencies import get_current_user, get_current_user_id
 from app.schemas.diagnostico import SubtemaRelacionadoOut
 from app.schemas.recomendacao import SubtemaRecomendadoOut
 from app.services.recomendacao import proximo_subtema
@@ -14,7 +14,7 @@ router = APIRouter(prefix="/recommendations", tags=["recomendacao"])
 @router.get("", response_model=SubtemaRecomendadoOut | None)
 async def get_recomendacao(
     tema_id: int,
-    aluno_id: str = Depends(get_current_student_id),
+    aluno_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     """Próximo subtema não dominado dentro do tema, seguindo a ordem curricular."""

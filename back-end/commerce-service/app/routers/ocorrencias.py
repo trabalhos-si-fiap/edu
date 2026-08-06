@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import get_current_student_id, requer_papel
+from app.dependencies import get_current_user_id, requer_papel
 from app.events.publisher import publish_event
 from app.models.ocorrencia import Ocorrencia
 from app.models.pedido import Pedido, PedidoItem, PedidoStatusHistorico
@@ -224,7 +224,7 @@ async def detalhe_ocorrencia(
 async def resolver_ocorrencia(
     ocorrencia_id: int,
     payload: ResolverOcorrenciaIn,
-    aluno_id: str = Depends(get_current_student_id),
+    aluno_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     """

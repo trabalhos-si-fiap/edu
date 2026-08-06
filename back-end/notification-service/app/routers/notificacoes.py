@@ -6,7 +6,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import get_current_student_id
+from app.dependencies import get_current_user_id
 from app.models.device_token import DeviceToken
 from app.models.notificacao import Notificacao
 from app.schemas.notificacao import DeviceRegisterIn, NotificationDataOut, NotificationOut
@@ -35,7 +35,7 @@ async def listar_notificacoes(
     unread_only: bool = False,
     limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
     offset: int = Query(0, ge=0),
-    aluno_id: str = Depends(get_current_student_id),
+    aluno_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     query = select(Notificacao).where(Notificacao.aluno_id == aluno_id)
@@ -50,7 +50,7 @@ async def listar_notificacoes(
 @router.patch("/{notificacao_id}/read", response_model=NotificationOut)
 async def marcar_lida(
     notificacao_id: int,
-    aluno_id: str = Depends(get_current_student_id),
+    aluno_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     """Não é chamado hoje pelo Flutter (a tela não tem esse gesto ainda),
@@ -81,7 +81,7 @@ async def marcar_lida(
 @router.post("/devices", status_code=status.HTTP_201_CREATED)
 async def registrar_device(
     payload: DeviceRegisterIn,
-    aluno_id: str = Depends(get_current_student_id),
+    aluno_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     """Casa com `NotificationsApi.registerDevice()`. MVP: só armazena o
@@ -106,7 +106,7 @@ async def registrar_device(
 @router.delete("/devices/{token}", status_code=status.HTTP_204_NO_CONTENT)
 async def remover_device(
     token: str,
-    aluno_id: str = Depends(get_current_student_id),
+    aluno_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     """Casa com `NotificationsApi.unregisterDevice()`.

@@ -7,7 +7,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import get_current_student_id
+from app.dependencies import get_current_user_id
 from app.events.publisher import publish_event
 from app.models.progresso import AlunoTemaProgresso
 from app.models.questao import Questao
@@ -41,7 +41,7 @@ router = APIRouter(prefix="/diagnostic", tags=["diagnostico"])
 @router.post("/answer", response_model=DiagnosticoResultado)
 async def responder_diagnostico(
     payload: RespostaDiagnosticoIn,
-    aluno_id: str = Depends(get_current_student_id),
+    aluno_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     tema_result = await db.execute(select(Tema).where(Tema.id == payload.tema_id))
@@ -276,7 +276,7 @@ async def responder_diagnostico(
 @router.get("/questions/{questao_id}/context", response_model=QuestaoContextoOut)
 async def contexto_questao(
     questao_id: int,
-    aluno_id: str = Depends(get_current_student_id),
+    aluno_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     """

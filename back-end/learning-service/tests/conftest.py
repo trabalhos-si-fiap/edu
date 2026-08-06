@@ -137,7 +137,7 @@ def student_identity() -> StudentIdentity:
 def auth_headers(student_identity: StudentIdentity) -> dict[str, str]:
     """Um bearer token de aluno válido, assinado com o mesmo segredo do
     serviço (`settings.jwt_secret`/`jwt_algorithm`) — é o que
-    `app.dependencies.get_current_user`/`get_current_student_id` (via
+    `app.dependencies.get_current_user`/`get_current_user_id` (via
     `edu_common.deps.build_auth_deps`) espera decodificar. Usado pelos
     testes de rota que exigem autenticação mas não dependem de nenhum
     valor específico de `aluno_id`. Testes que precisam do `aluno_id` em si
