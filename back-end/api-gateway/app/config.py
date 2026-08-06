@@ -20,6 +20,14 @@ class Settings(BaseSettings):
 
     request_timeout_seconds: float = 30.0
 
+    # Teto do corpo que o gateway bufferiza em memória antes de repassar. O
+    # proxy chama `await request.body()` ANTES de qualquer autenticação, então
+    # sem teto um POST anônimo de megabytes já custa a memória do gateway —
+    # comprovado na fase 1 com 9,6 MB. 2 MiB cobre com folga o maior corpo que
+    # o app envia hoje (JSON de pedido/endereço); upload de imagem é fase 3 e
+    # vai precisar de um caminho próprio, não deste.
+    max_request_body_bytes: int = 2 * 1024 * 1024
+
     # Origens liberadas para CORS (lista JSON via env CORS_ORIGINS). Sem
     # curinga — allow_credentials=True com "*" é rejeitado pelo browser e
     # vazaria a API para qualquer site.

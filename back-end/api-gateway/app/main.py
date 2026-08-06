@@ -48,7 +48,32 @@ async def gateway(path: str, request: Request):
     headers = {
         k: v for k, v in request.headers.items() if k.lower() not in _HEADERS_PARA_REMOVER_NA_IDA
     }
+    # Teto antes de bufferizar (ver `settings.max_request_body_bytes`). Duas
+    # checagens porque `Content-Length` é uma dica do cliente, não um fato:
+    # ele pode mentir, vir ausente, ou o corpo pode chegar em chunked. A
+    # primeira evita ler o corpo à toa quando o cliente é honesto; a segunda
+    # é a que realmente vale.
+    content_length = request.headers.get("content-length")
+    if (
+        content_length is not None
+        and content_length.isdigit()
+        and int(content_length) > settings.max_request_body_bytes
+    ):
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"Corpo da requisição excede o limite de {settings.max_request_body_bytes} bytes"
+            ),
+        )
+
     body = await request.body()
+    if len(body) > settings.max_request_body_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"Corpo da requisição excede o limite de {settings.max_request_body_bytes} bytes"
+            ),
+        )
 
     async with httpx.AsyncClient(timeout=settings.request_timeout_seconds) as client:
         try:
