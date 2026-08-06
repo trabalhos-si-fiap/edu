@@ -375,3 +375,29 @@ async def test_subtopic_questions_pagination_is_stable_when_more_than_one_page_t
     assert ids_primeira == todos_ids_ordenados[:8]
     assert ids_segunda == todos_ids_ordenados[8:]
     assert set(ids_primeira).isdisjoint(ids_segunda)
+
+
+async def test_subtopic_questions_404_only_when_truly_empty_not_past_the_last_page(
+    client, auth_headers, db_session
+):
+    """`offset` tornou alcancavel um terceiro significado para "vazio". Antes
+    so existia `offset=0`, e vazio so podia querer dizer "este subtema nao
+    tem questao nenhuma" — 404 fazia sentido. Agora um cliente tambem pode
+    pedir uma pagina alem do fim de um subtema que TEM questoes; nesse caso
+    vazio quer dizer "voce passou do fim", nao "nao ha nada aqui", e 404
+    afirmaria algo falso (um cliente que trate 404 como "sem conteudo"
+    erraria ao paginar ate o fim). Os dois casos precisam responder
+    diferente, entao este teste exercita os dois juntos."""
+    subtema_vazio, _ = await _seed_subtema_com_questoes(db_session, quantidade=0)
+    subtema_com_questoes, _ = await _seed_subtema_com_questoes(db_session, quantidade=1)
+
+    vazio_de_verdade = await client.get(
+        f"/subtopics/{subtema_vazio.id}/questions", headers=auth_headers
+    )
+    passou_do_fim = await client.get(
+        f"/subtopics/{subtema_com_questoes.id}/questions?offset=5", headers=auth_headers
+    )
+
+    assert vazio_de_verdade.status_code == 404
+    assert passou_do_fim.status_code == 200
+    assert passou_do_fim.json() == []

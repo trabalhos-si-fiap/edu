@@ -129,7 +129,11 @@ async def listar_questoes_diagnostico(
         .offset(offset)
     )
     questoes = result.scalars().all()
-    if not questoes:
+    # `offset > 0` e vazio quer dizer "página além do fim" de um subtema que
+    # TEM questões — não "subtema sem conteúdo". Só o caso original
+    # (offset=0, vazio de verdade) continua 404; passar do fim devolve lista
+    # vazia com 200, como as outras listagens paginadas deste arquivo.
+    if not questoes and offset == 0:
         raise HTTPException(404, "Nenhuma questão encontrada para este subtema")
 
     return [
