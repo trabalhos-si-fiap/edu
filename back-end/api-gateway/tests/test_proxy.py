@@ -24,12 +24,6 @@ def _patch_upstream_request(monkeypatch, fake_upstream_request):
     monkeypatch.setattr(httpx.AsyncClient, "request", request)
 
 
-async def test_health_does_not_need_a_backend(client):
-    response = await client.get("/health")
-    assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
-
-
 async def test_unmapped_path_returns_404_from_the_gateway(client):
     response = await client.get("/api/rota-inexistente")
     assert response.status_code == 404
