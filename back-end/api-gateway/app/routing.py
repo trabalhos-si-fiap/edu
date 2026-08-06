@@ -7,7 +7,6 @@ from app.config import settings
 SERVICE_MAP: dict[str, str] = {
     "auth": "auth",
     "users": "auth",
-    "addresses": "auth",
     "subjects": "learning",
     "topics": "learning",
     "subtopics": "learning",
