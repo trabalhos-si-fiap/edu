@@ -64,7 +64,8 @@ class StudentCreated:
 
     Consumido por learning-service (`handle_student_created`, que cria uma
     linha de `AlunoTemaProgresso` zerada em todo subtema) e por
-    analytics-service (log bruto).
+    analytics-service (grava em `event_log`, mas com `nome`/`email` removidos
+    na entrada por `_sem_pii` — não é mais o payload cru).
     """
 
     ROUTING_KEY: ClassVar[str] = "student.created"
