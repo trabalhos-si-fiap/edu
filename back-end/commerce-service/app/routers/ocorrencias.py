@@ -213,7 +213,13 @@ async def resolver_ocorrencia(
     Só o aluno dono do pedido pode resolver a ocorrência — é a decisão dele
     (aceitar substituto, remover item, aceitar nova data ou cancelar).
     """
-    result = await db.execute(select(Ocorrencia).where(Ocorrencia.id == ocorrencia_id))
+    # `with_for_update()` nos dois: sem ele, o `status != ABERTA` abaixo é um
+    # TOCTOU — duas requisições concorrentes leem "ABERTA", as duas passam, e
+    # a diferença de preço da substituição é aplicada duas vezes no
+    # `valor_total`. Regra 3 do CLAUDE.md.
+    result = await db.execute(
+        select(Ocorrencia).where(Ocorrencia.id == ocorrencia_id).with_for_update()
+    )
     ocorrencia = result.scalar_one_or_none()
     if not ocorrencia:
         raise HTTPException(404, "Ocorrência não encontrada")
@@ -221,12 +227,15 @@ async def resolver_ocorrencia(
     if ocorrencia.status != "ABERTA":
         raise HTTPException(400, "Esta ocorrência já foi resolvida")
 
-    pedido_result = await db.execute(select(Pedido).where(Pedido.id == ocorrencia.pedido_id))
+    pedido_result = await db.execute(
+        select(Pedido).where(Pedido.id == ocorrencia.pedido_id).with_for_update()
+    )
     pedido = pedido_result.scalar_one_or_none()
     if not pedido or str(pedido.aluno_id) != aluno_id:
         raise HTTPException(403, "Sem permissão para resolver esta ocorrência")
 
     resolucao = payload.resolucao
+    cancelou = False
 
     # ── Resoluções de FALTA_ESTOQUE ──────────────────────────
     if resolucao == "substituir":
@@ -292,6 +301,20 @@ async def resolver_ocorrencia(
                 observacao=f"Cancelado pelo aluno via ocorrência #{ocorrencia.id}",
             )
         )
+        cancelou = True
+
+    ocorrencia.status = "RESOLVIDA"
+    ocorrencia.resolucao = resolucao
+    ocorrencia.resolvido_em = datetime.now(UTC)
+
+    await db.commit()
+    await db.refresh(ocorrencia)
+
+    # Os dois publishes ficam DEPOIS do commit. Publicar antes fazia o
+    # notification-service avisar "seu pedido foi cancelado" mesmo quando a
+    # transação estourava logo em seguida — o aluno recebia a notificação de
+    # um cancelamento que não aconteceu.
+    if cancelou:
         await publish_event(
             "order.status_changed",
             {
@@ -300,13 +323,6 @@ async def resolver_ocorrencia(
                 "status": StatusPedido.CANCELADO.value,
             },
         )
-
-    ocorrencia.status = "RESOLVIDA"
-    ocorrencia.resolucao = resolucao
-    ocorrencia.resolvido_em = datetime.now(UTC)
-
-    await db.commit()
-    await db.refresh(ocorrencia)
 
     await publish_event(
         "order.occurrence_resolved",

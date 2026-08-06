@@ -1,11 +1,15 @@
+import asyncio
 import uuid
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+import pytest
 from edu_common.security import create_access_token
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models.ocorrencia import Ocorrencia
-from app.models.pedido import Pedido
+from app.models.pedido import Pedido, PedidoItem
 from app.models.produto import Produto
 from app.services.status_pedido import StatusPedido
 
@@ -20,6 +24,8 @@ PICKER_B = "00000000-0000-0000-0000-0000000000e2"
 DELIVERER_A = "00000000-0000-0000-0000-0000000000f1"
 DELIVERER_B = "00000000-0000-0000-0000-0000000000f2"
 ADMIN = "00000000-0000-0000-0000-0000000000aa"
+# sub padrão de headers_for("student")
+ALUNO = "00000000-0000-0000-0000-000000000001"
 
 
 async def _seed_pedido(db_session, status: str, **overrides) -> Pedido:
@@ -280,3 +286,169 @@ async def test_order_occurrences_listing_actually_applies_limit_and_offset(clien
     assert len(last_body) == total - 50
 
     assert {row["id"] for row in first_body}.isdisjoint({row["id"] for row in last_body})
+
+
+async def _seed_ocorrencia_falta_estoque(db_session, pedido, produto) -> Ocorrencia:
+    ocorrencia = Ocorrencia(
+        pedido_id=pedido.id,
+        tipo="FALTA_ESTOQUE",
+        status="ABERTA",
+        produto_id=produto.id,
+        motivo="Sem estoque no CD",
+        criado_por=PICKER_A,
+    )
+    db_session.add(ocorrencia)
+    await db_session.commit()
+    await db_session.refresh(ocorrencia)
+    return ocorrencia
+
+
+async def test_concurrent_resolves_apply_the_price_delta_once(client, db_session, monkeypatch):
+    """O `status != "ABERTA"` é um TOCTOU sem lock de linha.
+
+    Precisa ser concorrente E precisa forçar a intercalação. Em série o
+    defeito não aparece: a segunda chamada enxerga o `RESOLVIDA` que a
+    primeira já commitou e devolve 400 sozinha. E um `asyncio.gather` puro
+    também não basta — as queries locais voltam rápido demais para o event
+    loop trocar de tarefa (medido).
+
+    O encontro é feito sem `sleep`: a PRIMEIRA requisição para no seu commit
+    e só segue quando a SEGUNDA abre a própria sessão. O sinal sai ANTES do
+    SELECT da segunda, de propósito — depois dele, com o `FOR UPDATE` no
+    lugar, ela ficaria bloqueada no banco esperando a primeira, que estaria
+    esperando por ela, e o teste travaria em vez de medir.
+    """
+    original = await _seed_produto(db_session)
+    substituto = Produto(nome="Substituto", preco=Decimal("150.00"), categoria="apostila")
+    db_session.add(substituto)
+    pedido = await _seed_pedido(
+        db_session, StatusPedido.EM_SEPARACAO.value, aluno_id=ALUNO, separador_id=PICKER_A
+    )
+    db_session.add(
+        PedidoItem(
+            pedido_id=pedido.id,
+            produto_id=original.id,
+            fornecedor_id=None,
+            quantidade=2,
+            preco_unitario=Decimal("100.00"),
+        )
+    )
+    pedido.valor_total = Decimal("200.00")
+    await db_session.commit()
+    await db_session.refresh(substituto)
+    ocorrencia = await _seed_ocorrencia_falta_estoque(db_session, pedido, original)
+
+    execute_real = AsyncSession.execute
+    commit_real = AsyncSession.commit
+    sessoes_vistas = {id(db_session)}
+    a_segunda_abriu = asyncio.Event()
+    estado = {"ja_esperou": False}
+
+    async def execute_espiao(self, *args, **kwargs):
+        if id(self) not in sessoes_vistas:
+            sessoes_vistas.add(id(self))
+            if len(sessoes_vistas) == 3:  # db_session + as duas sessões de rota
+                a_segunda_abriu.set()
+        return await execute_real(self, *args, **kwargs)
+
+    async def commit_espiao(self):
+        if id(self) != id(db_session) and not estado["ja_esperou"]:
+            estado["ja_esperou"] = True
+            await asyncio.wait_for(a_segunda_abriu.wait(), timeout=5)
+        return await commit_real(self)
+
+    monkeypatch.setattr(AsyncSession, "execute", execute_espiao)
+    monkeypatch.setattr(AsyncSession, "commit", commit_espiao)
+
+    corpo = {"resolucao": "substituir", "produto_escolhido_id": substituto.id}
+    primeira, segunda = await asyncio.gather(
+        client.post(
+            f"/occurrences/{ocorrencia.id}/resolve", json=corpo, headers=headers_for("student")
+        ),
+        client.post(
+            f"/occurrences/{ocorrencia.id}/resolve", json=corpo, headers=headers_for("student")
+        ),
+    )
+
+    monkeypatch.undo()
+
+    codigos = sorted([primeira.status_code, segunda.status_code])
+    assert codigos == [200, 400], f"{primeira.text} / {segunda.text}"
+
+    db_session.expire_all()
+    await db_session.refresh(pedido)
+    # 200.00 + (150.00 - 100.00) * 2 = 300.00. Aplicada UMA vez.
+    assert pedido.valor_total == Decimal("300.00")
+
+
+async def test_cancel_publishes_the_status_change_after_the_commit(
+    client, db_session, _stub_publish_event
+):
+    """Ordem relativa dos eventos. A prova de que são pós-commit é o teste
+    seguinte — este sozinho passaria também com o publish antes do commit."""
+    pedido = await _seed_pedido(
+        db_session, StatusPedido.EM_SEPARACAO.value, aluno_id=ALUNO, separador_id=PICKER_A
+    )
+    ocorrencia = Ocorrencia(
+        pedido_id=pedido.id,
+        tipo="ATRASO_ENTREGA",
+        status="ABERTA",
+        nova_data_sugerida=datetime.now(UTC) + timedelta(days=2),
+        motivo="Chuva na rota",
+        criado_por=DELIVERER_A,
+    )
+    db_session.add(ocorrencia)
+    await db_session.commit()
+    await db_session.refresh(ocorrencia)
+    _stub_publish_event.clear()
+
+    response = await client.post(
+        f"/occurrences/{ocorrencia.id}/resolve",
+        json={"resolucao": "cancelar_pedido"},
+        headers=headers_for("student"),
+    )
+    assert response.status_code == 200, response.text
+
+    chaves = [routing_key for routing_key, _ in _stub_publish_event]
+    assert chaves == ["order.status_changed", "order.occurrence_resolved"]
+
+    db_session.expire_all()
+    await db_session.refresh(pedido)
+    assert pedido.status == StatusPedido.CANCELADO.value
+
+
+async def test_a_failed_commit_publishes_nothing(
+    client, db_session, monkeypatch, _stub_publish_event
+):
+    """Se o commit estourar, o aluno não pode ter sido notificado."""
+    pedido = await _seed_pedido(
+        db_session, StatusPedido.EM_SEPARACAO.value, aluno_id=ALUNO, separador_id=PICKER_A
+    )
+    ocorrencia = Ocorrencia(
+        pedido_id=pedido.id,
+        tipo="ATRASO_ENTREGA",
+        status="ABERTA",
+        nova_data_sugerida=datetime.now(UTC) + timedelta(days=2),
+        motivo="Chuva na rota",
+        criado_por=DELIVERER_A,
+    )
+    db_session.add(ocorrencia)
+    await db_session.commit()
+    await db_session.refresh(ocorrencia)
+    _stub_publish_event.clear()
+
+    async def _commit_que_falha(self):
+        raise RuntimeError("commit falhou")
+
+    # Afeta TODA sessão, inclusive a do `db_session` — por isso o seed
+    # acontece antes do patch e nada é commitado depois dele.
+    monkeypatch.setattr(AsyncSession, "commit", _commit_que_falha)
+
+    with pytest.raises(RuntimeError, match="commit falhou"):
+        await client.post(
+            f"/occurrences/{ocorrencia.id}/resolve",
+            json={"resolucao": "cancelar_pedido"},
+            headers=headers_for("student"),
+        )
+
+    assert _stub_publish_event == []
