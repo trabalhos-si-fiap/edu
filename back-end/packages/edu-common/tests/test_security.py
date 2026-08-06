@@ -14,7 +14,7 @@ from edu_common.security import (
     verify_password,
 )
 
-SECRET = "test-secret-not-a-real-key"  # noqa: S105 -- test fixture, not a real secret
+SECRET = "test-secret-not-a-real-key"
 
 
 def test_hash_password_produces_bcrypt_hash():

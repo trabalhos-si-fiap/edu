@@ -15,6 +15,7 @@ dependencies = [
 dev = [
     "pytest>=8.3.0",
     "pytest-asyncio>=0.25.0",
+    "pytest-cov>=6.0.0",
     "ruff>=0.8.0",
     "httpx>=0.28.0",
 ]
@@ -34,10 +35,32 @@ line-length = 100
 select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "RUF", "ASYNC", "S"]
 ignore = ["S101"]
 
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "ASYNC"]
+
+# `Depends(...)` como default de argumento é o idioma do FastAPI, não o
+# bug que o B008 procura. `require_role` entra na lista pelo mesmo motivo
+# dos serviços: `Depends(auth.require_role("admin"))` é chamada inline por
+# design. Sem esta entrada, os testes carregavam `# noqa: B008` à mão.
 [tool.ruff.lint.flake8-bugbear]
-extend-immutable-calls = ["fastapi.Depends", "fastapi.Security"]
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Security",
+    "edu_common.deps.AuthDeps.require_role",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# As duas linhas de loop_scope andam juntas. Só a de fixture não basta: o
+# default de teste é "function", e um engine criado no loop da sessão
+# estoura no segundo teste que tocar recurso compartilhado.
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
+markers = [
+    "slow: tests that load a real embeddings model (opt-in)",
+]
+
+[tool.coverage.run]
+source = ["src/edu_common"]
