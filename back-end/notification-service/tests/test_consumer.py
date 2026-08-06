@@ -256,3 +256,43 @@ async def test_every_binding_points_to_a_real_handler():
         ),
     ]
     assert expected == consumer_module.BINDINGS
+
+
+async def test_revision_notification_names_the_subtopic(
+    db_session, test_session_factory, monkeypatch
+):
+    monkeypatch.setattr(consumer_module, "async_session", test_session_factory)
+
+    await consumer_module.handle_revision_scheduled(
+        fake_message(
+            {
+                "aluno_id": STUDENT_ID,
+                "subtema_id": 7,
+                "subtema_nome": "Membrana Plasmática",
+                "proxima_revisao": "2026-08-10T06:00:00+00:00",
+            }
+        )
+    )
+
+    notificacao = (await db_session.execute(select(Notificacao))).scalar_one()
+    assert "Membrana Plasmática" in notificacao.descricao
+
+
+async def test_revision_notification_falls_back_when_the_name_is_missing(
+    db_session, test_session_factory, monkeypatch
+):
+    """Payload antigo (sem `subtema_nome`) não pode derrubar o handler."""
+    monkeypatch.setattr(consumer_module, "async_session", test_session_factory)
+
+    await consumer_module.handle_revision_scheduled(
+        fake_message(
+            {
+                "aluno_id": STUDENT_ID,
+                "subtema_id": 7,
+                "proxima_revisao": "2026-08-10T06:00:00+00:00",
+            }
+        )
+    )
+
+    notificacao = (await db_session.execute(select(Notificacao))).scalar_one()
+    assert "seu conteúdo" in notificacao.descricao

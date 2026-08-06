@@ -9,9 +9,11 @@ from app.config import settings
 from app.database import async_session
 from app.models.notificacao import Notificacao
 
-# Mapa de subtema_id -> nome amigável para exibir na notificação.
-# Pro MVP, um cache simples em memória evita chamar o Learning Service
-# a cada evento; pode ser substituído por uma consulta real se preciso.
+# O produtor (`learning-service/app/scheduler.py`) manda `subtema_nome` no
+# payload desde a fase 2 — este serviço não tem banco de conteúdo e não pode
+# resolver o id sozinho. O fallback cobre mensagem antiga ainda na fila no
+# momento do deploy; sem ele, um `KeyError` derrubaria o handler e a
+# mensagem sumiria (não há DLQ até a fase 3).
 NOMES_SUBTEMA_FALLBACK = "seu conteúdo"
 
 _consumer = EventConsumer(settings.rabbitmq_url, settings.exchange_name)
@@ -20,12 +22,13 @@ _consumer = EventConsumer(settings.rabbitmq_url, settings.exchange_name)
 async def handle_revision_scheduled(message: aio_pika.abc.AbstractIncomingMessage) -> None:
     async with message.process():
         payload = json.loads(message.body)
+        subtema_nome = payload.get("subtema_nome") or NOMES_SUBTEMA_FALLBACK
         async with async_session() as db:
             db.add(
                 Notificacao(
                     aluno_id=payload["aluno_id"],
                     titulo="Hora de revisar!",
-                    descricao=f"Você tem uma revisão agendada para {NOMES_SUBTEMA_FALLBACK}.",
+                    descricao=f"Você tem uma revisão agendada para {subtema_nome}.",
                     tipo="estudo",
                 )
             )
