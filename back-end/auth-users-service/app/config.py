@@ -16,7 +16,15 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
     refresh_token_expire_days: int = 7
-    cors_origins: list[str] = ["http://localhost:3000"]
+
+    # Sem `cors_origins` aqui de propósito: CORS é do gateway
+    # (`api-gateway/app/main.py`), o serviço browser-facing — o app fala com
+    # o gateway, não com este serviço direto. Este serviço não usa cookie:
+    # auth é só Bearer token via Authorization header
+    # (`edu_common.deps.build_auth_deps`), então não há credencial ambiente
+    # que um CSRF cross-origin pudesse anexar sozinho. O campo estava
+    # declarado e nenhum middleware o lia (ver
+    # tests/test_main.py::test_no_cors_middleware_mounted).
 
 
 settings = Settings()
