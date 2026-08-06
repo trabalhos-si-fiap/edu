@@ -2,7 +2,7 @@ from pydantic import BaseModel, Field
 
 
 class MensagemIn(BaseModel):
-    # `/chat/ask` exige autenticação (`get_current_student` em app/main.py),
+    # `/chat/ask` exige autenticação (`get_current_user` em app/main.py),
     # mas o limite de tamanho aqui continua sendo defesa de custo e não só
     # higiene de input: cada pergunta gera uma chamada real ao encoder + à
     # API paga da Groq, e o aluno autenticado ainda pode abusar do volume.

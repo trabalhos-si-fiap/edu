@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, HTTPException
 from loguru import logger
 
-from app.dependencies import get_current_student
+from app.dependencies import get_current_user
 from app.rag import RagIndisponivelError, inicializar_index, responder
 from app.schemas import ExplicacaoOut, ExplicarQuestaoIn, MensagemIn, MensagemOut
 from app.services.diagnostico_client import DiagnosticoContextoError, buscar_contexto_questao
@@ -27,7 +27,7 @@ app = FastAPI(title="Chatbot Service", lifespan=lifespan)
 @app.post("/chat/ask", response_model=MensagemOut)
 async def chat_ask(
     payload: MensagemIn,
-    _user: dict = Depends(get_current_student),
+    _user: dict = Depends(get_current_user),
 ) -> MensagemOut:
     """Assistente genérico (RAG estático) — dúvidas de suporte (frete,
     troca, etc.), sem contexto pessoal do aluno. Autenticado: cada chamada
@@ -63,7 +63,7 @@ async def chat_ask(
 @app.post("/chat/explain-question", response_model=ExplicacaoOut)
 async def chat_explain_question(
     payload: ExplicarQuestaoIn,
-    user: dict = Depends(get_current_student),
+    user: dict = Depends(get_current_user),
 ) -> ExplicacaoOut:
     """
     Explica por que o aluno errou (ou acertou) uma questão específica —
