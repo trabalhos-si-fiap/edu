@@ -106,7 +106,8 @@ async def gerar_questionario_diagnostico(
 @router.get("/subtopics/{subtema_id}/questions")
 async def listar_questoes_diagnostico(
     subtema_id: int,
-    limite: int = Query(8, ge=1, le=50),
+    limit: int = Query(8, ge=1, le=50),
+    offset: int = Query(0, ge=0),
     _usuario: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -114,8 +115,19 @@ async def listar_questoes_diagnostico(
     Questionário focado em UM único subtema (ex: só "Membrana Plasmática"),
     útil para prática pontual — diferente de `/topics/{id}/quiz`, que cobre
     o tema inteiro. Não retorna o gabarito para o cliente.
+
+    `order_by(Questao.id)` é obrigatório com `offset`: `Questao.id` é PK,
+    então ordenar por ele já garante ordem total e estável — sem ele o
+    Postgres não garante ordem alguma entre páginas, e a mesma questão
+    pode aparecer nas duas, ou em nenhuma.
     """
-    result = await db.execute(select(Questao).where(Questao.subtema_id == subtema_id).limit(limite))
+    result = await db.execute(
+        select(Questao)
+        .where(Questao.subtema_id == subtema_id)
+        .order_by(Questao.id)
+        .limit(limit)
+        .offset(offset)
+    )
     questoes = result.scalars().all()
     if not questoes:
         raise HTTPException(404, "Nenhuma questão encontrada para este subtema")
