@@ -17,6 +17,7 @@ seedado) para `get_recomendacao`, e dois testes travando a validação de
 from datetime import UTC, datetime, timedelta
 
 from app.models.progresso import AlunoTemaProgresso
+from app.models.questao import Questao
 from app.models.subtema import Materia, Subtema, Tema
 
 
@@ -227,3 +228,109 @@ async def test_answer_publishes_the_exact_diagnostic_completed_payload(
     assert payload["tema_id"] == tema.id
     assert isinstance(payload["dominio_tema"], float)
     assert payload["acao"] in {"estudar", "avancar", "retroceder"}
+
+
+async def test_answer_ignores_questions_outside_the_payload_topic(
+    client, db_session, student_identity
+):
+    """Questão de OUTRO tema não pode virar `DiagnosticoResposta`.
+
+    Sem o join em Subtema, `Questao.id.in_(...)` aceita qualquer id existente
+    e grava a resposta — que é a linha que o portão do gabarito checa.
+    """
+    materia = Materia(nome="Biologia")
+    db_session.add(materia)
+    await db_session.flush()
+
+    tema_alvo = Tema(materia_id=materia.id, nome="Citologia", ordem=1)
+    tema_alheio = Tema(materia_id=materia.id, nome="Genética", ordem=2)
+    db_session.add_all([tema_alvo, tema_alheio])
+    await db_session.flush()
+
+    subtema_alheio = Subtema(tema_id=tema_alheio.id, nome="Mendel", ordem=1)
+    db_session.add(subtema_alheio)
+    await db_session.flush()
+
+    questao_alheia = Questao(
+        subtema_id=subtema_alheio.id,
+        enunciado="Qual a primeira lei de Mendel?",
+        alternativas={"A": "a", "B": "b", "C": "c", "D": "d"},
+        gabarito="A",
+        nivel_dificuldade=1,
+    )
+    db_session.add(questao_alheia)
+    await db_session.commit()
+
+    response = await client.post(
+        "/diagnostic/answer",
+        json={
+            "tema_id": tema_alvo.id,
+            "respostas": [{"questao_id": questao_alheia.id, "alternativa_escolhida": "A"}],
+        },
+        headers=student_identity.headers,
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Nenhuma resposta válida foi enviada"
+
+
+async def test_answer_does_not_open_the_answer_key_gate_for_a_foreign_question(
+    client, db_session, student_identity
+):
+    """Reprodução ponta a ponta da falha: /answer com questão de outro tema
+    NÃO pode fazer o /context daquela questão passar a devolver o gabarito."""
+    materia = Materia(nome="Biologia")
+    db_session.add(materia)
+    await db_session.flush()
+
+    tema_alvo = Tema(materia_id=materia.id, nome="Citologia", ordem=1)
+    tema_alheio = Tema(materia_id=materia.id, nome="Genética", ordem=2)
+    db_session.add_all([tema_alvo, tema_alheio])
+    await db_session.flush()
+
+    subtema_alheio = Subtema(tema_id=tema_alheio.id, nome="Mendel", ordem=1)
+    db_session.add(subtema_alheio)
+    await db_session.flush()
+
+    questao_alheia = Questao(
+        subtema_id=subtema_alheio.id,
+        enunciado="Qual a primeira lei de Mendel?",
+        alternativas={"A": "a", "B": "b", "C": "c", "D": "d"},
+        gabarito="A",
+        nivel_dificuldade=1,
+    )
+    db_session.add(questao_alheia)
+    await db_session.commit()
+
+    antes = await client.get(
+        f"/diagnostic/questions/{questao_alheia.id}/context",
+        headers=student_identity.headers,
+    )
+    assert antes.status_code == 403
+
+    await client.post(
+        "/diagnostic/answer",
+        json={
+            "tema_id": tema_alvo.id,
+            "respostas": [{"questao_id": questao_alheia.id, "alternativa_escolhida": "A"}],
+        },
+        headers=student_identity.headers,
+    )
+
+    depois = await client.get(
+        f"/diagnostic/questions/{questao_alheia.id}/context",
+        headers=student_identity.headers,
+    )
+    assert depois.status_code == 403, "o /answer abriu o portão do gabarito"
+
+
+async def test_answer_rejects_more_responses_than_the_cap(client, student_identity):
+    response = await client.post(
+        "/diagnostic/answer",
+        json={
+            "tema_id": 1,
+            "respostas": [{"questao_id": i, "alternativa_escolhida": "A"} for i in range(51)],
+        },
+        headers=student_identity.headers,
+    )
+    assert response.status_code == 422

@@ -1,11 +1,13 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class RespostaItem(BaseModel):
     questao_id: int
-    alternativa_escolhida: str
+    # `Questao.gabarito` é `String(1)`; a alternativa escolhida é comparada
+    # com ele. Qualquer coisa maior é ruído que nunca casaria.
+    alternativa_escolhida: str = Field(min_length=1, max_length=1)
 
 
 class RespostaDiagnosticoIn(BaseModel):
@@ -16,7 +18,12 @@ class RespostaDiagnosticoIn(BaseModel):
     """
 
     tema_id: int
-    respostas: list[RespostaItem]
+    # Teto por contrato (regra 4 do CLAUDE.md): o questionário do app tem 15
+    # perguntas e `/subtopics/{id}/questions` já limita em 50. Sem teto, um
+    # POST com 100 mil itens vira 100 mil INSERTs numa transação só.
+    # Sem `min_length`: lista vazia continua caindo no 400 "Nenhuma resposta
+    # válida foi enviada" que a suíte já trava, em vez de virar 422.
+    respostas: list[RespostaItem] = Field(max_length=50)
 
 
 class SubtemaAvaliadoOut(BaseModel):

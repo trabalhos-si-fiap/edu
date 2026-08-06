@@ -49,7 +49,19 @@ async def responder_diagnostico(
         raise HTTPException(404, "Tema não encontrado")
 
     questao_ids = [r.questao_id for r in payload.respostas]
-    result = await db.execute(select(Questao).where(Questao.id.in_(questao_ids)))
+    # O join em Subtema amarra cada questão ao `payload.tema_id`. Sem ele,
+    # `Questao.id.in_(...)` aceitava qualquer id existente e o laço abaixo
+    # gravava um `DiagnosticoResposta` para ele — que é exatamente a linha
+    # que `GET /diagnostic/questions/{id}/context` checa antes de liberar o
+    # gabarito. Duas requisições e o aluno lia a resposta certa de qualquer
+    # questão do banco. Ids fora do tema simplesmente não entram no dict e
+    # caem no `continue` do laço; se nenhum sobrar, a rota devolve o 400 de
+    # "nenhuma resposta válida".
+    result = await db.execute(
+        select(Questao)
+        .join(Subtema, Questao.subtema_id == Subtema.id)
+        .where(Questao.id.in_(questao_ids), Subtema.tema_id == payload.tema_id)
+    )
     questoes = {q.id: q for q in result.scalars().all()}
 
     # O questionário de 15 perguntas cobre vários subtemas do tema (ex:
@@ -262,23 +274,10 @@ async def contexto_questao(
     errou ou acertou.
 
     Só libera o gabarito se existir um registro de que ESTE aluno JÁ
-    respondeu ESTA questão (`DiagnosticoResposta`). Isso barra a leitura
-    do gabarito de outro aluno e a leitura direta de um id qualquer — mas
-    NÃO é uma garantia de que o aluno só vê gabarito de questão que ele
-    de fato estudou: ele mesmo consegue criar a linha que abre o portão.
-
-    # TODO(fase 2): auto-autorização em duas requisições. `POST
-    # /diagnostic/answer` (linha ~51) busca as questões por
-    # `Questao.id.in_(questao_ids)` sem amarrar nenhuma delas ao
-    # `payload.tema_id`, e grava um `DiagnosticoResposta` para qualquer id
-    # existente. O aluno manda um /answer com o id-alvo, recebe o 200, e o
-    # GET aqui passa a devolver o gabarito desse id. O portão abaixo checa
-    # exatamente a linha que a requisição anterior acabou de criar.
-    # Correção (fase 2): validar em /answer que `questao.subtema_id`
-    # pertence a um `Subtema` do `payload.tema_id`, rejeitando o resto.
-    # A falha é do código vendorizado (presente em 129db97, na importação),
-    # então a fase 1 congela o comportamento e só documenta — ver a regra
-    # de freeze-what-exists no plano da fase 1.
+    respondeu ESTA questão (`DiagnosticoResposta`). Desde a fase 2 essa
+    linha só pode nascer de um `POST /diagnostic/answer` cujo `tema_id`
+    contém a questão (o join em `Subtema` lá em cima), então o aluno não
+    consegue mais fabricá-la para um id arbitrário.
     """
     resposta_result = await db.execute(
         select(DiagnosticoResposta)
