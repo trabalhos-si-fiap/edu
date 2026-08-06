@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class UserOut(BaseModel):
@@ -16,5 +16,5 @@ class UserOut(BaseModel):
 
 
 class UserUpdateIn(BaseModel):
-    nome: str | None = None
-    telefone: str | None = None
+    nome: str | None = Field(default=None, max_length=150)
+    telefone: str | None = Field(default=None, max_length=20)
