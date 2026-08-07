@@ -17,11 +17,11 @@ dependencies = [
     "redis>=5.2.0",
     "aioboto3>=13.2.0",
     "uuid-utils>=0.10.0",
+    "httpx>=0.28.0",
 ]
 
 [dependency-groups]
 dev = [
-    "httpx>=0.28.0",
     "pytest>=8.3.0",
     "pytest-asyncio>=0.25.0",
     "pytest-cov>=6.0.0",

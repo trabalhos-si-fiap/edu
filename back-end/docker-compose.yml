@@ -274,6 +274,9 @@ services:
       # Assina a URL presignada contra o IP LAN do host, para o aparelho
       # físico alcançar o MinIO. Mesma linha que `api` e `worker` já têm.
       R2_PUBLIC_ENDPOINT_URL: "http://${HOST_IP:-10.0.2.2}:9000"
+      # Chamada serviço-a-serviço para app/services/auth_client.py (nome do
+      # autor da review, hoje; endereço de entrega, a partir do bloco C).
+      AUTH_SERVICE_URL: http://auth-users-service:8000
     depends_on:
       postgres:
         condition: service_healthy
@@ -282,6 +285,8 @@ services:
       redis:
         condition: service_healthy
       minio:
+        condition: service_started
+      auth-users-service:
         condition: service_started
 
   chatbot-service:

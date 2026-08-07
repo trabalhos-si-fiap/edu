@@ -49,5 +49,10 @@ class Settings(BaseSettings):
     media_presign_cache_ttl_seconds: int = 82800
     media_max_upload_bytes: int = 5 * 1024 * 1024
 
+    # Chamada serviço-a-serviço para resolver dados que o JWT não carrega:
+    # `GET /auth/me` (nome do autor da review) e, a partir do bloco C,
+    # `GET /auth/addresses/{id}` (snapshot de entrega no checkout).
+    auth_service_url: str = "http://auth-users-service:8000"
+
 
 settings = Settings()
