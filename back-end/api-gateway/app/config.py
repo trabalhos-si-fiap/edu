@@ -25,8 +25,10 @@ class Settings(BaseSettings):
     # sem teto um POST anônimo de megabytes já custa a memória do gateway —
     # comprovado na fase 1 com 9,6 MB. `app/main.py` compara o acumulado a
     # cada pedaço de `request.stream()` e aborta no primeiro que passa daqui,
-    # então este número é o teto do que chega a existir em memória, não o
-    # tamanho a partir do qual um corpo já lido vira 413. 2 MiB cobre com
+    # então o corpo nunca é lido inteiro. Este número NÃO é o pico de
+    # memória: o pico é ele mais o pedaço que estourou o teto — no teste do
+    # cap, 2 200 000 bytes contra um teto de 2 097 152. Ver a ressalva sobre
+    # pedaço isolado em `app/main.py`. 2 MiB cobre com
     # folga o maior corpo que o app envia hoje (JSON de pedido/endereço);
     # upload de imagem é fase 3 e vai precisar de um caminho próprio, não
     # deste.

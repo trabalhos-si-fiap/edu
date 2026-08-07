@@ -444,11 +444,13 @@ async def test_concurrent_answers_keep_both_streak_increments(
     ao SELECT depois do `db.commit()` da primeira) e o teste passa contra o
     codigo defeituoso.
 
-    E a barreira MUTUA que o teste irmao usa (as duas esperam uma pela
-    outra dentro de `atualizar_revisao`) nao serve aqui: com
-    `with_for_update()`, a segunda requisicao trava no proprio SELECT e
-    nunca chega ao ponto de encontro — a primeira esperaria para sempre.
-    Barreira mutua e teste de lock nao coexistem.
+    E o encontro do teste irmao nao serve aqui, mas nao pelo motivo obvio:
+    ele TAMBEM e de mao unica — avisa dentro de `atualizar_revisao` e
+    espera dentro de `publish_event`, que roda DEPOIS do `db.commit()`
+    (`app/routers/diagnostico.py`, commit antes do publish), ou seja com o
+    lock ja solto, sem ninguem pendurado. O que nao serve e o MOMENTO do
+    aviso: `atualizar_revisao` roda depois do SELECT do progresso, tarde
+    demais para forcar a intercalacao no ponto que decide o streak.
 
     Entao o encontro e de mao unica, entre dois pontos escolhidos:
 

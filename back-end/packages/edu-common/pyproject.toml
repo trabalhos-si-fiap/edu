@@ -71,7 +71,8 @@ testpaths = ["tests"]
 addopts = "-ra --strict-markers"
 # Mesmo caso: o marcador é a linha uniforme das oito `pyproject.toml` da
 # frota, e não descreve nada que exista aqui — o edu-common não carrega
-# modelo de embeddings (`grep -rni "embedding" .` só acha esta linha) nem
+# modelo de embeddings (`grep -rni "embedding" .` acha 4 linhas, e as 4
+# são este comentário e o próprio marcador — nenhum código) nem
 # tem teste marcado (`grep -rn "slow" tests/` não devolve nada). Os únicos
 # usos reais de `pytest.mark.slow` estão em
 # `commerce-service/tests/test_embeddings_fixture.py:71` e

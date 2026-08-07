@@ -110,8 +110,10 @@ async def responder_diagnostico(
     # mundo elimina o ciclo. Efeito colateral aceito: `subtemas_avaliados` e
     # `recomendacoes` saem ordenados por `subtema_id`; nada nas suítes nem nos
     # consumidores depende da ordem anterior (verificado com
-    # `grep -rn "subtemas_avaliados\|recomendacoes"` nos testes e nos três
-    # serviços que consomem o evento).
+    # `grep -rn "subtemas_avaliados\|recomendacoes"` nos testes e nos dois
+    # serviços que consomem o evento — analytics e notification, os únicos
+    # com `app/events/consumer.py`; o chatbot fala com esta rota por HTTP,
+    # não pelo evento).
     for subtema_id, respostas in sorted(respostas_por_subtema.items()):
         dominio = calcular_dominio(respostas)
         dominios_por_subtema[subtema_id] = (dominio, len(respostas))

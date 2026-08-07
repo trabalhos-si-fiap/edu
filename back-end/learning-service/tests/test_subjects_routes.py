@@ -305,7 +305,9 @@ async def test_subtopics_pagination_is_stable_when_ordem_is_not_unique(
 # para `limit` e acrescenta `offset`, com `order_by(Questao.id)` para a
 # pagina ser estavel — sem duplicar linha nem pular nenhuma entre paginas.
 #
-# `limite` era o unico param em portugues DESTE arquivo, nao da frota: os
+# `limite` era o unico param em portugues da ROTA
+# `/subtopics/{id}/questions` — nao deste arquivo de teste, que exercita
+# `quantidade` em `test_quiz_quantidade_has_a_hard_cap`, nem da frota: os
 # outros quatro seguem vivos e fora de escopo, medidos com
 # `grep -rnE 'Query\(|Path\(' back-end/*/app/routers/*.py` —
 # `learning/materias.py:81` `quantidade`, `commerce/admin.py:101`
