@@ -2,6 +2,116 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+---
+
+## AVISO DE PROCEDÊNCIA — leia antes de qualquer task
+
+Este plano inteiro foi escrito **antes de qualquer execução**, igual ao do bloco A.
+
+**Todo `Expected:` deste documento é previsão NÃO MEDIDA.** O mesmo vale para
+todo bloco "Esperado:", toda contagem de linhas, todo nome de constraint, todo
+nome de arquivo do legacy e toda justificativa causal. Nada disso foi observado
+rodando; foi deduzido por leitura.
+
+O bloco A mediu o custo dessa distinção: **os diagnósticos se sustentaram quase
+todos, mas as previsões e as justificativas erraram sistematicamente.** Quinze
+defeitos de plano só apareceram executando, e quinze afirmações factuais falsas
+foram escritas em comentário, docstring e mensagem de commit — nenhuma pega por
+teste, porque todas passavam verdes. Todas pegas por alguém medir.
+
+### As três regras que valem em cima de todo `Expected:`
+
+1. **Rode o teste ANTES do fix e confirme que ele falha pelo motivo certo.**
+   Um Red que falha por outra razão (import errado, 404 que a asserção não
+   distingue) não é Red — é um teste que você ainda não sabe se funciona.
+
+2. **Toda afirmação factual precisa do comando que a produziu.** Se você não
+   mediu, não escreva — nem em comentário, nem em docstring, nem em mensagem de
+   commit, nem em relatório. Afirmação **auto-referencial** ("este grep acha só
+   esta linha", "esta é a única ocorrência", "o arquivo tem N linhas") tem que
+   ser **re-medida DEPOIS da edição**: foi exatamente assim que uma delas virou
+   falsa no bloco A.
+
+3. **Quando o plano e a medição discordam, a medição decide.** Não force a
+   realidade a caber no `Expected:`. Divergência medida vira linha no relatório
+   da task — é ela que a fase 4 vai ler, não o plano.
+
+### Erratas já medidas contra este plano (medidas em 2026-08-07, antes da task B0)
+
+Correções ao texto abaixo. Onde a errata contradiz o corpo do plano, **a errata
+governa**:
+
+- **Proibição absoluta:** nenhum `docker compose up/down/restart/build`, nenhum
+  `make stack-up`, nenhum `make services-migrate`, e **nenhum
+  `alembic upgrade head` contra banco real**. O stack do usuário está no ar,
+  construído do checkout principal, e o compose usa o mesmo
+  `COMPOSE_PROJECT_NAME` — subir substituiria os containers dele. Todo passo
+  deste plano que manda `docker compose exec <svc> uv run alembic ...` vira, em
+  vez disso, banco descartável no host:
+
+  ```bash
+  docker exec -i edu-postgres psql -U edu -d postgres -c 'CREATE DATABASE syncchk_commerce;'
+  cd back-end/commerce-service
+  DATABASE_URL='postgresql+asyncpg://edu:<senha>@localhost:5433/syncchk_commerce' uv run alembic upgrade head
+  DATABASE_URL='postgresql+asyncpg://edu:<senha>@localhost:5433/syncchk_commerce' uv run alembic revision --autogenerate -m "sync check"
+  # inspecionar a revision gerada, apagá-la
+  docker exec -i edu-postgres psql -U edu -d postgres -c 'DROP DATABASE syncchk_commerce;'
+  ```
+
+  O container do Postgres chama-se **`edu-postgres`**, não `postgres`. Leitura
+  (`SELECT count(*)`) contra `commerce_db` é permitida — é só leitura.
+
+- **O `Makefile` fica na RAIZ do repositório**, não em `back-end/`. `make
+  services-test` e `make services-lint` rodam no host, sem compose — são
+  permitidos.
+
+- **Lockfiles:** `uv run pytest` reescreve o `uv.lock` de analytics, auth-users
+  e chatbot; `make services-lint` reescreve o dos seis que dependem do
+  `edu-common`. Rode `git status` depois de todo teste/lint e **reverta só os
+  lockfiles** que você não mudou de propósito.
+
+- **Baseline medido neste worktree em 2026-08-07** (`make services-test`, saída
+  0): 402 testes na frota — edu-common 59, api-gateway 36, auth-users 61,
+  learning 78, **commerce 88**, chatbot 23, notification 24, analytics 33.
+  Nenhum número pode diminuir.
+
+- **A dependência de usuário autenticado tem DOIS nomes**, medido em
+  `commerce-service/app/dependencies.py`: `get_current_user` devolve `dict`
+  (com a chave `raw_token`, confirmada em
+  `packages/edu-common/src/edu_common/deps.py`), e `get_current_user_id`
+  devolve `str`. O plano usa `get_current_user` e `user["raw_token"]` — os dois
+  existem.
+
+- **Redis de teste: `fakeredis`, não o Redis real.** Decisão do usuário em
+  2026-08-07. A fixture do conftest (task B2/Step 6) usa `fakeredis.aioredis`,
+  não `settings.redis_url_test` — o `edu-redis` no ar é o do usuário, e
+  `flushdb` numa instância viva não é do escopo deste bloco. `redis_url_test`
+  continua declarada em config, sem consumidor na suíte. Registre a divergência
+  no relatório da B2.
+
+- **`/payment-methods` e `/cart` seguem SEM paginação.** Decisão do usuário em
+  2026-08-07: entre a constraint 18 deste plano (réplica exata) e a regra 4 do
+  `CLAUDE.md` (listagem paginada obrigatória), **o plano governa**. Registre a
+  divergência no relatório da B9 e no portão B11 para o revisor final não a
+  confundir com esquecimento.
+
+- **O app Flutter fala DIRETO com o monolito legado na porta 8001**, não com o
+  `api-gateway`. Nenhum cliente chega ao `SERVICE_MAP`. Consequência para toda
+  afirmação de contrato deste plano: mudança só no gateway não quebra o app, e
+  conserto só no gateway não o ajuda. Medido: `api-gateway/app/routing.py`
+  mapeia `products`, `cart` e `payment-methods` para `commerce` — as duas
+  últimas são as lacunas que este bloco fecha.
+
+- **Ambiente medido em 2026-08-07:** estão no ar `edu-postgres` (5433),
+  `edu-redis` (6380), `edu-rabbitmq` e os sete microserviços (8100–8106).
+  **NÃO** estão no ar o `minio` nem o `api` legado (8001), e a porta 9000 do
+  host está ocupada por `maquina-minio-1`, de outro projeto. Passos que exigem
+  MinIO (B2/Step 7, B10/Step 5) precisam de provisionamento próprio, autorizado
+  pelo usuário — container novo, nome próprio, porta livre, **nunca** via
+  compose.
+
+---
+
 **Goal:** Fazer o `commerce-service` servir `/products`, `/cart` e `/payment-methods` byte a byte como o legacy os serve hoje, para que a fase 4 seja uma troca de `API_BASE_URL` e não uma reconciliação.
 
 **Architecture:** O agregado `produtos` vira `products` — tabela, colunas e PK UUID — porque é o primeiro agregado do commerce a ganhar cliente. `reviews`, `carts`, `cart_items` e `payment_methods` são portados inteiros do legacy: não existem no commerce. `image_url` guarda **chave de objeto**, não URL; a serialização a transforma em URL presignada memoizada no Redis. Nada aqui toca pedido — isso é o bloco C.
