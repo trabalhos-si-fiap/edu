@@ -12,6 +12,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
 
 from app.database import Base
 from app.ids import new_uuid
@@ -71,6 +72,10 @@ class Product(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    reviews = relationship(
+        "Review", back_populates="product", cascade="all, delete-orphan", passive_deletes=True
     )
 
 

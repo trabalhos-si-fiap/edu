@@ -15,7 +15,9 @@ from app.schemas.produto import (
     ProductList,
     ProductOut,
 )
+from app.schemas.review import ReviewIn, ReviewList, ReviewOut
 from app.services import produtos as services
+from app.services.auth_client import AuthServiceUnavailableError, get_me
 from app.services.media import presigned_image_url
 from app.storage import ObjectStorage, get_storage
 
@@ -81,3 +83,55 @@ async def detalhe_produto(
     except ProductNotFoundError as exc:
         raise _NOT_FOUND from exc
     return await _product_out(product, storage=storage, redis=redis)
+
+
+@router.get("/{product_id}/reviews", response_model=ReviewList)
+async def listar_reviews(
+    product_id: uuid.UUID,
+    _user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+) -> ReviewList:
+    """`rating_avg` e `rating_count` vêm do PRODUTO, não da página de reviews:
+    são o agregado do catálogo inteiro, e a página é só um recorte. Trocar um
+    pelo outro faria a nota cair conforme o usuário paginasse."""
+    try:
+        product = await services.buscar_produto(db, product_id)
+        items, total = await services.listar_reviews(db, product_id, limit=limit, offset=offset)
+    except ProductNotFoundError as exc:
+        raise _NOT_FOUND from exc
+    return ReviewList(
+        items=[ReviewOut.model_validate(r) for r in items],
+        total=total,
+        rating_avg=float(product.rating_avg),
+        rating_count=product.rating_count,
+    )
+
+
+@router.post("/{product_id}/reviews", response_model=ReviewOut, status_code=status.HTTP_201_CREATED)
+async def criar_review(
+    product_id: uuid.UUID,
+    payload: ReviewIn,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ReviewOut:
+    try:
+        me = await get_me(user["raw_token"])
+    except AuthServiceUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Serviço de usuários indisponível",
+        ) from exc
+
+    try:
+        review = await services.criar_review(
+            db,
+            product_id,
+            user_id=uuid.UUID(user["sub"]),
+            author=me["name"],
+            data=payload,
+        )
+    except ProductNotFoundError as exc:
+        raise _NOT_FOUND from exc
+    return ReviewOut.model_validate(review)

@@ -21,6 +21,7 @@ async def test_engine() -> AsyncIterator[AsyncEngine]:
     from app.models import ocorrencia as ocorrencia_models  # noqa: F401
     from app.models import pedido as pedido_models  # noqa: F401
     from app.models import produto as produto_models  # noqa: F401
+    from app.models import review as review_models  # noqa: F401
 
     engine = create_async_engine(settings.database_url_test, echo=False, future=True)
     async with engine.begin() as conn:
