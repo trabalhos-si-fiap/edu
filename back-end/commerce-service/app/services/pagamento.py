@@ -23,10 +23,11 @@ task-B9-report.md, seção "Divergência do lock").
 Dois mecanismos, não um só, porque são DUAS classes de corrida diferentes
 (mesma dualidade de `app/services/carrinho.py`, B8):
 
-1. `criar_metodo`/`apagar_metodo` fazem `.with_for_update()` nas linhas
-   EXISTENTES do usuário antes de decidir quem é o default — serializa
-   corridas quando já existe pelo menos 1 linha (ex.: DELETE do default
-   concorrente com POST de um novo default).
+1. `criar_metodo`/`apagar_metodo`/`definir_padrao` fazem `.with_for_update()`
+   nas linhas EXISTENTES do usuário antes de decidir quem é o default —
+   serializa corridas quando já existe pelo menos 1 linha (ex.: DELETE do
+   default concorrente com POST de um novo default). `definir_padrao` entrou
+   nesta lista na rodada de correção 2 (ver o fim desta docstring).
 2. Quando NÃO existe nenhuma linha ainda (a corrida mais dura: dois
    `criar_metodo` concorrentes, usuário zerado), não há o que
    `with_for_update()` travar — o Postgres nunca bloqueia um INSERT novo por
@@ -44,10 +45,22 @@ mantido), a corrida de POST/POST sem nenhuma linha VOLTA (20/20 vermelho) —
 mantido), as DUAS corridas continuam protegidas (20/20 verde nas duas) — o
 índice, combinado com o catch de `IntegrityError` em `criar_metodo` e a
 guarda `not remaining[0].is_default` em `apagar_metodo`, já é suficiente
-sozinho neste código. Mantido `with_for_update` mesmo assim — decisão
-explícita do usuário ("PÔR O LOCK"), consistente com o idioma já usado em
-`carrinho.py`, e ele reduz quantas vezes uma corrida precisa cair no caminho
-de retry via `IntegrityError` em vez de serializar antes de chegar lá.
+sozinho PARA AQUELAS DUAS CORRIDAS. Mantido `with_for_update` mesmo assim —
+decisão explícita do usuário ("PÔR O LOCK"), consistente com o idioma já
+usado em `carrinho.py`, e ele reduz quantas vezes uma corrida precisa cair
+no caminho de retry via `IntegrityError` em vez de serializar antes de
+chegar lá.
+
+RODADA DE CORREÇÃO 2 — o parágrafo acima NÃO se generaliza, e a medição que
+o derrubou está aqui: existe uma TERCEIRA corrida, em `definir_padrao`
+(PATCH), na qual o índice sozinho não só é insuficiente como é a CAUSA do
+dano. Dois PATCH concorrentes com ≥3 métodos e os DOIS alvos não-default
+faziam o segundo estourar `UniqueViolationError` no commit e devolver 500
+(medido: `(200, 500)` em 19/20 rodadas; a rota nunca tinha sido tocada pela
+rodada 1). O conserto é o mesmo `_listar_metodos_com_lock` — aqui o
+`with_for_update` é ESTRITAMENTE necessário: removendo só ele (índice
+mantido), o teste de regressão dá 20/20 vermelho. Ver task-B9-report.md,
+"RODADA DE CORREÇÃO 2".
 """
 
 import uuid
@@ -72,8 +85,9 @@ async def listar_metodos(db: AsyncSession, user_id: uuid.UUID) -> list[PaymentMe
 
 async def _listar_metodos_com_lock(db: AsyncSession, user_id: uuid.UUID) -> list[PaymentMethod]:
     """Mesma consulta de `listar_metodos`, com `.with_for_update()` — trava
-    as linhas EXISTENTES do usuário antes de `criar_metodo`/`apagar_metodo`
-    decidirem quem é o default (regra 3 do CLAUDE.md). Só serializa quando
+    as linhas EXISTENTES do usuário antes de
+    `criar_metodo`/`apagar_metodo`/`definir_padrao` decidirem quem é o
+    default (regra 3 do CLAUDE.md). Só serializa quando
     já existe pelo menos 1 linha; ver docstring do módulo para o caso de
     zero linhas (fechado pelo índice único parcial, não por este lock)."""
     stmt = (
@@ -159,6 +173,30 @@ async def definir_padrao(
 ) -> PaymentMethod:
     method = await obter_metodo(db, user_id, method_id)
     if patch.is_default is True:
+        # Mesmo lock de `criar_metodo`/`apagar_metodo` — acrescentado na
+        # rodada de correção 2. Sem ele, dois PATCH concorrentes do mesmo
+        # usuário (≥3 métodos, os DOIS alvos não-default) esbarravam no
+        # índice `ix_payment_methods_one_default_per_user` e o segundo
+        # devolvia 500: medido em 19/20 rodadas `(200, 500)` com
+        # `IntegrityError`/`UniqueViolationError` no `db.commit()` abaixo
+        # (ver task-B9-report.md, "RODADA DE CORREÇÃO 2").
+        #
+        # POR QUE o lock resolve, medido e não suposto: sem ele, o
+        # `_limpar_outros_padroes` do segundo PATCH já tinha começado (e
+        # bloqueado na linha do default antigo) ANTES do primeiro commitar,
+        # então sua snapshot READ COMMITTED não enxergava o novo default do
+        # vencedor e não o limpava — restavam dois `is_default=true`, que é
+        # exatamente o que o índice proíbe. Com o lock, o segundo PATCH
+        # espera AQUI; seu `_limpar_outros_padroes` só começa depois do
+        # commit do primeiro, tira uma snapshot nova, enxerga o default
+        # recém-criado e o limpa. Resultado: último a commitar vence, sempre
+        # exatamente 1 default (20/20 medido).
+        #
+        # O retorno é descartado de propósito: aqui só interessa o efeito
+        # colateral do `FOR UPDATE` (a decisão de quem é o default sai de
+        # `_limpar_outros_padroes`, não da lista). É o único uso da função
+        # que ignora o resultado.
+        await _listar_metodos_com_lock(db, user_id)
         await _limpar_outros_padroes(db, user_id, manter_id=method.id)
         method.is_default = True
     elif patch.is_default is False:

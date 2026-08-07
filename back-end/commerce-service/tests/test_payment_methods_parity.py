@@ -335,6 +335,10 @@ class TestDefaultLockConcurrency:
        `criar_metodo` e `apagar_metodo` — protege quando já existe pelo
        menos 1 linha (serializa a decisão de quem vira default).
 
+    A rodada de correção 2 acrescentou o terceiro teste desta classe e
+    estendeu o mesmo `_listar_metodos_com_lock` a `definir_padrao` (PATCH),
+    onde o índice da proteção 1, sozinho, produzia 500 em vez de proteger.
+
     Limitação declarada (mesma do bloco A/B7/B8): um teste destes, num
     único processo/event loop, prova a ORDEM LÓGICA das operações e
     exercita um lock de linha real do Postgres entre duas conexões
@@ -501,4 +505,82 @@ class TestDefaultLockConcurrency:
         defaults = [m for m in listing if m["is_default"]]
         assert len(defaults) == 1, (
             f"esperava exatamente 1 default, achou {len(defaults)}: {listing}"
+        )
+
+    async def test_concurrent_patch_of_two_non_default_methods_keeps_200_and_one_default(
+        self,
+        client: AsyncClient,
+    ) -> None:
+        """Regressão da rodada de correção 1: o índice único parcial
+        `ix_payment_methods_one_default_per_user` passou a fazer
+        `definir_padrao` (PATCH) devolver **500** sob concorrência — rota que
+        aquela rodada nunca tocou. Ver task-B9-report.md, "RODADA DE CORREÇÃO
+        2".
+
+        CONFIGURAÇÃO É O TESTE. Precisa de ≥3 métodos com os DOIS alvos do
+        PATCH não-default. Medido, 50 rodadas cada, contra o código sem o
+        lock em `definir_padrao`:
+
+        - 3 métodos, alvos não-default: `(200, 500)` em 19/20 (`text/plain`,
+          `Internal Server Error`, do `ServerErrorMiddleware`).
+        - 2 métodos, um deles já o default: `(200, 200)` com 1 default em
+          50/50 — ou seja, um teste montado no caso de 2 métodos passa COM ou
+          SEM o conserto e não prova nada.
+
+        SEM sinal forçado de propósito (ao contrário dos dois testes acima
+        desta classe): aqui o entrelaçamento acontece sozinho, porque o
+        segundo PATCH BLOQUEIA dentro do Postgres no `UPDATE` de
+        `_limpar_outros_padroes` (disputando a linha do default antigo com o
+        primeiro PATCH) — não é preciso `asyncio.Event` nenhum para forçar a
+        ordem. Medido contra o código sem o lock: 20 execuções independentes
+        do arquivo inteiro, `GREENS=0 REDS=20`, e as 20 carregam
+        `UniqueViolationError`. Sem sensibilidade de invocação: a classe
+        sozinha também dá `GREENS=0 REDS=20`.
+
+        Vencedor: o ÚLTIMO a commitar. Medido com o conserto, 50 rodadas,
+        50/50 `winner == LAST successful committer` (script de medição em
+        task-B9-report.md) — mesma semântica de "quem chegou por último
+        manda" que o legacy tem sem lock nenhum.
+        """
+        primeiro = (
+            await client.post(
+                "/payment-methods", json=credit_card(), headers=headers_for("student")
+            )
+        ).json()
+        segundo = (
+            await client.post("/payment-methods", json=pix(), headers=headers_for("student"))
+        ).json()
+        terceiro = (
+            await client.post(
+                "/payment-methods",
+                json=credit_card(card_last4="5678"),
+                headers=headers_for("student"),
+            )
+        ).json()
+        assert primeiro["is_default"] is True
+        assert segundo["is_default"] is False
+        assert terceiro["is_default"] is False
+
+        r2, r3 = await asyncio.gather(
+            client.patch(
+                f"/payment-methods/{segundo['id']}",
+                json={"is_default": True},
+                headers=headers_for("student"),
+            ),
+            client.patch(
+                f"/payment-methods/{terceiro['id']}",
+                json={"is_default": True},
+                headers=headers_for("student"),
+            ),
+        )
+        assert r2.status_code == 200, r2.text
+        assert r3.status_code == 200, r3.text
+
+        listing = (await client.get("/payment-methods", headers=headers_for("student"))).json()
+        defaults = [m for m in listing if m["is_default"]]
+        assert len(defaults) == 1, (
+            f"esperava exatamente 1 default, achou {len(defaults)}: {listing}"
+        )
+        assert defaults[0]["id"] in {segundo["id"], terceiro["id"]}, (
+            f"o default deveria ser um dos dois alvos do PATCH, veio {defaults[0]}"
         )
