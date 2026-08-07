@@ -1,8 +1,9 @@
 """Testes de paridade da camada de serviço de produtos — porte de
 `legacy/tests/modules/products/test_services.py` (9 testes, 4 classes), o
-buraco que o portão do bloco B (task B11) mediu: nenhum dos nove nomes
-existia no commerce sob nome nenhum
-(`grep -rn <nome> back-end/commerce-service/tests/` sai 1 para os nove).
+buraco que o portão do bloco B (task B11) mediu: antes deste arquivo existir,
+nenhum dos nove nomes existia no commerce sob nome nenhum
+(`grep -rn <nome> back-end/commerce-service/tests/` saía 1 para os nove; hoje
+sai 0, por causa deste arquivo).
 
 Duas propriedades que este arquivo trava não tinham NENHUMA guarda antes
 dele — medido por mutação contra a árvore commitada em `90a8aed`:

@@ -154,7 +154,7 @@ sido portado, e nenhum dos nove nomes existia no commerce sob outro nome. Não
 era carve-out declarado: o plano cita esse arquivo **uma única vez**, dentro do
 comando de comparação do próprio portão, e nunca mandou nenhuma task portá-lo.
 
-Sete dos nove comportamentos tinham equivalente ao nível de rota. **Três não
+Seis dos nove comportamentos tinham equivalente ao nível de rota. **Três não
 tinham** — e os três foram provados por mutação: a suíte inteira ficava verde
 com o comportamento quebrado.
 
@@ -177,7 +177,7 @@ e depois, com eles.
 | `total` reporta a contagem completa quando `limit` trunca | `total = len(items)` em `listar_produtos` | `177 passed` | `assert 2 == 3` | `test_pagination_limits_and_reports_full_total` |
 | POST de review em produto inexistente **autenticado** → 404 | trocar `except ProductNotFoundError` do POST em `app/routers/produtos.py` | `177 passed` | `app.exceptions.ProductNotFoundError` propaga (sem 404) | `test_create_review_for_unknown_product_returns_404` |
 
-Mais oito mutações cobrem os outros seis testes portados (agregados de review
+Mais oito mutações cobrem os outros sete testes portados (agregados de review
 não recomputados, `author` e `user_id` não propagados, `raise` de
 `buscar_produto` removido, contagem de categorias falsificada, `offset+1`,
 linha errada em `buscar_produto`, exceção errada em `criar_review`) — **11 de
@@ -196,6 +196,11 @@ POST em `uuid.uuid4()` é o de 401, sem `headers=`. Os dois roteadores traduzem
 a mesma exceção no mesmo 404 `"Product not found"`
 (`legacy/app/modules/products/routes.py:130-131` × `app/routers/produtos.py`),
 comparados **por leitura**. Nenhum código de produção foi alterado.
+
+Uma diferença real nessa mesma rota, que a leitura expôs e que a fase 4 precisa
+saber: o POST do commerce chama `get_me` no auth-service **antes** de tocar o
+banco, então ele tem um **503** que o legacy não consegue produzir. O 404 é
+idêntico; o caminho de falha do auth não é.
 
 ---
 
@@ -293,12 +298,17 @@ categoria hoje**. Remoção deliberada, mandada pelo plano.
 
 ## 8. Estado da frota
 
-`make services-test` e `make services-lint`, 8/8 alvos, exit 0 — **medidos no
-portão, em `9ea4398`**, quando o commerce tinha 177.
+A frota foi medida **duas vezes**, e a tabela abaixo é a segunda.
 
-A B12 **não re-rodou a frota** (o brief dela proíbe `make services-test` /
+1. **No portão (`9ea4398`)**, quando o commerce tinha 177: `make services-test`
+   e `make services-lint`, 8/8 alvos, exit 0, total **491**.
+2. **Depois da B12**, pelo controlador da sessão, no commit `7496a5d`:
+   `make services-test` de novo, na raiz do repositório. Cada linha da tabela
+   abaixo é uma linha dessa saída — nenhuma é aritmética.
+
+A própria B12 não re-rodou a frota (o brief dela proíbe `make services-test` /
 `make services-lint` fleet-wide, porque `uv run` reescreve o `uv.lock` de
-outros serviços). Ela re-rodou **só o commerce**, dentro de
+outros serviços). Ela re-rodou só o commerce, dentro de
 `back-end/commerce-service/`:
 
 ```
@@ -307,23 +317,22 @@ uv run ruff check .             -> All checks passed!
 uv run ruff format --check .    -> 80 files already formatted
 ```
 
-| Serviço | Baseline (início do bloco B) | Agora | Δ | Origem do "agora" |
-|---|---|---|---|---|
-| edu-common | 59 | 59 | 0 | medido no portão |
-| api-gateway | 36 | 36 | 0 | medido no portão |
-| auth-users | 61 | 61 | 0 | medido no portão |
-| learning | 78 | 78 | 0 | medido no portão |
-| **commerce** | **88** | **187** | **+99** | **medido na B12** (`63f8977`) |
-| chatbot | 23 | 23 | 0 | medido no portão |
-| notification | 24 | 24 | 0 | medido no portão |
-| analytics | 33 | 33 | 0 | medido no portão |
-| **total** | **402** | **501** | **+99** | **medido**, `make services-test` |
+Todos os números da coluna "Agora" vêm da rodada 2:
 
-O total de 501 foi **medido**, não derivado: `make services-test` rodado na
-raiz do repositório depois da B12 devolve, na ordem, 59 / 36 / 61 / 78 / 187 /
-23 / 24 / 33 — soma 501, e cada linha da tabela acima é uma linha daquela
-saída. Os três `uv.lock` que a rodada reescreve (analytics, auth-users,
-chatbot) foram revertidos; a árvore ficou limpa.
+| Serviço | Baseline (início do bloco B) | Agora | Δ |
+|---|---|---|---|
+| edu-common | 59 | 59 | 0 |
+| api-gateway | 36 | 36 | 0 |
+| auth-users | 61 | 61 | 0 |
+| learning | 78 | 78 | 0 |
+| **commerce** | **88** | **187** | **+99** |
+| chatbot | 23 | 23 | 0 |
+| notification | 24 | 24 | 0 |
+| analytics | 33 | 33 | 0 |
+| **total** | **402** | **501** | **+99** |
+
+Os três `uv.lock` que a rodada reescreve (analytics, auth-users, chatbot) foram
+revertidos; a árvore ficou limpa.
 
 Nenhum serviço diminuiu. `ruff check` limpo nos oito no portão, e re-confirmado
 no commerce na B12.
