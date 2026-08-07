@@ -5,11 +5,15 @@ monolito (`back-end/legacy/`) nas rotas de catálogo, reviews, carrinho e formas
 de pagamento, para que a fase 4 seja uma troca de `API_BASE_URL` no app
 Flutter.
 
-- Branch medida: `feat/microservices-phase-2b`, HEAD `9ea4398`.
-- Data da medição: 2026-08-07.
+- Branch medida: `feat/microservices-phase-2b`, HEAD `9ea4398` (portão, task
+  B11). O **buraco de porte** que o portão encontrou (§4) foi fechado depois,
+  pela task B12, e re-medido em `63f8977` — as seções afetadas dizem qual das
+  duas medições produziu cada número.
+- Data da medição: 2026-08-07 (as duas).
 - Registro cru, com a saída literal de cada comando:
   `.superpowers/sdd/2026-08-05-phase-2b-catalog-and-cart/task-B11-report.md`
-  (diretório temporário do SDD — este documento é o que sobrevive).
+  e `task-B12-report.md` (diretório temporário do SDD — este documento é o
+  que sobrevive).
 
 Toda afirmação abaixo tem um comando por trás. Onde não houve medição, está
 escrito que não houve.
@@ -22,10 +26,10 @@ escrito que não houve.
 |---|---|
 | Chaves das quatro rotas que o app consome | **idênticas** ao legacy (diff vazio nas quatro) |
 | Tipos JSON de cada valor | **idênticos** (zero divergências) |
-| Suíte do commerce | 177 passando |
-| Frota | 491 passando, 8/8 alvos, `ruff` limpo |
+| Suíte do commerce | **187 passando** (`63f8977`; eram 177 no portão) |
+| Frota | 8/8 alvos, `ruff` limpo — 491 medidos no portão, **501 por aritmética** depois da B12 (§8) |
 | Sync-check de schema | 5 de 5 vazios |
-| Buracos de porte | **1** (ver §4) |
+| Buracos de porte | **0** — o único (§4) foi fechado pela B12 |
 | Divergências deliberadas | **5** (ver §5) |
 
 **O corte é viável do ponto de vista do contrato HTTP.** O que falta é
@@ -41,35 +45,49 @@ cart, payment_methods, seed do catálogo, media e storage).
 | Lado | Testes |
 |---|---|
 | Legacy, no recorte comparado | **70** |
-| Commerce, nos sete arquivos portados | **81** |
+| Commerce, nos oito arquivos portados | **91** |
 
-Commerce, arquivo a arquivo: `test_products_parity.py` 17,
-`test_cart_parity.py` 16, `test_cart_services_parity.py` 8,
-`test_payment_methods_parity.py` 23, `test_products_seed.py` 12,
-`test_media.py` 4, `test_storage.py` 1.
+Commerce, arquivo a arquivo: `test_products_parity.py` 18,
+`test_products_services_parity.py` 9, `test_cart_parity.py` 16,
+`test_cart_services_parity.py` 8, `test_payment_methods_parity.py` 23,
+`test_products_seed.py` 12, `test_media.py` 4, `test_storage.py` 1.
 
-A conta fecha nome a nome: **70 − 15 ausentes = 55 em comum; 55 + 26
-acrescentados = 81.**
+A conta fecha nome a nome: **70 − 6 ausentes = 64 em comum; 64 + 27
+acrescentados = 91.**
 
-### Os 15 ausentes
+Reconciliação re-medida na B12 com
+`grep -c 'def test_' <arquivo>` dos dois lados. O legacy continua em 70:
+`products/test_routes.py` 13, `products/test_services.py` 9,
+`cart/test_routes.py` 9, `cart/test_services.py` 8,
+`payment_methods/test_routes.py` 12, `seeds/test_products_seed.py` 10,
+`core/test_media.py` 8, `core/test_storage.py` 1.
+
+> No portão (`9ea4398`) esta conta era **70 − 15 = 55; 55 + 26 = 81**. Os 9
+> testes de `products/test_services.py` saíram da coluna "ausentes" e entraram
+> na de "em comum" quando a B12 os portou.
+
+### Os 6 ausentes
 
 | Quantos | Origem | Classificação |
 |---|---|---|
 | 5 | `tests/core/test_media.py` (`test_validate_*`) | carve-out declarado — `validate_image_bytes` é de upload, fase 3 |
 | 1 | `tests/core/test_storage.py` (`test_put_get_delete_roundtrip`) | carve-out declarado (metade de escrita). O arquivo tem **um** teste combinado, não duas metades; substituído por `test_generate_presigned_get_returns_a_signed_url` |
-| **9** | `tests/modules/products/test_services.py` | **buraco — ver §4** |
+
+Os 9 de `tests/modules/products/test_services.py` **saíram desta tabela**: a
+B12 portou os nove para `tests/test_products_services_parity.py` (§4).
 
 `tests/modules/products/test_image_upload.py` (5 testes) é carve-out declarado
 e não entra na conta.
 
-### As 26 adições sobre o legacy
+### As 27 adições sobre o legacy
 
 Ownership de carrinho (3) e de formas de pagamento (4), concorrência de
 carrinho (3), de review (1) e de default de pagamento (3), deriva de catálogo
 no carrinho (1), CHECK constraints no nível do banco (2), contrato de array
-puro (1), ordenação (1), reviews extras (3), contrato literal do seed (1),
-injeção de `fetch_image` (1), presign isolado (1), janela de cache do presign
-(1).
+puro (1), ordenação (1), reviews extras (4 — a quarta é o POST **autenticado**
+de review em produto inexistente, acrescentada pela B12; ver §4), contrato
+literal do seed (1), injeção de `fetch_image` (1), presign isolado (1), janela
+de cache do presign (1).
 
 ---
 
@@ -127,28 +145,57 @@ por `curl` contra 8103 antes do corte mede o código errado.
 
 ---
 
-## 4. O buraco de porte
+## 4. O buraco de porte — encontrado no portão, FECHADO pela B12
 
-`legacy/tests/modules/products/test_services.py` (**9 testes**) nunca foi
-portado, e nenhum dos nove nomes existe no commerce sob outro nome. Não é
-carve-out declarado: o plano cita esse arquivo **uma única vez**, dentro do
+### O que o portão (`9ea4398`) encontrou
+
+`legacy/tests/modules/products/test_services.py` (**9 testes**) nunca tinha
+sido portado, e nenhum dos nove nomes existia no commerce sob outro nome. Não
+era carve-out declarado: o plano cita esse arquivo **uma única vez**, dentro do
 comando de comparação do próprio portão, e nunca mandou nenhuma task portá-lo.
 
-Sete dos nove comportamentos têm equivalente ao nível de rota. **Três não
-têm**, e dois foram provados por mutação (a suíte inteira continua verde com o
-comportamento quebrado):
+Sete dos nove comportamentos tinham equivalente ao nível de rota. **Três não
+tinham** — e os três foram provados por mutação: a suíte inteira ficava verde
+com o comportamento quebrado.
 
-| Comportamento sem guarda | Mutação | Resultado |
-|---|---|---|
-| Busca `?q=` case-insensitive | `Product.name.ilike` → `Product.name.like` em `app/services/produtos.py` | `177 passed` |
-| `total` reporta a contagem completa quando `limit` trunca | `total = len(items)` em `listar_produtos` | `177 passed` |
-| POST de review em produto inexistente **autenticado** → 404 | (verificado por leitura) | o único POST em produto inexistente é o teste de 403, sem `headers=` |
+### O que a B12 fez (`63f8977`)
 
-Árvore restaurada e re-medida após as mutações; nada foi commitado.
+Os nove foram portados para
+`back-end/commerce-service/tests/test_products_services_parity.py`, mais uma
+adição ao nível de rota em `tests/test_products_parity.py`
+(`test_create_review_for_unknown_product_returns_404`).
 
-**Consequência para a fase 4:** as três propriedades funcionam hoje (a prova em
-processo mostra `total=3` com `limit=2`), mas nenhuma regressão futura nelas
-seria detectada pela suíte.
+As três propriedades agora estão travadas. Cada linha da tabela é a MESMA
+mutação, medida duas vezes: antes (ignorando os testes novos, com
+`--ignore=tests/test_products_services_parity.py --deselect
+"tests/test_products_parity.py::TestReviews::test_create_review_for_unknown_product_returns_404"`)
+e depois, com eles.
+
+| Propriedade | Mutação | Antes da B12 | Depois | Teste que pega |
+|---|---|---|---|---|
+| Busca `?q=` case-insensitive | `Product.name.ilike` → `.like` em `app/services/produtos.py` | `177 passed` | `assert 0 == 1` | `test_q_filters_by_name_case_insensitive` |
+| `total` reporta a contagem completa quando `limit` trunca | `total = len(items)` em `listar_produtos` | `177 passed` | `assert 2 == 3` | `test_pagination_limits_and_reports_full_total` |
+| POST de review em produto inexistente **autenticado** → 404 | trocar `except ProductNotFoundError` do POST em `app/routers/produtos.py` | `177 passed` | `app.exceptions.ProductNotFoundError` propaga (sem 404) | `test_create_review_for_unknown_product_returns_404` |
+
+Mais oito mutações cobrem os outros seis testes portados (agregados de review
+não recomputados, `author` e `user_id` não propagados, `raise` de
+`buscar_produto` removido, contagem de categorias falsificada, `offset+1`,
+linha errada em `buscar_produto`, exceção errada em `criar_review`) — **11 de
+11 ficam vermelhas**, cada uma na asserção que nomeia a propriedade. Saída
+literal de cada uma em `task-B12-report.md`. Nenhum teste portado ficou sem
+mutação que o derrube.
+
+Toda mutação foi restaurada com `git checkout -- <path>`; nada de mutação foi
+commitado (`git status --short` vazio entre as rodadas, fora dos dois arquivos
+de teste da própria B12).
+
+**A adição não é divergência.** Medido: o legacy também não tem POST
+autenticado em produto inexistente — `grep -n "reviews"
+legacy/tests/modules/products/test_routes.py` devolve seis linhas, e o único
+POST em `uuid.uuid4()` é o de 401, sem `headers=`. Os dois roteadores traduzem
+a mesma exceção no mesmo 404 `"Product not found"`
+(`legacy/app/modules/products/routes.py:130-131` × `app/routers/produtos.py`),
+comparados **por leitura**. Nenhum código de produção foi alterado.
 
 ---
 
@@ -167,7 +214,8 @@ seria detectada pela suíte.
 ## 6. Asserções adaptadas — "onde exatamente o commerce não é o legacy"
 
 Formato `arquivo:linha | original | atual | razão`. Linhas medidas em `9ea4398`,
-relativas a `back-end/commerce-service/`.
+relativas a `back-end/commerce-service/` — exceto as quatro últimas linhas da
+tabela, do arquivo que a B12 criou, medidas em `63f8977`.
 
 | Arquivo:linha | Asserção original (legacy) | Asserção atual | Razão |
 |---|---|---|---|
@@ -185,6 +233,10 @@ relativas a `back-end/commerce-service/`.
 | `tests/test_products_routes.py:120` | `item = response.json()[0]` | `item = response.json()["items"][0]` | idem |
 | `tests/test_products_routes.py:89-99` | `set(product) == {id,name,description,price,category,image_url}` | `set(product) == {id,name,type,subtype,description,price,image_url,rating_avg,rating_count}` | divergência 5 (`category`→`type`) + três campos de catálogo do legacy |
 | `tests/test_products_seed.py:131-143` | `test_solid_png_is_a_valid_image` via `validate_image_bytes` | leitura estrutural do PNG pela stdlib | divergência 4 |
+| `tests/test_products_services_parity.py:145` | `pytest.raises(ProductNotFound)` (`test_missing_raises`) | `pytest.raises(ProductNotFoundError)` | a exceção do commerce leva sufixo `Error` (regra N818 do `ruff`) — mesma classe de renome já registrada em `app/exceptions.py` |
+| `tests/test_products_services_parity.py:198` | `pytest.raises(ProductNotFound)` (`test_missing_product_raises`) | `pytest.raises(ProductNotFoundError)` | idem |
+| `tests/test_products_services_parity.py:191` | `assert review.author == created_user.name` | `assert review.author == USER_NAME` (`"Maria Silva"`) | não há tabela de usuários no commerce (auth é outro serviço, outro banco). `USER_NAME` é o literal do `created_user` do legacy (`legacy/tests/modules/products/conftest.py:17`), então a asserção afirma o mesmo valor |
+| `tests/test_products_services_parity.py:192` | `assert review.user_id == created_user.id` | `assert review.user_id == user_id` (fixture `uuid.uuid4()`) | `Review.user_id` é FK **lógica** para o auth-users-service, sem constraint física — um uuid solto exerce a propagação igual. Mesma decisão da task B8 em `test_cart_services_parity.py` |
 
 ### Testes removidos, não adaptados
 
@@ -230,8 +282,9 @@ categoria hoje**. Remoção deliberada, mandada pelo plano.
    `created_at`/`id`, checando antes se o "promove o mais antigo" de
    `apagar_metodo` não depende do termo `is_default DESC`.
 
-4. **O buraco de porte da §4** — 9 testes não portados, três propriedades sem
-   guarda de regressão.
+4. ~~**O buraco de porte da §4**~~ — **fechado pela B12** em `63f8977`: os 9
+   testes foram portados e as três propriedades sem guarda passaram a ter uma
+   (§4). Não é mais uma pendência do corte.
 
 5. **Nada foi provado em container, no granian, no Dockerfile ou pelo
    api-gateway** nesta branch (§3).
@@ -240,21 +293,40 @@ categoria hoje**. Remoção deliberada, mandada pelo plano.
 
 ## 8. Estado da frota
 
-`make services-test` e `make services-lint`, 8/8 alvos, exit 0.
+`make services-test` e `make services-lint`, 8/8 alvos, exit 0 — **medidos no
+portão, em `9ea4398`**, quando o commerce tinha 177.
 
-| Serviço | Baseline (início do bloco B) | Agora | Δ |
-|---|---|---|---|
-| edu-common | 59 | 59 | 0 |
-| api-gateway | 36 | 36 | 0 |
-| auth-users | 61 | 61 | 0 |
-| learning | 78 | 78 | 0 |
-| **commerce** | **88** | **177** | **+89** |
-| chatbot | 23 | 23 | 0 |
-| notification | 24 | 24 | 0 |
-| analytics | 33 | 33 | 0 |
-| **total** | **402** | **491** | **+89** |
+A B12 **não re-rodou a frota** (o brief dela proíbe `make services-test` /
+`make services-lint` fleet-wide, porque `uv run` reescreve o `uv.lock` de
+outros serviços). Ela re-rodou **só o commerce**, dentro de
+`back-end/commerce-service/`:
 
-Nenhum serviço diminuiu. `ruff check` limpo nos oito.
+```
+uv run pytest -q                -> 187 passed
+uv run ruff check .             -> All checks passed!
+uv run ruff format --check .    -> 80 files already formatted
+```
+
+| Serviço | Baseline (início do bloco B) | Agora | Δ | Origem do "agora" |
+|---|---|---|---|---|
+| edu-common | 59 | 59 | 0 | medido no portão |
+| api-gateway | 36 | 36 | 0 | medido no portão |
+| auth-users | 61 | 61 | 0 | medido no portão |
+| learning | 78 | 78 | 0 | medido no portão |
+| **commerce** | **88** | **187** | **+99** | **medido na B12** (`63f8977`) |
+| chatbot | 23 | 23 | 0 | medido no portão |
+| notification | 24 | 24 | 0 | medido no portão |
+| analytics | 33 | 33 | 0 | medido no portão |
+| **total** | **402** | **501** | **+99** | **aritmética**, não execução |
+
+O total de 501 é **derivado** (491 medidos no portão + 10 acrescentados pela
+B12), não a saída de um `make services-test`. Os outros sete serviços não
+foram tocados: o commit da B12 mexe em dois arquivos, os dois dentro de
+`back-end/commerce-service/tests/`. A próxima rodada real da frota é que
+confirma o 501.
+
+Nenhum serviço diminuiu. `ruff check` limpo nos oito no portão, e re-confirmado
+no commerce na B12.
 
 ### Sync-check de schema (modelos × migrations)
 
