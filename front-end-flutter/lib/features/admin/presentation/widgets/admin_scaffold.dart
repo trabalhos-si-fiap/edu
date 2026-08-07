@@ -50,7 +50,7 @@ class AdminScaffold extends StatelessWidget {
     return Scaffold(
       backgroundColor: AppColors.inputFill,
       appBar: AppBar(
-        backgroundColor: AppColors.primary,
+        backgroundColor: AppColors.background,
         elevation: 0,
         automaticallyImplyLeading: false,
         title: Text(
@@ -58,13 +58,13 @@ class AdminScaffold extends StatelessWidget {
           style: const TextStyle(
             fontSize: 18,
             fontWeight: FontWeight.w700,
-            color: AppColors.white,
+            color: AppColors.textPrimary,
           ),
         ),
         actions: [
           IconButton(
             onPressed: () => _logout(context),
-            icon: const Icon(Icons.logout, color: AppColors.white),
+            icon: const Icon(Icons.logout, color: AppColors.textPrimary),
             tooltip: 'Sair',
           ),
           const SizedBox(width: 8),

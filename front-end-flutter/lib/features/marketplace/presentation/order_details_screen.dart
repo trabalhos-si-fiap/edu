@@ -459,7 +459,7 @@ class _SupportCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(28),
       decoration: BoxDecoration(
-        color: AppColors.primary,
+        color: AppColors.background,
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(

@@ -132,7 +132,7 @@ class _CabecalhoResumo extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: AppColors.primary,
+        color: AppColors.background,
         borderRadius: BorderRadius.circular(18),
       ),
       child: Column(
