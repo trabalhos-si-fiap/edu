@@ -170,3 +170,52 @@ async def test_a_chunked_body_without_content_length_is_capped_too(client, monke
 
     assert response.status_code == 413
     assert not chamou
+
+
+async def test_the_cap_aborts_the_stream_instead_of_reading_the_whole_body(client, monkeypatch):
+    """413 e "não repassou" não provam nada sobre o CUSTO da rejeição.
+
+    O teste acima já passava contra a versão que fazia `await
+    request.body()`: o corpo inteiro chegava à memória do processo e SÓ
+    ENTÃO virava 413 — que é justamente o custo que o teto existe para
+    evitar. A única afirmação que separa as duas implementações é quantos
+    pedaços do corpo o gateway chegou a puxar.
+
+    Este teste mede isso contando o que o gerador cedeu. O `ASGITransport`
+    do httpx 0.28.1 puxa cada pedaço sob demanda, um `receive()` por
+    `__anext__()` (`httpx/_transports/asgi.py`), então um gerador que não
+    for consumido até o fim é observável daqui.
+    """
+    chamou = False
+
+    async def fake_upstream_request(method, url, **kwargs):
+        nonlocal chamou
+        chamou = True
+        raise AssertionError("o gateway repassou um corpo acima do teto")
+
+    _patch_upstream_request(monkeypatch, fake_upstream_request)
+
+    # 20 x 200_000 = 4 MB, quase o dobro do teto de 2 MiB. O teto é
+    # ultrapassado no 11o pedaço (11 x 200_000 = 2_200_000 > 2_097_152),
+    # então uma implementação incremental para bem antes do fim.
+    pedacos_totais = 20
+    cedidos = 0
+
+    async def corpo_grande():
+        nonlocal cedidos
+        for _ in range(pedacos_totais):
+            cedidos += 1
+            yield b"x" * 200_000
+
+    response = await client.post(
+        "/api/auth/login",
+        content=corpo_grande(),
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.status_code == 413
+    assert not chamou
+    assert cedidos < pedacos_totais, (
+        f"o gateway puxou o corpo inteiro ({cedidos} de {pedacos_totais} pedaços) "
+        "antes de devolver o 413"
+    )
