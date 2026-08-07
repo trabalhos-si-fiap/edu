@@ -47,7 +47,9 @@ async def _seed_products(db_session, quantity: int) -> None:
 async def test_products_are_listed_in_english_path(client):
     response = await client.get("/products", headers=headers_for("student"))
     assert response.status_code == 200
-    assert isinstance(response.json(), list)
+    # B6: a rota passou a devolver o envelope {items,total,limit,offset}, não
+    # um array puro — ver task-B6-report.md.
+    assert "items" in response.json()
 
 
 async def test_products_listing_requires_authentication(client):
@@ -63,7 +65,7 @@ async def test_products_listing_is_paginated(client, db_session):
     await _seed_products(db_session, 5)
     response = await client.get("/products?limit=2", headers=headers_for("student"))
     assert response.status_code == 200
-    assert len(response.json()) == 2
+    assert len(response.json()["items"]) == 2
 
 
 async def test_products_listing_rejects_limit_above_the_cap(client):
@@ -74,13 +76,16 @@ async def test_products_listing_rejects_limit_above_the_cap(client):
 async def test_products_listing_has_a_default_limit(client, db_session):
     await _seed_products(db_session, 120)
     response = await client.get("/products", headers=headers_for("student"))
-    assert len(response.json()) <= 100
+    # B6: `len(response.json())` sem `["items"]` conta as 4 chaves do envelope
+    # (items/total/limit/offset), não os produtos — passaria sempre, mesmo
+    # sem paginação nenhuma. Ver task-B6-report.md (achado do Step 6).
+    assert len(response.json()["items"]) == 20
 
 
 async def test_product_response_exposes_only_declared_fields(client, db_session):
     await _seed_products(db_session, 1)
     response = await client.get("/products", headers=headers_for("student"))
-    product = response.json()[0]
+    product = response.json()["items"][0]
     assert set(product) == {
         "id",
         "name",
@@ -94,17 +99,12 @@ async def test_product_response_exposes_only_declared_fields(client, db_session)
     }
 
 
-async def test_products_can_be_filtered_by_category(client, db_session):
-    await _seed_products(db_session, 2)
-    response = await client.get("/products?category=livros", headers=headers_for("student"))
-    assert response.status_code == 200
-    assert all(p["type"] == "livros" for p in response.json())
-
-
-async def test_unknown_category_returns_empty_list(client, db_session):
-    await _seed_products(db_session, 2)
-    response = await client.get("/products?category=inexistente", headers=headers_for("student"))
-    assert response.json() == []
+# B6 removeu `test_products_can_be_filtered_by_category` e
+# `test_unknown_category_returns_empty_list`: o parâmetro `category` saiu da
+# rota para a réplica exata ficar idêntica ao legacy, que nunca teve esse
+# parâmetro (só `q`, busca por substring no nome — semântica diferente de
+# filtro por tipo). Nenhum teste cobre filtragem por categoria hoje; ver
+# task-B6-report.md.
 
 
 async def test_product_id_is_a_uuid_string_in_the_response(client, db_session):
@@ -117,7 +117,7 @@ async def test_product_id_is_a_uuid_string_in_the_response(client, db_session):
     response = await client.get("/products", headers=headers_for("student"))
 
     assert response.status_code == 200
-    item = response.json()[0]
+    item = response.json()["items"][0]
     assert isinstance(item["id"], str)
     uuid.UUID(item["id"])  # levanta se não for um UUID
 

@@ -30,3 +30,23 @@ class ProductOut(BaseModel):
         # cliente nunca herdar erro de arredondamento de float. Isso é
         # contrato, não formatação — o app o lê como String.
         return f"{value:.2f}"
+
+
+class ProductList(BaseModel):
+    """Envelope, não array puro. O app faz `jsonDecode(body)['items']` — um
+    array puro levanta `TypeError` que o tratamento de erro dele não captura.
+    Isso é contrato."""
+
+    items: list[ProductOut]
+    total: int
+    limit: int
+    offset: int
+
+
+class CategoryOut(BaseModel):
+    type: str
+    count: int
+
+
+class CategoryList(BaseModel):
+    items: list[CategoryOut]
