@@ -216,6 +216,39 @@ class TestReviews:
         r = await client.get(f"/products/{uuid.uuid4()}/reviews", headers=headers_for("student"))
         assert r.status_code == 404
 
+    async def test_create_review_for_unknown_product_returns_404(
+        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """ADIÇÃO sobre o legacy (task B12), não porte.
+
+        O portão do bloco B (B11) apontou que um POST de review AUTENTICADO
+        contra um id de produto inexistente não tinha teste em lugar nenhum.
+        Medido: o legacy também não tem —
+        `grep -n "reviews" legacy/tests/modules/products/test_routes.py`
+        devolve seis linhas, e o único POST em `uuid.uuid4()` é o
+        `test_create_review_requires_auth` da linha 14, SEM `headers=`; o
+        único 404 de produto desconhecido é o do GET (linha 124). O caminho
+        `criar_review` → `ProductNotFound` → 404 nunca foi exercitado por
+        teste nenhum dos dois lados.
+
+        Comportamento idêntico nos dois roteadores (comparação por leitura):
+        `legacy/app/modules/products/routes.py:130-131` e
+        `app/routers/produtos.py` traduzem a mesma exceção no mesmo
+        `_NOT_FOUND` ("Product not found"). Adição, não divergência.
+
+        `get_me` precisa de stub porque o roteador o chama ANTES de tocar no
+        banco (o 503 de auth indisponível vem antes do 404 de produto) — sem
+        o stub o teste mediria a chamada HTTP ao auth-users, não o 404.
+        """
+        self._stub_get_me(monkeypatch)
+        r = await client.post(
+            f"/products/{uuid.uuid4()}/reviews",
+            json={"rating": 5, "comment": "Bom"},
+            headers=headers_for("student"),
+        )
+        assert r.status_code == 404, r.text
+        assert r.json()["detail"] == "Product not found"
+
     async def test_review_author_comes_from_the_auth_service(
         self, client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
     ) -> None:
