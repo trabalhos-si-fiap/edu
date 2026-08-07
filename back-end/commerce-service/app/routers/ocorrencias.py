@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import get_current_student_id, requer_papel
+from app.dependencies import get_current_user_id, requer_papel
 from app.events.publisher import publish_event
 from app.models.ocorrencia import Ocorrencia
 from app.models.pedido import Pedido, PedidoItem, PedidoStatusHistorico
@@ -22,6 +22,26 @@ from app.services.status_pedido import StatusPedido, validar_transicao
 from app.services.substituicao_ia import sugerir_substitutos
 
 router = APIRouter(prefix="/occurrences", tags=["occurrences"])
+
+
+def _pode_ver_pedido(user: dict, pedido: Pedido) -> bool:
+    """Mesma regra que `reportar_falta_estoque`/`reportar_atraso_entrega` já
+    aplicam na escrita: admin vê tudo, aluno vê o próprio pedido, e
+    separador/entregador só veem o pedido que reivindicaram.
+
+    A leitura era staff-wide: qualquer separador lia a ocorrência de qualquer
+    pedido, incluindo os que ele não está trabalhando.
+    """
+    papel = user.get("role")
+    if papel == "admin":
+        return True
+    if papel == "student":
+        return str(pedido.aluno_id) == user["sub"]
+    if papel == "separador":
+        return pedido.separador_id is not None and str(pedido.separador_id) == user["sub"]
+    if papel == "entregador":
+        return pedido.entregador_id is not None and str(pedido.entregador_id) == user["sub"]
+    return False
 
 
 @router.post("/stock-shortage", response_model=OcorrenciaDetalheOut, status_code=201)
@@ -142,8 +162,7 @@ async def listar_ocorrencias_pedido(
     if not pedido:
         raise HTTPException(404, "Pedido não encontrado")
 
-    # Aluno só pode ver ocorrências do próprio pedido
-    if user["role"] == "student" and str(pedido.aluno_id) != user["sub"]:
+    if not _pode_ver_pedido(user, pedido):
         raise HTTPException(403, "Sem permissão para ver este pedido")
 
     query = select(Ocorrencia).where(Ocorrencia.pedido_id == pedido_id)
@@ -193,11 +212,10 @@ async def detalhe_ocorrencia(
     if not ocorrencia:
         raise HTTPException(404, "Ocorrência não encontrada")
 
-    if user["role"] == "student":
-        pedido_result = await db.execute(select(Pedido).where(Pedido.id == ocorrencia.pedido_id))
-        pedido = pedido_result.scalar_one_or_none()
-        if not pedido or str(pedido.aluno_id) != user["sub"]:
-            raise HTTPException(403, "Sem permissão para ver esta ocorrência")
+    pedido_result = await db.execute(select(Pedido).where(Pedido.id == ocorrencia.pedido_id))
+    pedido = pedido_result.scalar_one_or_none()
+    if not pedido or not _pode_ver_pedido(user, pedido):
+        raise HTTPException(403, "Sem permissão para ver esta ocorrência")
 
     return await _montar_detalhe(db, ocorrencia)
 
@@ -206,14 +224,20 @@ async def detalhe_ocorrencia(
 async def resolver_ocorrencia(
     ocorrencia_id: int,
     payload: ResolverOcorrenciaIn,
-    aluno_id: str = Depends(get_current_student_id),
+    aluno_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Só o aluno dono do pedido pode resolver a ocorrência — é a decisão dele
     (aceitar substituto, remover item, aceitar nova data ou cancelar).
     """
-    result = await db.execute(select(Ocorrencia).where(Ocorrencia.id == ocorrencia_id))
+    # `with_for_update()` nos dois: sem ele, o `status != ABERTA` abaixo é um
+    # TOCTOU — duas requisições concorrentes leem "ABERTA", as duas passam, e
+    # a diferença de preço da substituição é aplicada duas vezes no
+    # `valor_total`. Regra 3 do CLAUDE.md.
+    result = await db.execute(
+        select(Ocorrencia).where(Ocorrencia.id == ocorrencia_id).with_for_update()
+    )
     ocorrencia = result.scalar_one_or_none()
     if not ocorrencia:
         raise HTTPException(404, "Ocorrência não encontrada")
@@ -221,12 +245,15 @@ async def resolver_ocorrencia(
     if ocorrencia.status != "ABERTA":
         raise HTTPException(400, "Esta ocorrência já foi resolvida")
 
-    pedido_result = await db.execute(select(Pedido).where(Pedido.id == ocorrencia.pedido_id))
+    pedido_result = await db.execute(
+        select(Pedido).where(Pedido.id == ocorrencia.pedido_id).with_for_update()
+    )
     pedido = pedido_result.scalar_one_or_none()
     if not pedido or str(pedido.aluno_id) != aluno_id:
         raise HTTPException(403, "Sem permissão para resolver esta ocorrência")
 
     resolucao = payload.resolucao
+    cancelou = False
 
     # ── Resoluções de FALTA_ESTOQUE ──────────────────────────
     if resolucao == "substituir":
@@ -292,6 +319,20 @@ async def resolver_ocorrencia(
                 observacao=f"Cancelado pelo aluno via ocorrência #{ocorrencia.id}",
             )
         )
+        cancelou = True
+
+    ocorrencia.status = "RESOLVIDA"
+    ocorrencia.resolucao = resolucao
+    ocorrencia.resolvido_em = datetime.now(UTC)
+
+    await db.commit()
+    await db.refresh(ocorrencia)
+
+    # Os dois publishes ficam DEPOIS do commit. Publicar antes fazia o
+    # notification-service avisar "seu pedido foi cancelado" mesmo quando a
+    # transação estourava logo em seguida — o aluno recebia a notificação de
+    # um cancelamento que não aconteceu.
+    if cancelou:
         await publish_event(
             "order.status_changed",
             {
@@ -300,13 +341,6 @@ async def resolver_ocorrencia(
                 "status": StatusPedido.CANCELADO.value,
             },
         )
-
-    ocorrencia.status = "RESOLVIDA"
-    ocorrencia.resolucao = resolucao
-    ocorrencia.resolvido_em = datetime.now(UTC)
-
-    await db.commit()
-    await db.refresh(ocorrencia)
 
     await publish_event(
         "order.occurrence_resolved",

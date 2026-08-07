@@ -8,7 +8,6 @@ from app.routing import SERVICE_MAP, resolve_destination
     [
         ("auth/login", "auth"),
         ("users/me", "auth"),
-        ("addresses", "auth"),
         ("subjects", "learning"),
         ("topics/1/subtopics", "learning"),
         ("diagnostic/answer", "learning"),
@@ -45,6 +44,21 @@ def test_resolve_destination_returns_none_for_unmapped_path():
 
 def test_resolve_destination_returns_none_for_empty_path():
     assert resolve_destination("") is None
+
+
+def test_addresses_is_not_a_top_level_route():
+    """Ninguém serve `/addresses` — os dois backends montam `/auth/addresses`,
+    que já resolve pelo primeiro segmento `auth`. Mapear o segmento solto
+    trocava um 404 do gateway (com a dica de app/routing.py) por um 404 do
+    auth-users-service, que não diz nada a quem está depurando."""
+    assert resolve_destination("addresses/123") is None
+
+
+def test_auth_addresses_still_resolves_to_the_auth_service():
+    destino = resolve_destination("auth/addresses/123")
+    assert destino is not None
+    _base_url, final_path = destino
+    assert final_path == "/auth/addresses/123"
 
 
 def test_no_portuguese_paths_remain_in_the_public_contract():

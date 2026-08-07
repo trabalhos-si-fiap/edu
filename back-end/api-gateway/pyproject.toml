@@ -40,7 +40,13 @@ extend-immutable-calls = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# As duas linhas de loop_scope andam juntas. Só a de fixture não basta: o
+# default de teste é "function", e uma fixture de escopo de sessão usada por
+# um teste de escopo de função vive num loop diferente do teste — falha que
+# só aparece quando o serviço ganha o seu segundo teste assíncrono sobre o
+# mesmo recurso, não no primeiro.
 asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
 markers = [

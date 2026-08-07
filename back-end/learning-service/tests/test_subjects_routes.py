@@ -21,7 +21,38 @@ deixava todos os testes anteriores verdes. Também acrescenta testes com
 linhas puladas/repetidas entre páginas.
 """
 
+from app.models.questao import Questao
 from app.models.subtema import Materia, Subtema, Tema
+
+
+async def _seed_subtema_com_questoes(
+    db_session, *, quantidade: int
+) -> tuple[Subtema, list[Questao]]:
+    materia = Materia(nome="Biologia")
+    db_session.add(materia)
+    await db_session.flush()
+    tema = Tema(materia_id=materia.id, nome="Citologia", ordem=1)
+    db_session.add(tema)
+    await db_session.flush()
+    subtema = Subtema(tema_id=tema.id, nome="Membrana", ordem=1)
+    db_session.add(subtema)
+    await db_session.flush()
+
+    questoes = [
+        Questao(
+            subtema_id=subtema.id,
+            enunciado=f"Pergunta {i}",
+            alternativas={"A": "a", "B": "b", "C": "c", "D": "d"},
+            gabarito="A",
+            nivel_dificuldade=1,
+        )
+        for i in range(quantidade)
+    ]
+    db_session.add_all(questoes)
+    await db_session.commit()
+    for q in questoes:
+        await db_session.refresh(q)
+    return subtema, questoes
 
 
 async def test_subjects_are_listed_in_english_path(client, auth_headers):
@@ -84,8 +115,8 @@ async def test_subtopic_questions_require_authentication(client):
     assert (await client.get("/subtopics/1/questions")).status_code == 403
 
 
-async def test_subtopic_questions_limite_has_a_hard_cap(client, auth_headers):
-    response = await client.get("/subtopics/1/questions?limite=99999", headers=auth_headers)
+async def test_subtopic_questions_limit_has_a_hard_cap(client, auth_headers):
+    response = await client.get("/subtopics/1/questions?limit=99999", headers=auth_headers)
     assert response.status_code == 422
 
 
@@ -270,48 +301,112 @@ async def test_subtopics_pagination_is_stable_when_ordem_is_not_unique(
 # ── B7, ultimo dos sete sitios do sweep: `/subtopics/{id}/questions` tinha
 # so o teste do cap (422 em `limite=99999`), que exercita a anotacao
 # `Query(le=50)` e nada mais — apagar `.limit(limite)` de
-# `app/routers/materias.py:118` o deixava verde. Ao contrario dos outros
-# seis, esta rota nao tem parametro `offset` nenhum, entao nao ha o que
-# exercitar dessa metade; acrescentar um seria mudanca de contrato fora
-# do escopo deste wave. Fica pinado o `limite`, incluindo o default de 8
-# como literal (nunca a constante da propria implementacao). ────────────
+# `app/routers/materias.py:118` o deixava verde. Task 23 traduz `limite`
+# para `limit` e acrescenta `offset`, com `order_by(Questao.id)` para a
+# pagina ser estavel — sem duplicar linha nem pular nenhuma entre paginas.
+#
+# `limite` era o unico param em portugues da ROTA
+# `/subtopics/{id}/questions` — nao deste arquivo de teste, que exercita
+# `quantidade` em `test_quiz_quantidade_has_a_hard_cap`, nem da frota: os
+# outros quatro seguem vivos e fora de escopo, medidos com
+# `grep -rnE 'Query\(|Path\(' back-end/*/app/routers/*.py` —
+# `learning/materias.py:81` `quantidade`, `commerce/admin.py:101`
+# `quantidade`, `analytics/analytics.py:117` `dias` e `:205`
+# `dias_historico`. A mensagem do commit 7f1eaa1 ja os lista; este
+# comentario e que tinha ficado para tras. ────────
 
 
 async def test_subtopic_questions_actually_applies_the_limit(client, auth_headers, db_session):
-    from app.models.questao import Questao
+    subtema, _ = await _seed_subtema_com_questoes(db_session, quantidade=30)
 
-    materia = Materia(nome="Biologia")
-    db_session.add(materia)
-    await db_session.flush()
-    tema = Tema(materia_id=materia.id, nome="Citologia", ordem=1)
-    db_session.add(tema)
-    await db_session.flush()
-    subtema = Subtema(tema_id=tema.id, nome="Membrana", ordem=1)
-    db_session.add(subtema)
-    await db_session.flush()
-
-    total = 30
-    for i in range(total):
-        db_session.add(
-            Questao(
-                subtema_id=subtema.id,
-                enunciado=f"Questao {i}",
-                alternativas={"A": "a", "B": "b", "C": "c", "D": "d"},
-                gabarito="A",
-                nivel_dificuldade=1,
-            )
-        )
-    await db_session.commit()
-
-    explicito = await client.get(
-        f"/subtopics/{subtema.id}/questions?limite=5", headers=auth_headers
-    )
+    explicito = await client.get(f"/subtopics/{subtema.id}/questions?limit=5", headers=auth_headers)
     assert explicito.status_code == 200
     assert len(explicito.json()) == 5
 
-    # Default de 8 (materias.py:109) — literal de proposito: usar a
-    # constante da implementacao faria o teste seguir uma mudanca de
-    # default em vez de detecta-la.
+    # Default de 8 — literal de proposito: usar a constante da
+    # implementacao faria o teste seguir uma mudanca de default em vez de
+    # detecta-la.
     padrao = await client.get(f"/subtopics/{subtema.id}/questions", headers=auth_headers)
     assert padrao.status_code == 200
     assert len(padrao.json()) == 8
+
+
+async def test_subtopic_questions_paginate_with_limit_and_offset(client, db_session, auth_headers):
+    subtema, _questoes = await _seed_subtema_com_questoes(db_session, quantidade=5)
+
+    primeira = await client.get(
+        f"/subtopics/{subtema.id}/questions?limit=2&offset=0", headers=auth_headers
+    )
+    segunda = await client.get(
+        f"/subtopics/{subtema.id}/questions?limit=2&offset=2", headers=auth_headers
+    )
+
+    assert primeira.status_code == 200
+    assert segunda.status_code == 200
+    assert len(primeira.json()) == 2
+    assert len(segunda.json()) == 2
+    ids_primeira = {q["id"] for q in primeira.json()}
+    ids_segunda = {q["id"] for q in segunda.json()}
+    assert ids_primeira.isdisjoint(ids_segunda)
+
+
+async def test_subtopic_questions_reject_a_negative_offset(client, db_session, auth_headers):
+    subtema, _ = await _seed_subtema_com_questoes(db_session, quantidade=1)
+    response = await client.get(
+        f"/subtopics/{subtema.id}/questions?offset=-1", headers=auth_headers
+    )
+    assert response.status_code == 422
+
+
+async def test_subtopic_questions_pagination_is_stable_when_more_than_one_page_ties_on_id_order(
+    client, auth_headers, db_session
+):
+    """Prova que a estabilidade da paginacao vem de `order_by(Questao.id)`,
+    nao de sorte: sem ordenacao declarada o Postgres pode devolver as
+    linhas em qualquer ordem entre duas execucoes da mesma query, e
+    `offset` passaria a pular ou repetir questoes entre paginas."""
+    subtema, questoes = await _seed_subtema_com_questoes(db_session, quantidade=12)
+
+    primeira = (
+        await client.get(
+            f"/subtopics/{subtema.id}/questions?limit=8&offset=0", headers=auth_headers
+        )
+    ).json()
+    segunda = (
+        await client.get(
+            f"/subtopics/{subtema.id}/questions?limit=8&offset=8", headers=auth_headers
+        )
+    ).json()
+
+    ids_primeira = [q["id"] for q in primeira]
+    ids_segunda = [q["id"] for q in segunda]
+    todos_ids_ordenados = sorted(q.id for q in questoes)
+    assert ids_primeira == todos_ids_ordenados[:8]
+    assert ids_segunda == todos_ids_ordenados[8:]
+    assert set(ids_primeira).isdisjoint(ids_segunda)
+
+
+async def test_subtopic_questions_404_only_when_truly_empty_not_past_the_last_page(
+    client, auth_headers, db_session
+):
+    """`offset` tornou alcancavel um terceiro significado para "vazio". Antes
+    so existia `offset=0`, e vazio so podia querer dizer "este subtema nao
+    tem questao nenhuma" — 404 fazia sentido. Agora um cliente tambem pode
+    pedir uma pagina alem do fim de um subtema que TEM questoes; nesse caso
+    vazio quer dizer "voce passou do fim", nao "nao ha nada aqui", e 404
+    afirmaria algo falso (um cliente que trate 404 como "sem conteudo"
+    erraria ao paginar ate o fim). Os dois casos precisam responder
+    diferente, entao este teste exercita os dois juntos."""
+    subtema_vazio, _ = await _seed_subtema_com_questoes(db_session, quantidade=0)
+    subtema_com_questoes, _ = await _seed_subtema_com_questoes(db_session, quantidade=1)
+
+    vazio_de_verdade = await client.get(
+        f"/subtopics/{subtema_vazio.id}/questions", headers=auth_headers
+    )
+    passou_do_fim = await client.get(
+        f"/subtopics/{subtema_com_questoes.id}/questions?offset=5", headers=auth_headers
+    )
+
+    assert vazio_de_verdade.status_code == 404
+    assert passou_do_fim.status_code == 200
+    assert passou_do_fim.json() == []

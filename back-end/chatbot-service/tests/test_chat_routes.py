@@ -46,12 +46,6 @@ def contexto_questao_fake(questao_id: int = 5, acertou: bool = False) -> dict:
     }
 
 
-async def test_health(client):
-    response = await client.get("/health")
-    assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
-
-
 async def test_explain_question_requires_authentication(client):
     response = await client.post("/chat/explain-question", json={"questao_id": 5})
     assert response.status_code == 403

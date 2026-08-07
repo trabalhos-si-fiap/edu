@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import get_current_student_id
+from app.dependencies import get_current_user_id
 from app.events.publisher import publish_event
 from app.models.pedido import Pedido, PedidoItem, PedidoStatusHistorico
 from app.schemas.pedido import (
@@ -23,7 +23,7 @@ router = APIRouter(prefix="/orders", tags=["orders"])
 @router.post("", response_model=PedidoOut, status_code=201)
 async def criar_pedido(
     payload: PedidoCreateIn,
-    aluno_id: str = Depends(get_current_student_id),
+    aluno_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     if not payload.itens:
@@ -71,7 +71,7 @@ async def criar_pedido(
 async def meus_pedidos(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    aluno_id: str = Depends(get_current_student_id),
+    aluno_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
@@ -87,7 +87,7 @@ async def meus_pedidos(
 @router.get("/{pedido_id}", response_model=PedidoOut)
 async def detalhe_pedido(
     pedido_id: int,
-    aluno_id: str = Depends(get_current_student_id),
+    aluno_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
@@ -104,7 +104,7 @@ async def rastreio_pedido(
     pedido_id: int,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    aluno_id: str = Depends(get_current_student_id),
+    aluno_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     # Garante que o pedido pertence ao aluno autenticado antes de expor o histórico
@@ -127,7 +127,7 @@ async def rastreio_pedido(
 @router.get("/{pedido_id}/delivery-estimate", response_model=PrevisaoEntregaOut)
 async def previsao_entrega_pedido(
     pedido_id: int,
-    aluno_id: str = Depends(get_current_student_id),
+    aluno_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     """

@@ -1,9 +1,9 @@
-from datetime import date
+from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
 from edu_common.security import MAX_PASSWORD_BYTES
-from pydantic import BaseModel, ConfigDict, EmailStr, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 # Precisa bater exatamente com `_educationLevels` em register_screen.dart.
 EducationLevel = Literal["9º ano", "1º ano", "2º ano", "3º ano", "Vestibulando"]
@@ -24,12 +24,21 @@ def _validar_bytes_senha(v: str) -> None:
 
 
 class RegisterIn(BaseModel):
-    """Payload de `POST /auth/register` — casa com `AuthApi.register()`."""
+    """Payload de `POST /auth/register` — casa com `AuthApi.register()`.
 
-    name: str
+    Todo campo de texto tem `max_length` batendo com a coluna do model
+    (regra 4 do CLAUDE.md). Sem isso o Pydantic aceitava megabytes e o
+    limite só aparecia no INSERT, como 500 não autenticado.
+
+    `password` fica de fora de propósito: `_validar_bytes_senha` já barra
+    por BYTES, que é o limite real do bcrypt — um `max_length` em
+    caracteres daria falsa sensação de cobertura.
+    """
+
+    name: str = Field(max_length=150)
     email: EmailStr
-    phone: str
-    birth_date: str  # "DD/MM/AAAA", convertido no router
+    phone: str = Field(max_length=20)
+    birth_date: str = Field(max_length=10)  # "DD/MM/AAAA", convertido no router
     education_level: EducationLevel
     password: str
 
@@ -46,9 +55,20 @@ class RegisterIn(BaseModel):
     @field_validator("birth_date")
     @classmethod
     def data_valida(cls, v: str) -> str:
+        """Aceita exatamente `DD/MM/AAAA`.
+
+        A versão anterior fazia `date.fromisoformat("-".join(reversed(
+        v.split("/"))))`, que para `"2000-01-15"` (sem barra nenhuma)
+        devolve a própria string e é aceita — o validador passava e o
+        router estourava `ValueError: not enough values to unpack` ao
+        desempacotar em três partes. 500 não autenticado.
+
+        `datetime.strptime` com formato fixo rejeita ISO, `31/02/2000` e
+        qualquer variação de separador de uma vez só.
+        """
         try:
-            date.fromisoformat("-".join(reversed(v.split("/"))))
-        except (ValueError, IndexError) as exc:
+            datetime.strptime(v, "%d/%m/%Y").date()  # data civil, sem fuso
+        except ValueError as exc:
             raise ValueError("Data de nascimento deve estar no formato DD/MM/AAAA") from exc
         return v
 
@@ -57,11 +77,11 @@ class RegisterStaffIn(BaseModel):
     """Cadastro interno de separador/entregador/admin — usado só pelo painel
     administrativo (não pelo app do aluno), por isso mantém nomes em pt-br."""
 
-    nome: str
+    nome: str = Field(max_length=150)
     email: EmailStr
     senha: str
-    telefone: str | None = None
-    documento: str | None = None
+    telefone: str | None = Field(default=None, max_length=20)
+    documento: str | None = Field(default=None, max_length=20)
     role: Role
 
     @field_validator("senha")
@@ -110,7 +130,9 @@ class PasswordResetRequestIn(BaseModel):
 
 class PasswordResetConfirmIn(BaseModel):
     email: EmailStr
-    code: str
+    # O código tem 6 dígitos e vai direto para `verify_password`; sem teto,
+    # um code de megabytes chegaria inteiro ao bcrypt.
+    code: str = Field(max_length=10)
     new_password: str
 
     @field_validator("new_password")

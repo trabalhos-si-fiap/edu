@@ -3,10 +3,11 @@ from collections import defaultdict
 from edu_common.contracts import DiagnosticCompleted
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import get_current_student_id
+from app.dependencies import get_current_user_id
 from app.events.publisher import publish_event
 from app.models.progresso import AlunoTemaProgresso
 from app.models.questao import Questao
@@ -40,7 +41,7 @@ router = APIRouter(prefix="/diagnostic", tags=["diagnostico"])
 @router.post("/answer", response_model=DiagnosticoResultado)
 async def responder_diagnostico(
     payload: RespostaDiagnosticoIn,
-    aluno_id: str = Depends(get_current_student_id),
+    aluno_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     tema_result = await db.execute(select(Tema).where(Tema.id == payload.tema_id))
@@ -49,7 +50,19 @@ async def responder_diagnostico(
         raise HTTPException(404, "Tema não encontrado")
 
     questao_ids = [r.questao_id for r in payload.respostas]
-    result = await db.execute(select(Questao).where(Questao.id.in_(questao_ids)))
+    # O join em Subtema amarra cada questão ao `payload.tema_id`. Sem ele,
+    # `Questao.id.in_(...)` aceitava qualquer id existente e o laço abaixo
+    # gravava um `DiagnosticoResposta` para ele — que é exatamente a linha
+    # que `GET /diagnostic/questions/{id}/context` checa antes de liberar o
+    # gabarito. Duas requisições e o aluno lia a resposta certa de qualquer
+    # questão do banco. Ids fora do tema simplesmente não entram no dict e
+    # caem no `continue` do laço; se nenhum sobrar, a rota devolve o 400 de
+    # "nenhuma resposta válida".
+    result = await db.execute(
+        select(Questao)
+        .join(Subtema, Questao.subtema_id == Subtema.id)
+        .where(Questao.id.in_(questao_ids), Subtema.tema_id == payload.tema_id)
+    )
     questoes = {q.id: q for q in result.scalars().all()}
 
     # O questionário de 15 perguntas cobre vários subtemas do tema (ex:
@@ -89,35 +102,76 @@ async def responder_diagnostico(
     subtemas_avaliados: list[SubtemaAvaliadoOut] = []
     recomendacoes: list[RecomendacaoConteudoOut] = []
 
-    for subtema_id, respostas in respostas_por_subtema.items():
+    # `sorted` e não `.items()` cru: o `with_for_update()` abaixo segura cada
+    # linha de progresso até o commit lá embaixo, então duas requisições do
+    # mesmo aluno que cubram os mesmos subtemas em ORDEM diferente (a ordem
+    # vem do array `respostas` que o cliente mandou) travariam uma na outra e
+    # o Postgres mataria uma com deadlock. Ordem de aquisição igual para todo
+    # mundo elimina o ciclo. Efeito colateral aceito: `subtemas_avaliados` e
+    # `recomendacoes` saem ordenados por `subtema_id`; nada nas suítes nem nos
+    # consumidores depende da ordem anterior (verificado com
+    # `grep -rn "subtemas_avaliados\|recomendacoes"` nos testes e nos dois
+    # serviços que consomem o evento — analytics e notification, os únicos
+    # com `app/events/consumer.py`; o chatbot fala com esta rota por HTTP,
+    # não pelo evento).
+    for subtema_id, respostas in sorted(respostas_por_subtema.items()):
         dominio = calcular_dominio(respostas)
         dominios_por_subtema[subtema_id] = (dominio, len(respostas))
 
         # Atualiza (ou cria) o progresso do aluno neste subtema. Isso roda
         # SEMPRE, para todo subtema respondido — a repetição espaçada não
         # depende do resultado geral do tema (estudar/avançar/retroceder).
+        #
+        # Regra 3 do CLAUDE.md, com o alcance de CADA peça, porque elas
+        # cobrem coisas diferentes:
+        #
+        # 1. `total_respondidas` acumula no próprio SQL (`excluded` não
+        #    serve: ele carrega o valor que a linha NOVA traria, não o
+        #    acumulado da existente). Certo sob qualquer concorrência.
+        # 2. `with_for_update()` serializa o read→recalcula→escreve de
+        #    `nivel_dominio`, `intervalo_dias` e `streak_acertos` — os três
+        #    são SUBSTITUIÇÃO, calculados em Python por `atualizar_revisao`
+        #    (SM-2). Sem o lock, duas respostas certas simultâneas no mesmo
+        #    subtema liam `streak_acertos = 3`, calculavam 4 e gravavam 4; o
+        #    esperado é 5. Ver
+        #    `test_concurrent_answers_keep_both_streak_increments`.
+        # 3. O que NÃO fica fechado: `FOR UPDATE` só tranca linha que já
+        #    existe. Na PRIMEIRA resposta do aluno naquele subtema não há
+        #    linha para trancar; duas requisições simultâneas leem "não
+        #    existe", as duas partem de `streak = 0` e o
+        #    `on_conflict_do_update` grava a segunda por cima da primeira —
+        #    last-writer-wins nesses três campos (`total_respondidas`
+        #    continua somando certo, por ser expressão SQL). O que a
+        #    constraint `uq_aluno_subtema` + `on_conflict_do_update` fecham
+        #    nesse caso é o `IntegrityError` que o caminho anterior (SELECT
+        #    → decidir → INSERT/UPDATE em Python) estourava DEPOIS de já ter
+        #    gravado as respostas — não a perda do incremento. Ver
+        #    `test_concurrent_answers_on_the_same_subtopic_do_not_collide`.
+        #
+        # Lock e não expressão SQL condicional no `set_`: os três campos
+        # saem do SM-2 (`services/sm2.py`), com ramos por faixa de domínio e
+        # um `max(3.0, intervalo * 1.3)`. Reescrever isso como CASE no `set_`
+        # duplicaria o algoritmo em SQL — duas fontes de verdade para a
+        # mesma regra, e a que os testes cobrem deixaria de ser a que roda.
         progresso_result = await db.execute(
-            select(AlunoTemaProgresso).where(
+            select(AlunoTemaProgresso)
+            .where(
                 AlunoTemaProgresso.aluno_id == aluno_id,
                 AlunoTemaProgresso.subtema_id == subtema_id,
             )
+            .with_for_update()
         )
-        progresso = progresso_result.scalar_one_or_none()
-        intervalo_atual = progresso.intervalo_dias if progresso else 1.0
-        streak_atual = progresso.streak_acertos if progresso else 0
+        progresso_atual = progresso_result.scalar_one_or_none()
+        intervalo_atual = progresso_atual.intervalo_dias if progresso_atual else 1.0
+        streak_atual = progresso_atual.streak_acertos if progresso_atual else 0
 
         novo_intervalo, novo_streak, proxima_revisao = atualizar_revisao(
             dominio, intervalo_atual, streak_atual
         )
 
-        if progresso:
-            progresso.nivel_dominio = dominio
-            progresso.intervalo_dias = novo_intervalo
-            progresso.streak_acertos = novo_streak
-            progresso.proxima_revisao = proxima_revisao
-            progresso.total_respondidas += len(respostas)
-        else:
-            progresso = AlunoTemaProgresso(
+        stmt = (
+            pg_insert(AlunoTemaProgresso)
+            .values(
                 aluno_id=aluno_id,
                 subtema_id=subtema_id,
                 nivel_dominio=dominio,
@@ -126,7 +180,18 @@ async def responder_diagnostico(
                 proxima_revisao=proxima_revisao,
                 total_respondidas=len(respostas),
             )
-            db.add(progresso)
+            .on_conflict_do_update(
+                constraint="uq_aluno_subtema",
+                set_={
+                    "nivel_dominio": dominio,
+                    "intervalo_dias": novo_intervalo,
+                    "streak_acertos": novo_streak,
+                    "proxima_revisao": proxima_revisao,
+                    "total_respondidas": (AlunoTemaProgresso.total_respondidas + len(respostas)),
+                },
+            )
+        )
+        await db.execute(stmt)
 
         classificacao = classificar_subtema(dominio)
         subtema = subtemas_por_id[subtema_id]
@@ -182,15 +247,11 @@ async def responder_diagnostico(
                 )
             )
 
-        await publish_event(
-            "revision.scheduled",
-            {
-                "aluno_id": str(aluno_id),
-                "subtema_id": subtema_id,
-                "proxima_revisao": proxima_revisao.isoformat(),
-            },
-        )
-
+    # `revision.scheduled` NÃO sai daqui. Ele significa "há uma revisão
+    # vencida agora", e no fim de um diagnóstico a próxima revisão está a
+    # dias de distância — publicá-la aqui gerava uma notificação "Hora de
+    # revisar!" no segundo em que o aluno terminou o questionário, uma por
+    # subtema respondido. Quem publica é `app/scheduler.py`, quando vence.
     dominio_tema = calcular_dominio_tema(dominios_por_subtema)
 
     tema_anterior = await buscar_tema_anterior(db, tema)
@@ -252,7 +313,7 @@ async def responder_diagnostico(
 @router.get("/questions/{questao_id}/context", response_model=QuestaoContextoOut)
 async def contexto_questao(
     questao_id: int,
-    aluno_id: str = Depends(get_current_student_id),
+    aluno_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -262,23 +323,33 @@ async def contexto_questao(
     errou ou acertou.
 
     Só libera o gabarito se existir um registro de que ESTE aluno JÁ
-    respondeu ESTA questão (`DiagnosticoResposta`). Isso barra a leitura
-    do gabarito de outro aluno e a leitura direta de um id qualquer — mas
-    NÃO é uma garantia de que o aluno só vê gabarito de questão que ele
-    de fato estudou: ele mesmo consegue criar a linha que abre o portão.
+    respondeu ESTA questão (`DiagnosticoResposta`). Desde a fase 2 essa
+    linha só pode nascer de um `POST /diagnostic/answer` cujo `tema_id`
+    contém a questão (o join em `Subtema` lá em cima). Isso barra a
+    leitura do gabarito de outro aluno e a de questão de OUTRO tema — e é
+    exatamente isso que barra, nada além.
 
-    # TODO(fase 2): auto-autorização em duas requisições. `POST
-    # /diagnostic/answer` (linha ~51) busca as questões por
-    # `Questao.id.in_(questao_ids)` sem amarrar nenhuma delas ao
-    # `payload.tema_id`, e grava um `DiagnosticoResposta` para qualquer id
-    # existente. O aluno manda um /answer com o id-alvo, recebe o 200, e o
-    # GET aqui passa a devolver o gabarito desse id. O portão abaixo checa
-    # exatamente a linha que a requisição anterior acabou de criar.
-    # Correção (fase 2): validar em /answer que `questao.subtema_id`
-    # pertence a um `Subtema` do `payload.tema_id`, rejeitando o resto.
-    # A falha é do código vendorizado (presente em 129db97, na importação),
-    # então a fase 1 congela o comportamento e só documenta — ver a regra
-    # de freeze-what-exists no plano da fase 1.
+    # TODO(bloco B): auto-autorização continua aberta DENTRO do tema
+    # certo, e o `tema_id` certo é descobrível por qualquer aluno
+    # autenticado em quatro GETs, todos com o mesmo token: `materias.py:15`
+    # (`/subjects`), `:28` (`/subjects/{id}/topics`), `:55`
+    # (`/topics/{id}/subtopics`) e `:106` (`/subtopics/{id}/questions`,
+    # que devolve o `id` de cada questão — sem o gabarito, mas com o id,
+    # que é o que falta). Com o `tema_id` na mão, um `POST
+    # /diagnostic/answer` com alternativa qualquer grava a
+    # `DiagnosticoResposta` e o GET aqui passa a entregar o gabarito.
+    # Medido ponta a ponta neste worktree: 403 antes do /answer, 200 com
+    # `gabarito: "C"` depois.
+    # E o dano não para em ler: como o `on_conflict_do_update` de
+    # `responder_diagnostico` SUBSTITUI `nivel_dominio` em vez de
+    # acumular, uma segunda submissão com as respostas colhidas leva o
+    # domínio do subtema de 0.0 a 1.0 — medido na mesma rodada.
+    # Correção (bloco B, fora do escopo da fase 2a): sessão de
+    # questionário registrada no servidor, ou `DiagnosticoResposta`
+    # uma-por-(aluno, questão) com migration, de modo que a resposta não
+    # possa ser reenviada depois de o gabarito ter sido lido. Enquanto
+    # isso não existe, este portão é um controle de escopo (tema), não uma
+    # prova de que o aluno estudou a questão.
     """
     resposta_result = await db.execute(
         select(DiagnosticoResposta)

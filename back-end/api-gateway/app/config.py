@@ -20,6 +20,20 @@ class Settings(BaseSettings):
 
     request_timeout_seconds: float = 30.0
 
+    # Teto do corpo que o gateway aceita acumular em memória antes de
+    # repassar. O proxy monta o corpo ANTES de qualquer autenticação, então
+    # sem teto um POST anônimo de megabytes já custa a memória do gateway —
+    # comprovado na fase 1 com 9,6 MB. `app/main.py` compara o acumulado a
+    # cada pedaço de `request.stream()` e aborta no primeiro que passa daqui,
+    # então o corpo nunca é lido inteiro. Este número NÃO é o pico de
+    # memória: o pico é ele mais o pedaço que estourou o teto — no teste do
+    # cap, 2 200 000 bytes contra um teto de 2 097 152. Ver a ressalva sobre
+    # pedaço isolado em `app/main.py`. 2 MiB cobre com
+    # folga o maior corpo que o app envia hoje (JSON de pedido/endereço);
+    # upload de imagem é fase 3 e vai precisar de um caminho próprio, não
+    # deste.
+    max_request_body_bytes: int = 2 * 1024 * 1024
+
     # Origens liberadas para CORS (lista JSON via env CORS_ORIGINS). Sem
     # curinga — allow_credentials=True com "*" é rejeitado pelo browser e
     # vazaria a API para qualquer site.

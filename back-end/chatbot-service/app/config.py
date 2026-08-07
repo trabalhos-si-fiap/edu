@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     )
 
     # Necessário para as duas rotas de chat: `/chat/ask` e
-    # `/chat/explain-question` exigem autenticação via `get_current_student`.
+    # `/chat/explain-question` exigem autenticação via `get_current_user`.
     # Em `/chat/explain-question` o mesmo token ainda é repassado ao Learning
     # Service (autenticação encadeada) — ver app/dependencies.py.
     jwt_secret: str

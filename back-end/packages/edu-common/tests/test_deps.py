@@ -8,7 +8,7 @@ from jose import jwt
 from edu_common.deps import build_auth_deps
 from edu_common.security import create_access_token, create_refresh_token
 
-SECRET = "test-secret-not-a-real-key"  # noqa: S105 -- test fixture, not a real secret
+SECRET = "test-secret-not-a-real-key"
 auth = build_auth_deps(SECRET)
 
 

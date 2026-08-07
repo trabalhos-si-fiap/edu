@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import get_current_student_id
+from app.dependencies import get_current_user_id
 from app.models.progresso import AlunoTemaProgresso
 from app.models.subtema import Subtema
 from app.schemas.revisao import RevisaoOut
@@ -18,7 +18,7 @@ router = APIRouter(prefix="/reviews", tags=["revisao"])
 async def revisoes_hoje(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    aluno_id: str = Depends(get_current_student_id),
+    aluno_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(

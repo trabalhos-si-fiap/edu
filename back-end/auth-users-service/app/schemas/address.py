@@ -1,20 +1,20 @@
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class AddressIn(BaseModel):
     """Payload de criação/atualização completa — casa com AddressInput.toJson()
     do Flutter (front-end-flutter/lib/features/profile/data/addresses_api.dart)."""
 
-    label: str = ""
-    zip_code: str
-    street: str
-    number: str
-    complement: str = ""
-    neighborhood: str
-    city: str
-    state: str
+    label: str = Field(default="", max_length=60)
+    zip_code: str = Field(max_length=9)
+    street: str = Field(max_length=160)
+    number: str = Field(max_length=20)
+    complement: str = Field(default="", max_length=120)
+    neighborhood: str = Field(max_length=120)
+    city: str = Field(max_length=120)
+    state: str = Field(max_length=2)
     is_favorite: bool = False
 
     @field_validator("state")
@@ -30,14 +30,14 @@ class AddressPatch(BaseModel):
     """Atualização parcial — usada tanto pelo form completo (todos os campos)
     quanto pelo atalho `setFavorite` (só `is_favorite`)."""
 
-    label: str | None = None
-    zip_code: str | None = None
-    street: str | None = None
-    number: str | None = None
-    complement: str | None = None
-    neighborhood: str | None = None
-    city: str | None = None
-    state: str | None = None
+    label: str | None = Field(default=None, max_length=60)
+    zip_code: str | None = Field(default=None, max_length=9)
+    street: str | None = Field(default=None, max_length=160)
+    number: str | None = Field(default=None, max_length=20)
+    complement: str | None = Field(default=None, max_length=120)
+    neighborhood: str | None = Field(default=None, max_length=120)
+    city: str | None = Field(default=None, max_length=120)
+    state: str | None = Field(default=None, max_length=2)
     is_favorite: bool | None = None
 
 

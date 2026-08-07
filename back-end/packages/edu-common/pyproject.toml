@@ -15,6 +15,7 @@ dependencies = [
 dev = [
     "pytest>=8.3.0",
     "pytest-asyncio>=0.25.0",
+    "pytest-cov>=6.0.0",
     "ruff>=0.8.0",
     "httpx>=0.28.0",
 ]
@@ -34,10 +35,54 @@ line-length = 100
 select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "RUF", "ASYNC", "S"]
 ignore = ["S101"]
 
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "ASYNC"]
+
+# `Depends(...)` como default de argumento é o idioma do FastAPI, não o
+# bug que o B008 procura. `require_role` entra na lista pelo mesmo motivo
+# dos serviços: `Depends(auth.require_role("admin"))` é chamada inline por
+# design. Esta entrada NÃO alcança as chamadas em `tests/test_deps.py`
+# (`auth.require_role(...)`, onde `auth` é uma instância local, não um
+# símbolo importável que o ruff consiga resolver a um caminho pontilhado) —
+# por isso os dois `# noqa: B008` de `tests/test_deps.py:39,44` continuam lá.
+# Ver o comentário em `tests/test_deps.py:31-37` para o porquê.
 [tool.ruff.lint.flake8-bugbear]
-extend-immutable-calls = ["fastapi.Depends", "fastapi.Security"]
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Security",
+    "edu_common.deps.AuthDeps.require_role",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# As duas linhas de loop_scope estão aqui por UNIFORMIDADE com a receita
+# dos sete serviços (mesmo par em `api-gateway`, `auth-users-service`,
+# `learning-service`, `commerce-service`, `chatbot-service`,
+# `notification-service` e `analytics-service`), não por sintoma observado
+# neste pacote: `grep -rnE "engine|create_async|sessionmaker|asyncio"
+# tests/` não devolve nada — o edu-common não tem engine, banco nem
+# fixture de escopo diferente de `function` (as três estão em
+# `tests/test_deps.py:15,51` e `tests/test_events.py:13`). Lá, onde há um
+# engine de escopo de sessão, só a linha de fixture não basta porque o
+# default de teste é "function"; aqui nenhuma das duas muda resultado.
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
+# Mesmo caso: o marcador é a linha uniforme das oito `pyproject.toml` da
+# frota, e não descreve nada que exista aqui — o edu-common não carrega
+# modelo de embeddings (`grep -rni "embedding" .` acha 4 linhas, e as 4
+# são este comentário e o próprio marcador — nenhum código) nem
+# tem teste marcado (`grep -rn "slow" tests/` não devolve nada). Os únicos
+# usos reais de `pytest.mark.slow` estão em
+# `commerce-service/tests/test_embeddings_fixture.py:71` e
+# `learning-service/tests/test_embeddings_fixture.py:93`. Fica declarado
+# porque `--strict-markers` transforma marcador não declarado em erro, e
+# manter as oito iguais é mais barato que lembrar de qual das oito é a
+# diferente — mas seis das oito o declaram sem usar.
+markers = [
+    "slow: tests that load a real embeddings model (opt-in)",
+]
+
+[tool.coverage.run]
+source = ["src/edu_common"]
