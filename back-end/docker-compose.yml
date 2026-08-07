@@ -268,7 +268,21 @@ services:
       # chave duas vezes no .env. Hoje o campo é inerte no commerce (nenhum
       # código o lê) — o rastreio com rota chega na fase 2.
       GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_PLATAFORM:-}
-    depends_on: *depends-db-mq
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      REDIS_URL_TEST: redis://:${REDIS_PASSWORD}@redis:6379/14
+      R2_ENDPOINT_URL: http://minio:9000
+      # Assina a URL presignada contra o IP LAN do host, para o aparelho
+      # físico alcançar o MinIO. Mesma linha que `api` e `worker` já têm.
+      R2_PUBLIC_ENDPOINT_URL: "http://${HOST_IP:-10.0.2.2}:9000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
 
   chatbot-service:
     build:
