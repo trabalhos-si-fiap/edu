@@ -9,6 +9,7 @@ import 'package:edu_ia/features/order_tracking/presentation/order_map_screen.dar
 import 'package:edu_ia/features/order_tracking/presentation/order_tracking_screen.dart';
 import 'package:edu_ia/features/quiz/presentation/quiz_screen.dart';
 import 'package:edu_ia/features/quiz/presentation/quiz_subjets_screen.dart';
+import 'package:edu_ia/features/review/presentation/review_screen.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
@@ -86,6 +87,7 @@ class _MyAppState extends State<MyApp> {
           '/addresses': (_) => const AddressesScreen(),
           '/address-form': (_) => const AddressFormScreen(),
           '/quiz': (_) => const QuizSubjetsScreen(),
+          '/review': (_) => const ReviewScreen(),
           '/questions': (_) => const QuizScreen(),
           '/notifications': (_) => const NotificationsScreen(),
           '/marketplace': (_) => const MarketplaceScreen(),
