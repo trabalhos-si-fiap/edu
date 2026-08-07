@@ -1,6 +1,7 @@
 from collections.abc import AsyncIterator
 
 import pytest
+from fakeredis.aioredis import FakeRedis
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -12,6 +13,7 @@ from sqlalchemy.ext.asyncio import (
 from app.config import settings
 from app.database import Base, get_db
 from app.main import app
+from app.redis_client import get_redis
 
 
 @pytest.fixture(scope="session")
@@ -89,15 +91,40 @@ def _stub_publish_event(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, dict
 
 
 @pytest.fixture
+async def redis_client() -> AsyncIterator[FakeRedis]:
+    """Redis de teste via `fakeredis`, não um Redis real.
+
+    Decisão de 2026-08-07 (ver task-B2-brief.md, CONTEXTO DO CONTROLADOR): o
+    `edu-redis` no ar é a instância viva do usuário, e a fixture original do
+    legacy (`redis.asyncio.from_url` + `flushdb` nas duas pontas) rodaria
+    contra ela.
+
+    Sem `server=` compartilhado, cada `FakeRedis()` abre seu próprio backend
+    em memória — instância nova não enxerga chave gravada por outra instância
+    (medido: duas `FakeRedis()` distintas, `set` numa e `get` na outra devolve
+    `None`; ver task-B2-report.md). Como esta fixture é `function`-scoped, uma
+    instância por teste já garante isolamento sem precisar de `flushdb`.
+    """
+    client = FakeRedis(decode_responses=True)
+    yield client
+    await client.aclose()
+
+
+@pytest.fixture
 async def client(
     test_session_factory: async_sessionmaker[AsyncSession],
+    redis_client: FakeRedis,
     _stub_publish_event: list[tuple[str, dict]],
 ) -> AsyncIterator[AsyncClient]:
     async def _override_get_db() -> AsyncIterator[AsyncSession]:
         async with test_session_factory() as session:
             yield session
 
+    async def _override_get_redis() -> FakeRedis:
+        return redis_client
+
     app.dependency_overrides[get_db] = _override_get_db
+    app.dependency_overrides[get_redis] = _override_get_redis
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
