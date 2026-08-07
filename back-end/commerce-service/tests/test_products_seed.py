@@ -23,6 +23,47 @@ from app.models.produto import Product
 from app.models.review import Review
 from app.seeds.products import SEED_PRODUCTS, seed_products
 
+# Valores DIGITADOS À MÃO a partir do legacy, não lidos de `SEED_PRODUCTS` — é
+# o que dá a este teste independência do que ele trava. Lidos com:
+#
+#     grep -n '"name":\|"type":\|"subtype":\|"price":' \
+#         back-end/legacy/app/seeds/products.py
+#
+# Os outros testes deste arquivo aferem contra `len(SEED_PRODUCTS)` e
+# `SEED_PRODUCTS[0]["name"]`, isto é, contra a própria constante que deveriam
+# proteger: medido pelo review, trocar um preço ou APAGAR um produto inteiro
+# deixava a suíte com 176 verdes. Este é o único teste do arquivo que pega
+# essas duas mutações.
+_CATALOGO_LEGACY = (
+    ("Guia de Redação Nota 1000", "apostila", "Apostila Digital", "49.90"),
+    ("Mastering Data Synthesis", "curso", "Premium Course", "189.90"),
+    ("Diagnostic AI Toolkit", "digital", "Digital Tool", "45.00"),
+    ("Simulado ENEM Completo", "apostila", "Apostila", "29.90"),
+    ("Mapa Mental de Biologia", "digital", "Material Digital", "19.90"),
+    ("Curso de Matemática Essencial", "curso", "Curso", "149.90"),
+)
+
+
+def test_catalog_matches_the_legacy_contract() -> None:
+    esperado = {nome: campos for nome, *campos in map(list, _CATALOGO_LEGACY)}
+    atual = {d["name"]: [d["type"], d["subtype"], d["price"]] for d in SEED_PRODUCTS}
+
+    # Esta asserção vem ANTES da contagem de propósito: com ela depois, apagar
+    # um produto falhava só com `assert 5 == 6`, sem dizer QUAL sumiu — medido
+    # na rodada de correção 1.
+    assert sorted(atual) == sorted(esperado), (
+        f"o catálogo mudou — sumiram: {sorted(set(esperado) - set(atual))}; "
+        f"entraram: {sorted(set(atual) - set(esperado))}"
+    )
+    assert len(SEED_PRODUCTS) == 6
+    for nome, campos in esperado.items():
+        assert atual[nome] == campos, f"{nome}: (type, subtype, price) saiu do contrato"
+
+    # A ORDEM também é contrato: o índice da lista vira a chave
+    # `products/seed-{i}.jpg`, então reordenar troca a foto de cada produto sem
+    # mudar nenhum valor.
+    assert [d["name"] for d in SEED_PRODUCTS] == [t[0] for t in _CATALOGO_LEGACY]
+
 
 def test_every_seed_product_has_a_unique_unsplash_photo_url() -> None:
     from app.seeds.products import SEED_PRODUCTS
