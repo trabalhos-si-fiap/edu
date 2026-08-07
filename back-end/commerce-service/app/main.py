@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.events.publisher import close_publisher, init_publisher
-from app.routers import admin, entrega, ocorrencias, pedidos, produtos, separacao
+from app.routers import admin, carrinho, entrega, ocorrencias, pedidos, produtos, separacao
 
 
 @asynccontextmanager
@@ -16,6 +16,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Commerce Service", lifespan=lifespan)
 
 app.include_router(produtos.router)
+app.include_router(carrinho.router)
 app.include_router(pedidos.router)
 app.include_router(separacao.router)
 app.include_router(entrega.router)
