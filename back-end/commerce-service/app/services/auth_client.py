@@ -42,10 +42,21 @@ async def get_me(raw_token: str) -> dict:
             return response.json()
     except httpx.HTTPStatusError as exc:
         # Nem a exceção nem o log carregam o token — só a URL e o status.
-        # `from None` de propósito: `from exc` anexaria a exceção original ao
-        # traceback, e o `repr` de um `httpx.HTTPStatusError` inclui a
-        # requisição — com o header `Authorization`. Isso vazaria o token
-        # para o log de erro do FastAPI.
+        #
+        # `from None` de propósito. Medido contra httpx==0.28.1 (instalado
+        # aqui): NEM `repr(exc)` NEM `repr(exc.request)` mostram o header —
+        # `repr(exc)` é só a mensagem (`HTTPStatusError` não sobrescreve
+        # `__repr__`, herda o de `Exception`, que só imprime os args
+        # passados a `super().__init__(message)`); `Request.__repr__`
+        # (`httpx/_models.py`) é hardcoded para `<Request(method, url)>`,
+        # nunca headers. Mesmo assim, `exc.request` continua sendo o objeto
+        # `Request` de verdade (`exc.request is request` → `True`), e
+        # `exc.request.headers["authorization"]` devolve o token em texto
+        # claro — é só `repr()`/`str()` que não olham para lá. `from exc`
+        # prenderia esse objeto a `__cause__`, alcançável por qualquer coisa
+        # que percorra a cadeia de exceções além de repr/str (ex.: um error
+        # tracker que serializa atributos/variáveis de frame) — superfície
+        # que não precisa existir.
         logger.warning("auth_client: /auth/me respondeu {}", exc.response.status_code)
         raise AuthServiceUnavailableError("auth-users-service indisponível") from None
     except httpx.HTTPError:

@@ -55,7 +55,17 @@ async def test_get_me_forwards_the_students_bearer(monkeypatch):
 
 
 async def test_get_me_never_puts_the_raw_token_in_the_error(monkeypatch):
-    """O token bruto não pode aparecer em corpo de erro nem em log."""
+    """O token bruto não pode aparecer em corpo de erro nem em log.
+
+    Cobre o `except httpx.HTTPError` (o mais genérico, atrás do
+    `except httpx.HTTPStatusError` — `ConnectError` não é `HTTPStatusError`,
+    então cai aqui). `assert "segredo..." not in str(exc.value)` sozinho NÃO
+    trava o `from None` daquele `except`: a mensagem da exceção é a string
+    estática `"auth-users-service indisponível"`, nunca contém o token,
+    então esse assert passa mesmo com `from exc` — medido na Rodada de
+    correção 1 (ver task-B7-report.md). `exc.value.__cause__ is None` é o
+    que de fato falha se `from None` virar `from exc`.
+    """
 
     class _ClienteQueFalha:
         def __init__(self, **kwargs):
@@ -76,12 +86,18 @@ async def test_get_me_never_puts_the_raw_token_in_the_error(monkeypatch):
         await get_me("segredo-nao-pode-vazar")
 
     assert "segredo-nao-pode-vazar" not in str(exc.value)
+    assert exc.value.__cause__ is None
 
 
 async def test_get_me_raises_when_auth_service_responds_with_an_error_status(monkeypatch):
     """Cobre o ramo `except httpx.HTTPStatusError`, que o teste de conexão
     recusada acima não exercita (`ConnectError` é `HTTPError`, não
-    `HTTPStatusError` — sobe direto para o segundo `except`)."""
+    `HTTPStatusError` — sobe direto para o segundo `except`).
+
+    `exc.value.__cause__ is None` trava o `from None` DESTE `except`
+    especificamente — é um caminho distinto do `except httpx.HTTPError` que
+    o teste acima cobre, e cada um precisa da sua própria trava (Rodada de
+    correção 1, ver task-B7-report.md)."""
 
     class _RespostaComErro:
         status_code = 500
@@ -110,3 +126,4 @@ async def test_get_me_raises_when_auth_service_responds_with_an_error_status(mon
         await get_me("outro-segredo-nao-pode-vazar")
 
     assert "outro-segredo-nao-pode-vazar" not in str(exc.value)
+    assert exc.value.__cause__ is None
