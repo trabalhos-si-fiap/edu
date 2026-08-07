@@ -24,3 +24,15 @@ class CartItemNotFoundError(Exception):
     Nome com sufixo `Error`, mesma razão acima — o brief original chamava
     `CartItemNotFound`.
     """
+
+
+class PaymentMethodNotFoundError(Exception):
+    """Nenhuma forma de pagamento com o id dado pertence a este usuário — o
+    filtro por `user_id` é o que torna esta exceção também o veículo de
+    ownership (regra 2 do CLAUDE.md): tentar mexer no método de outro
+    usuário cai aqui, igual a tentar mexer num id inexistente. O router
+    traduz em 404 "Payment method not found" (task B9).
+
+    Nome com sufixo `Error`, mesma razão de `CartProductNotFoundError` acima
+    (`ruff` N818) — o legacy chama `PaymentMethodNotFound`.
+    """

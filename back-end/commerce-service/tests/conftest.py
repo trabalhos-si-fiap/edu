@@ -20,6 +20,7 @@ from app.redis_client import get_redis
 async def test_engine() -> AsyncIterator[AsyncEngine]:
     from app.models import carrinho as carrinho_models  # noqa: F401
     from app.models import ocorrencia as ocorrencia_models  # noqa: F401
+    from app.models import pagamento as pagamento_models  # noqa: F401
     from app.models import pedido as pedido_models  # noqa: F401
     from app.models import produto as produto_models  # noqa: F401
     from app.models import review as review_models  # noqa: F401
