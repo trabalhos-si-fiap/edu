@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.models.ocorrencia import Ocorrencia
 from app.models.pedido import Pedido, PedidoItem
-from app.models.produto import Produto
+from app.models.produto import Product
 from app.services.status_pedido import StatusPedido
 
 
@@ -43,12 +43,12 @@ async def _seed_pedido(db_session, status: str, **overrides) -> Pedido:
     return pedido
 
 
-async def _seed_produto(db_session) -> Produto:
-    produto = Produto(
-        nome="Caderno",
-        descricao="Caderno universitário",
-        preco=Decimal("19.90"),
-        categoria="papelaria",
+async def _seed_produto(db_session) -> Product:
+    produto = Product(
+        name="Caderno",
+        description="Caderno universitário",
+        price=Decimal("19.90"),
+        type="papelaria",
     )
     db_session.add(produto)
     await db_session.commit()
@@ -319,7 +319,7 @@ async def test_concurrent_resolves_apply_the_price_delta_once(client, db_session
     esperando por ela, e o teste travaria em vez de medir.
     """
     original = await _seed_produto(db_session)
-    substituto = Produto(nome="Substituto", preco=Decimal("150.00"), categoria="apostila")
+    substituto = Product(name="Substituto", price=Decimal("150.00"), type="apostila")
     db_session.add(substituto)
     pedido = await _seed_pedido(
         db_session, StatusPedido.EM_SEPARACAO.value, aluno_id=ALUNO, separador_id=PICKER_A

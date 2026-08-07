@@ -13,7 +13,7 @@ from sqlalchemy import select
 
 from app.config import settings
 from app.models.pedido import Pedido, PedidoStatusHistorico
-from app.models.produto import Estoque, Fornecedor, Produto
+from app.models.produto import Estoque, Fornecedor, Product
 from app.services.status_pedido import StatusPedido
 
 
@@ -36,7 +36,7 @@ async def _seed_pedido(db_session, status: str) -> Pedido:
 
 
 async def _seed_estoque(db_session) -> Estoque:
-    produto = Produto(nome="Caderno", preco=Decimal("19.90"), categoria="papelaria")
+    produto = Product(name="Caderno", price=Decimal("19.90"), type="papelaria")
     fornecedor = Fornecedor(nome="Distribuidora X")
     db_session.add_all([produto, fornecedor])
     await db_session.flush()
@@ -193,7 +193,7 @@ async def test_inventory_listing_actually_applies_limit_and_offset(client, db_se
 
     total = 55
     for i in range(total):
-        produto = Produto(nome=f"Caderno {i}", preco=Decimal("19.90"), categoria="papelaria")
+        produto = Product(name=f"Caderno {i}", price=Decimal("19.90"), type="papelaria")
         db_session.add(produto)
         await db_session.flush()
         db_session.add(Estoque(produto_id=produto.id, fornecedor_id=fornecedor.id, quantidade=i))

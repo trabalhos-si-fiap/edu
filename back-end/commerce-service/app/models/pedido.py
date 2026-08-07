@@ -40,7 +40,7 @@ class PedidoItem(Base):
 
     id = Column(Integer, primary_key=True)
     pedido_id = Column(Integer, ForeignKey("pedidos.id"))
-    produto_id = Column(Integer, ForeignKey("produtos.id"))
+    produto_id = Column(Integer, ForeignKey("products.id"))
     fornecedor_id = Column(Integer, ForeignKey("fornecedores.id"))
     quantidade = Column(Integer, nullable=False)
     preco_unitario = Column(Numeric(10, 2), nullable=False)

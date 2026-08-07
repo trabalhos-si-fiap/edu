@@ -18,9 +18,9 @@ class Ocorrencia(Base):
     )
 
     # Campos específicos de FALTA_ESTOQUE
-    produto_id = Column(Integer, ForeignKey("produtos.id"), nullable=True)
+    produto_id = Column(Integer, ForeignKey("products.id"), nullable=True)
     produtos_sugeridos = Column(JSONB, nullable=True)  # lista de produto_ids similares
-    produto_escolhido_id = Column(Integer, ForeignKey("produtos.id"), nullable=True)
+    produto_escolhido_id = Column(Integer, ForeignKey("products.id"), nullable=True)
 
     # Campos específicos de ATRASO_ENTREGA
     nova_data_sugerida = Column(DateTime(timezone=True), nullable=True)

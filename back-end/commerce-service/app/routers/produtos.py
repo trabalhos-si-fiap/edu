@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.models.produto import Produto
+from app.models.produto import Product
 from app.schemas.produto import ProductOut
 
 router = APIRouter(prefix="/products", tags=["products"])
@@ -28,9 +28,9 @@ async def listar_produtos(
     Paginado por contrato — sem teto, um catálogo grande derruba o app e o
     serviço junto.
     """
-    query = select(Produto)
+    query = select(Product)
     if category:
-        query = query.where(Produto.categoria == category)
-    query = query.order_by(Produto.id).limit(limit).offset(offset)
+        query = query.where(Product.type == category)
+    query = query.order_by(Product.id).limit(limit).offset(offset)
     result = await db.execute(query)
     return result.scalars().all()

@@ -9,7 +9,7 @@ from app.dependencies import get_current_user_id, requer_papel
 from app.events.publisher import publish_event
 from app.models.ocorrencia import Ocorrencia
 from app.models.pedido import Pedido, PedidoItem, PedidoStatusHistorico
-from app.models.produto import Produto
+from app.models.produto import Product
 from app.schemas.ocorrencia import (
     AtrasoEntregaIn,
     FaltaEstoqueIn,
@@ -177,20 +177,20 @@ async def listar_ocorrencias_pedido(
 async def _montar_detalhe(db: AsyncSession, ocorrencia: Ocorrencia) -> OcorrenciaDetalheOut:
     produto_original: ProdutoSugeridoOut | None = None
     if ocorrencia.produto_id:
-        result = await db.execute(select(Produto).where(Produto.id == ocorrencia.produto_id))
+        result = await db.execute(select(Product).where(Product.id == ocorrencia.produto_id))
         p = result.scalar_one_or_none()
         if p:
             produto_original = ProdutoSugeridoOut(
-                id=p.id, nome=p.nome, preco=float(p.preco), imagem_url=p.imagem_url
+                id=p.id, nome=p.name, preco=float(p.price), imagem_url=p.image_url
             )
 
     produtos_sugeridos: list[ProdutoSugeridoOut] = []
     if ocorrencia.produtos_sugeridos:
         result = await db.execute(
-            select(Produto).where(Produto.id.in_(ocorrencia.produtos_sugeridos))
+            select(Product).where(Product.id.in_(ocorrencia.produtos_sugeridos))
         )
         produtos_sugeridos = [
-            ProdutoSugeridoOut(id=p.id, nome=p.nome, preco=float(p.preco), imagem_url=p.imagem_url)
+            ProdutoSugeridoOut(id=p.id, nome=p.name, preco=float(p.price), imagem_url=p.image_url)
             for p in result.scalars().all()
         ]
 
@@ -273,15 +273,15 @@ async def resolver_ocorrencia(
             raise HTTPException(404, "Item do pedido não encontrado")
 
         novo_produto_result = await db.execute(
-            select(Produto).where(Produto.id == payload.produto_escolhido_id)
+            select(Product).where(Product.id == payload.produto_escolhido_id)
         )
         novo_produto = novo_produto_result.scalar_one_or_none()
         if not novo_produto:
             raise HTTPException(404, "Produto escolhido não encontrado")
 
-        diferenca = (novo_produto.preco - item.preco_unitario) * item.quantidade
+        diferenca = (novo_produto.price - item.preco_unitario) * item.quantidade
         item.produto_id = novo_produto.id
-        item.preco_unitario = novo_produto.preco
+        item.preco_unitario = novo_produto.price
         pedido.valor_total = pedido.valor_total + diferenca
 
         ocorrencia.produto_escolhido_id = novo_produto.id

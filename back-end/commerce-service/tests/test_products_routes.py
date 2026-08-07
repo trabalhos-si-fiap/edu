@@ -15,7 +15,7 @@ from edu_common.security import create_access_token
 from sqlalchemy import insert
 
 from app.config import settings
-from app.models.produto import Produto
+from app.models.produto import Product
 
 
 def headers_for(role: str, sub: str = "00000000-0000-0000-0000-000000000001") -> dict[str, str]:
@@ -25,14 +25,14 @@ def headers_for(role: str, sub: str = "00000000-0000-0000-0000-000000000001") ->
 
 async def _seed_products(db_session, quantity: int) -> None:
     await db_session.execute(
-        insert(Produto),
+        insert(Product),
         [
             {
-                "nome": f"Livro {i}",
-                "descricao": f"Descrição {i}",
-                "preco": 49.90,
-                "categoria": "livros",
-                "imagem_url": "",
+                "name": f"Livro {i}",
+                "description": f"Descrição {i}",
+                "price": 49.90,
+                "type": "livros",
+                "image_url": "",
             }
             for i in range(quantity)
         ],
@@ -77,14 +77,14 @@ async def test_product_response_exposes_only_declared_fields(client, db_session)
     await _seed_products(db_session, 1)
     response = await client.get("/products", headers=headers_for("student"))
     product = response.json()[0]
-    assert set(product) == {"id", "name", "description", "price", "category", "image_url"}
+    assert set(product) == {"id", "name", "description", "price", "type", "image_url"}
 
 
 async def test_products_can_be_filtered_by_category(client, db_session):
     await _seed_products(db_session, 2)
     response = await client.get("/products?category=livros", headers=headers_for("student"))
     assert response.status_code == 200
-    assert all(p["category"] == "livros" for p in response.json())
+    assert all(p["type"] == "livros" for p in response.json())
 
 
 async def test_unknown_category_returns_empty_list(client, db_session):

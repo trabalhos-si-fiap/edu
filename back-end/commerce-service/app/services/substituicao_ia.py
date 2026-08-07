@@ -17,26 +17,26 @@ precisas, mas o fluxo nunca quebra.
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.produto import Estoque, Produto
+from app.models.produto import Estoque, Product
 from app.services.embeddings import gerar_embedding, gerar_embeddings, similaridade_cosseno
 
 LIMIAR_SIMILARIDADE = 0.35
 
 
 async def _buscar_por_categoria(
-    db: AsyncSession, produto_original: Produto, limite: int
+    db: AsyncSession, produto_original: Product, limite: int
 ) -> list[int]:
     """Fallback determinístico (sem IA) — mesma lógica que existia antes
     desta funcionalidade, usada quando os embeddings não estão disponíveis."""
     result = await db.execute(
-        select(Produto.id)
-        .join(Estoque, Estoque.produto_id == Produto.id)
+        select(Product.id)
+        .join(Estoque, Estoque.produto_id == Product.id)
         .where(
-            Produto.categoria == produto_original.categoria,
-            Produto.id != produto_original.id,
+            Product.type == produto_original.type,
+            Product.id != produto_original.id,
             Estoque.quantidade > 0,
         )
-        .group_by(Produto.id)
+        .group_by(Product.id)
         .limit(limite)
     )
     return [row[0] for row in result.all()]
@@ -49,25 +49,25 @@ async def sugerir_substitutos(db: AsyncSession, produto_id: int, limite: int = 3
     estoque disponível em algum fornecedor — não restrito à mesma
     categoria, diferente da busca antiga.
     """
-    result = await db.execute(select(Produto).where(Produto.id == produto_id))
+    result = await db.execute(select(Product).where(Product.id == produto_id))
     produto_original = result.scalar_one_or_none()
     if not produto_original:
         return []
 
     # Candidatos: qualquer produto com estoque > 0, exceto o próprio.
     result = await db.execute(
-        select(Produto)
-        .join(Estoque, Estoque.produto_id == Produto.id)
-        .where(Produto.id != produto_id, Estoque.quantidade > 0)
-        .group_by(Produto.id)
+        select(Product)
+        .join(Estoque, Estoque.produto_id == Product.id)
+        .where(Product.id != produto_id, Estoque.quantidade > 0)
+        .group_by(Product.id)
     )
     candidatos = result.scalars().all()
     if not candidatos:
         return []
 
     try:
-        texto_original = f"{produto_original.nome}. {produto_original.descricao or ''}".strip()
-        textos_candidatos = [f"{c.nome}. {c.descricao or ''}".strip() for c in candidatos]
+        texto_original = f"{produto_original.name}. {produto_original.description or ''}".strip()
+        textos_candidatos = [f"{c.name}. {c.description or ''}".strip() for c in candidatos]
 
         embedding_original = gerar_embedding(texto_original)
         embeddings_candidatos = gerar_embeddings(textos_candidatos)
