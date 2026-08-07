@@ -102,27 +102,62 @@ async def responder_diagnostico(
     subtemas_avaliados: list[SubtemaAvaliadoOut] = []
     recomendacoes: list[RecomendacaoConteudoOut] = []
 
-    for subtema_id, respostas in respostas_por_subtema.items():
+    # `sorted` e não `.items()` cru: o `with_for_update()` abaixo segura cada
+    # linha de progresso até o commit lá embaixo, então duas requisições do
+    # mesmo aluno que cubram os mesmos subtemas em ORDEM diferente (a ordem
+    # vem do array `respostas` que o cliente mandou) travariam uma na outra e
+    # o Postgres mataria uma com deadlock. Ordem de aquisição igual para todo
+    # mundo elimina o ciclo. Efeito colateral aceito: `subtemas_avaliados` e
+    # `recomendacoes` saem ordenados por `subtema_id`; nada nas suítes nem nos
+    # consumidores depende da ordem anterior (verificado com
+    # `grep -rn "subtemas_avaliados\|recomendacoes"` nos testes e nos três
+    # serviços que consomem o evento).
+    for subtema_id, respostas in sorted(respostas_por_subtema.items()):
         dominio = calcular_dominio(respostas)
         dominios_por_subtema[subtema_id] = (dominio, len(respostas))
 
         # Atualiza (ou cria) o progresso do aluno neste subtema. Isso roda
         # SEMPRE, para todo subtema respondido — a repetição espaçada não
         # depende do resultado geral do tema (estudar/avançar/retroceder).
-        # Upsert atômico (regra 3 do CLAUDE.md). O caminho anterior era
-        # SELECT -> decidir -> INSERT/UPDATE com `total_respondidas += n` em
-        # Python: duas requisições concorrentes do mesmo aluno no mesmo
-        # subtema liam "não existe" as duas e a segunda estourava
-        # `uq_aluno_subtema` DEPOIS de já ter gravado as respostas.
         #
-        # `total_respondidas` soma no próprio SQL (`excluded` não serve: ele
-        # carrega o valor que a linha NOVA traria, não o acumulado da linha
-        # existente). Os outros campos são substituição, não acumulação.
+        # Regra 3 do CLAUDE.md, com o alcance de CADA peça, porque elas
+        # cobrem coisas diferentes:
+        #
+        # 1. `total_respondidas` acumula no próprio SQL (`excluded` não
+        #    serve: ele carrega o valor que a linha NOVA traria, não o
+        #    acumulado da existente). Certo sob qualquer concorrência.
+        # 2. `with_for_update()` serializa o read→recalcula→escreve de
+        #    `nivel_dominio`, `intervalo_dias` e `streak_acertos` — os três
+        #    são SUBSTITUIÇÃO, calculados em Python por `atualizar_revisao`
+        #    (SM-2). Sem o lock, duas respostas certas simultâneas no mesmo
+        #    subtema liam `streak_acertos = 3`, calculavam 4 e gravavam 4; o
+        #    esperado é 5. Ver
+        #    `test_concurrent_answers_keep_both_streak_increments`.
+        # 3. O que NÃO fica fechado: `FOR UPDATE` só tranca linha que já
+        #    existe. Na PRIMEIRA resposta do aluno naquele subtema não há
+        #    linha para trancar; duas requisições simultâneas leem "não
+        #    existe", as duas partem de `streak = 0` e o
+        #    `on_conflict_do_update` grava a segunda por cima da primeira —
+        #    last-writer-wins nesses três campos (`total_respondidas`
+        #    continua somando certo, por ser expressão SQL). O que a
+        #    constraint `uq_aluno_subtema` + `on_conflict_do_update` fecham
+        #    nesse caso é o `IntegrityError` que o caminho anterior (SELECT
+        #    → decidir → INSERT/UPDATE em Python) estourava DEPOIS de já ter
+        #    gravado as respostas — não a perda do incremento. Ver
+        #    `test_concurrent_answers_on_the_same_subtopic_do_not_collide`.
+        #
+        # Lock e não expressão SQL condicional no `set_`: os três campos
+        # saem do SM-2 (`services/sm2.py`), com ramos por faixa de domínio e
+        # um `max(3.0, intervalo * 1.3)`. Reescrever isso como CASE no `set_`
+        # duplicaria o algoritmo em SQL — duas fontes de verdade para a
+        # mesma regra, e a que os testes cobrem deixaria de ser a que roda.
         progresso_result = await db.execute(
-            select(AlunoTemaProgresso).where(
+            select(AlunoTemaProgresso)
+            .where(
                 AlunoTemaProgresso.aluno_id == aluno_id,
                 AlunoTemaProgresso.subtema_id == subtema_id,
             )
+            .with_for_update()
         )
         progresso_atual = progresso_result.scalar_one_or_none()
         intervalo_atual = progresso_atual.intervalo_dias if progresso_atual else 1.0
