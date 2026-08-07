@@ -288,8 +288,31 @@ async def contexto_questao(
     Só libera o gabarito se existir um registro de que ESTE aluno JÁ
     respondeu ESTA questão (`DiagnosticoResposta`). Desde a fase 2 essa
     linha só pode nascer de um `POST /diagnostic/answer` cujo `tema_id`
-    contém a questão (o join em `Subtema` lá em cima), então o aluno não
-    consegue mais fabricá-la para um id arbitrário.
+    contém a questão (o join em `Subtema` lá em cima). Isso barra a
+    leitura do gabarito de outro aluno e a de questão de OUTRO tema — e é
+    exatamente isso que barra, nada além.
+
+    # TODO(bloco B): auto-autorização continua aberta DENTRO do tema
+    # certo, e o `tema_id` certo é descobrível por qualquer aluno
+    # autenticado em quatro GETs, todos com o mesmo token: `materias.py:15`
+    # (`/subjects`), `:28` (`/subjects/{id}/topics`), `:55`
+    # (`/topics/{id}/subtopics`) e `:106` (`/subtopics/{id}/questions`,
+    # que devolve o `id` de cada questão — sem o gabarito, mas com o id,
+    # que é o que falta). Com o `tema_id` na mão, um `POST
+    # /diagnostic/answer` com alternativa qualquer grava a
+    # `DiagnosticoResposta` e o GET aqui passa a entregar o gabarito.
+    # Medido ponta a ponta neste worktree: 403 antes do /answer, 200 com
+    # `gabarito: "C"` depois.
+    # E o dano não para em ler: como o `on_conflict_do_update` de
+    # `responder_diagnostico` SUBSTITUI `nivel_dominio` em vez de
+    # acumular, uma segunda submissão com as respostas colhidas leva o
+    # domínio do subtema de 0.0 a 1.0 — medido na mesma rodada.
+    # Correção (bloco B, fora do escopo da fase 2a): sessão de
+    # questionário registrada no servidor, ou `DiagnosticoResposta`
+    # uma-por-(aluno, questão) com migration, de modo que a resposta não
+    # possa ser reenviada depois de o gabarito ter sido lido. Enquanto
+    # isso não existe, este portão é um controle de escopo (tema), não uma
+    # prova de que o aluno estudou a questão.
     """
     resposta_result = await db.execute(
         select(DiagnosticoResposta)
