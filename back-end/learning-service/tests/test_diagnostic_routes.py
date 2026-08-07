@@ -421,6 +421,146 @@ async def test_concurrent_answers_on_the_same_subtopic_do_not_collide(
     assert progresso.total_respondidas == 2
 
 
+async def test_concurrent_answers_keep_both_streak_increments(
+    client, db_session, student_identity, monkeypatch
+):
+    """`total_respondidas` era a UNICA coluna atomica do upsert.
+
+    O teste irmao acima cobre a corrida de INSERCAO (linha inexistente,
+    fechada pela constraint + `on_conflict_do_update`) e so afirma
+    `total_respondidas`, que virou soma em SQL. `streak_acertos`,
+    `intervalo_dias` e `nivel_dominio` saiam de um SELECT sem lock e
+    voltavam como SUBSTITUICAO — read->write em linha compartilhada, que e
+    a regra 3 do CLAUDE.md.
+
+    Aqui a linha JA EXISTE (`streak_acertos = 3` seedado), que e o unico
+    caso que `with_for_update()` consegue fechar: sem lock, duas respostas
+    certas simultaneas leem 3, calculam 4 e gravam 4. O esperado e 5.
+
+    ── Por que a intercalacao precisa ser forcada, e forcada ASSIM ──
+
+    `asyncio.gather` sozinho nao basta, medido: com as duas requisicoes
+    livres, a primeira le 3 e a segunda le 4 (ou seja, a segunda so chega
+    ao SELECT depois do `db.commit()` da primeira) e o teste passa contra o
+    codigo defeituoso.
+
+    E a barreira MUTUA que o teste irmao usa (as duas esperam uma pela
+    outra dentro de `atualizar_revisao`) nao serve aqui: com
+    `with_for_update()`, a segunda requisicao trava no proprio SELECT e
+    nunca chega ao ponto de encontro — a primeira esperaria para sempre.
+    Barreira mutua e teste de lock nao coexistem.
+
+    Entao o encontro e de mao unica, entre dois pontos escolhidos:
+
+    * quem AVISA e `calcular_dominio`, que roda ANTES do SELECT de
+      progresso — ponto que a segunda requisicao alcanca mesmo quando o
+      SELECT vai travar;
+    * quem ESPERA e `buscar_tema_anterior`, que roda DEPOIS do upsert e
+      ANTES do `db.commit()` — a primeira requisicao para ali segurando a
+      sua transacao aberta.
+
+    Contra o codigo sem lock: a primeira segura o upsert nao commitado, a
+    segunda faz um SELECT comum (que sob READ COMMITTED nao trava em linha
+    com UPDATE pendente), le 3, calcula 4, e o seu proprio upsert e que
+    espera o commit da primeira. Resultado 4 — o incremento perdido.
+
+    Com `with_for_update()`: o SELECT da segunda trava, a primeira commita,
+    a segunda le 4 e grava 5.
+
+    O arranjo e deterministico, nao probabilistico: 20 execucoes
+    consecutivas contra o codigo sem lock falharam as 20 com
+    `streak_acertos == 4`.
+
+    Medido nesta rodada, com `_espiao_get_db` temporario: as duas
+    requisicoes recebem `AsyncSession` distintas e conexoes DBAPI
+    distintas do pool (`Pool size: 5`), entao o lock de linha entre
+    conexoes e de fato exercitado — nao e um lock que o mesmo `AsyncSession`
+    daria de graca.
+    """
+    import app.routers.diagnostico as mod
+
+    materia = Materia(nome="Biologia")
+    db_session.add(materia)
+    await db_session.flush()
+    tema = Tema(materia_id=materia.id, nome="Citologia", ordem=1)
+    db_session.add(tema)
+    await db_session.flush()
+    subtema = Subtema(tema_id=tema.id, nome="Membrana", ordem=1)
+    db_session.add(subtema)
+    await db_session.flush()
+    questao = Questao(
+        subtema_id=subtema.id,
+        enunciado="O que e a bicamada lipidica?",
+        alternativas={"A": "a", "B": "b", "C": "c", "D": "d"},
+        gabarito="A",
+        nivel_dificuldade=1,
+    )
+    db_session.add(questao)
+    # `streak_acertos` seedado em 3 e nao em 0 para o valor perdido ser
+    # visivel: com 0 o defeito daria 1 e o correto 2, e um off-by-one em
+    # qualquer lado ficaria ambiguo.
+    db_session.add(
+        AlunoTemaProgresso(
+            aluno_id=student_identity.aluno_id,
+            subtema_id=subtema.id,
+            nivel_dominio=1.0,
+            intervalo_dias=1.0,
+            streak_acertos=3,
+            total_respondidas=0,
+        )
+    )
+    await db_session.commit()
+
+    a_segunda_chegou = asyncio.Event()
+    estado = {"dominios": 0, "ja_esperou": False}
+    calcular_real = mod.calcular_dominio
+    anterior_real = mod.buscar_tema_anterior
+
+    def _avisar_na_segunda(respostas):
+        estado["dominios"] += 1
+        if estado["dominios"] == 2:
+            a_segunda_chegou.set()
+        return calcular_real(respostas)
+
+    async def _segurar_a_primeira(db, tema_):
+        if not estado["ja_esperou"]:
+            estado["ja_esperou"] = True
+            # `wait_for` e nao `wait`: se o ponto de encontro deixar de ser
+            # alcancavel, o teste falha alto em vez de pendurar a suite.
+            await asyncio.wait_for(a_segunda_chegou.wait(), timeout=10)
+        return await anterior_real(db, tema_)
+
+    monkeypatch.setattr(mod, "calcular_dominio", _avisar_na_segunda)
+    monkeypatch.setattr(mod, "buscar_tema_anterior", _segurar_a_primeira)
+
+    # Alternativa CERTA nas duas: `calcular_dominio` devolve 1.0, que cai no
+    # ramo `dominio >= 0.7` de `atualizar_revisao` — o unico que incrementa
+    # o streak.
+    corpo = {
+        "tema_id": tema.id,
+        "respostas": [{"questao_id": questao.id, "alternativa_escolhida": "A"}],
+    }
+    primeira, segunda = await asyncio.gather(
+        client.post("/diagnostic/answer", json=corpo, headers=student_identity.headers),
+        client.post("/diagnostic/answer", json=corpo, headers=student_identity.headers),
+    )
+    assert primeira.status_code == 200, primeira.text
+    assert segunda.status_code == 200, segunda.text
+
+    progresso = (
+        await db_session.execute(
+            select(AlunoTemaProgresso).where(
+                AlunoTemaProgresso.aluno_id == student_identity.aluno_id,
+                AlunoTemaProgresso.subtema_id == subtema.id,
+            )
+        )
+    ).scalar_one()
+    assert progresso.total_respondidas == 2
+    assert progresso.streak_acertos == 5, (
+        f"streak perdeu um incremento: {progresso.streak_acertos} (as duas leram 3 e gravaram 4)"
+    )
+
+
 async def test_answer_does_not_publish_a_revision_notification(
     client, db_session, student_identity, _stub_publish_event
 ):
