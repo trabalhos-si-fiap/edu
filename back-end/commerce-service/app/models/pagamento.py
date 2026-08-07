@@ -3,6 +3,7 @@ from sqlalchemy import (
     CheckConstraint,
     Column,
     DateTime,
+    Index,
     String,
     func,
     text,
@@ -31,6 +32,20 @@ class PaymentMethod(Base):
     Estilo `Column` clássico (não `Mapped`/`mapped_column` do legacy) —
     mesma decisão de B6/B7/B8 para `produto.py`/`review.py`/`carrinho.py`,
     por consistência com o resto do serviço.
+
+    `ix_payment_methods_one_default_per_user`: índice único PARCIAL
+    (`WHERE is_default`) — acrescentado na rodada de correção 1 (decisão do
+    usuário de 2026-08-07, regra 3 do CLAUDE.md). Sem ele, dois
+    `criar_metodo` concorrentes do MESMO usuário, ambos sem nenhum método
+    ainda, não têm nenhuma linha para `with_for_update()` travar (Postgres
+    não bloqueia um INSERT novo por causa de lock em linha inexistente) —
+    medido pelo revisor independente: 2 defaults depois da corrida, 100% das
+    vezes com leitura forçada. O índice fecha esse buraco no nível do banco,
+    do mesmo jeito que `carts.user_id UNIQUE` fecha o buraco análogo de
+    `get_or_create_cart` em `app/services/carrinho.py` (B8) — o segundo
+    INSERT concorrente que tentaria violar o índice BLOQUEIA esperando o
+    primeiro committar, e falha com `IntegrityError` depois; `criar_metodo`
+    captura isso e refaz sem `is_default` (ver app/services/pagamento.py).
     """
 
     __tablename__ = "payment_methods"
@@ -42,6 +57,12 @@ class PaymentMethod(Base):
         CheckConstraint(
             "card_last4 IS NULL OR char_length(card_last4) = 4",
             name="ck_payment_methods_card_last4_len",
+        ),
+        Index(
+            "ix_payment_methods_one_default_per_user",
+            "user_id",
+            unique=True,
+            postgresql_where=text("is_default"),
         ),
     )
 

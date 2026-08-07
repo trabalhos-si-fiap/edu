@@ -9,6 +9,7 @@ commerce (`edu-common`), não 401 como no legacy — só 1 asserção deste
 arquivo muda por causa disso (`TestAuthRequired.test_list_requires_auth`).
 """
 
+import asyncio
 import uuid
 
 import pytest
@@ -17,6 +18,7 @@ from httpx import AsyncClient
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import app.services.pagamento as pagamento_service
 from app.config import settings
 from app.models.pagamento import PaymentMethod
 
@@ -312,3 +314,191 @@ class TestOwnership:
             await client.get("/payment-methods", headers=headers_for("student", sub=STUDENT_A))
         ).json()
         assert len(listing_a) == 1
+
+
+class TestDefaultLockConcurrency:
+    """Prova o lock acrescentado a `criar_metodo`/`apagar_metodo` na rodada
+    de correção 1 (task-B9-report.md, seção "Divergência do lock — read→write
+    sem lock, corrigido"). Decisão do usuário de 2026-08-07: pôr o lock —
+    regra 3 do CLAUDE.md é inviolável, e a fase 2b original só tinha
+    REGISTRADO o achado (sem lock, replicando o legacy) até um revisor
+    independente medir a corrida produzindo 2 defaults de verdade.
+
+    Duas proteções distintas, para duas corridas distintas (ver docstring
+    de `app/services/pagamento.py`):
+
+    1. `ix_payment_methods_one_default_per_user` (índice único parcial no
+       banco) + `criar_metodo` capturando `IntegrityError` e refazendo sem
+       `is_default` — protege quando NÃO existe nenhuma linha ainda (o
+       `with_for_update()` não tem o que travar nesse caso).
+    2. `.with_for_update()` em `_listar_metodos_com_lock`, usado por
+       `criar_metodo` e `apagar_metodo` — protege quando já existe pelo
+       menos 1 linha (serializa a decisão de quem vira default).
+
+    Limitação declarada (mesma do bloco A/B7/B8): um teste destes, num
+    único processo/event loop, prova a ORDEM LÓGICA das operações e
+    exercita um lock de linha real do Postgres entre duas conexões
+    distintas (duas `AsyncSession`) — não prova contenção entre processos
+    ou réplicas distintas do serviço.
+    """
+
+    async def test_concurrent_create_from_zero_methods_does_not_produce_two_defaults(
+        self,
+        client: AsyncClient,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Corrida mais dura, medida pelo revisor: usuário SEM nenhum
+        método, dois `POST` concorrentes, "leituras forçadas antes de
+        qualquer commit". `with_for_update()` sozinho NÃO protege este caso
+        — não há linha para travar (Postgres nunca bloqueia um INSERT novo
+        por lock em linha inexistente). Quem fecha é o índice único parcial
+        + `criar_metodo` capturando o `IntegrityError` do segundo commit.
+
+        Sinal forçado no nível da FUNÇÃO (`_listar_metodos_com_lock`), não
+        na forma da query via `AsyncSession.execute` — a query do lock e a
+        de `listar_metodos` têm o MESMO texto SQL (só o `FOR UPDATE` muda,
+        e ele precisa poder desaparecer sob mutação sem quebrar o
+        detector, mesma lição da B8). Patchear a função pelo nome evita
+        depender do SQL renderizado.
+        """
+        leituras_prontas = asyncio.Event()
+        estado = {"leituras": 0, "commits": 0}
+
+        lock_real = pagamento_service._listar_metodos_com_lock
+        commit_real = AsyncSession.commit
+
+        async def _lock_que_avisa(db: AsyncSession, user_id: uuid.UUID):
+            resultado = await lock_real(db, user_id)
+            estado["leituras"] += 1
+            if estado["leituras"] == 2:
+                leituras_prontas.set()
+            return resultado
+
+        async def _commit_que_espera(self: AsyncSession, *args: object, **kwargs: object):
+            estado["commits"] += 1
+            if estado["commits"] == 1:
+                await asyncio.wait_for(leituras_prontas.wait(), timeout=5)
+                await asyncio.sleep(0.01)
+            return await commit_real(self, *args, **kwargs)
+
+        monkeypatch.setattr(pagamento_service, "_listar_metodos_com_lock", _lock_que_avisa)
+        monkeypatch.setattr(AsyncSession, "commit", _commit_que_espera)
+
+        r1, r2 = await asyncio.gather(
+            client.post("/payment-methods", json=pix(), headers=headers_for("student")),
+            client.post("/payment-methods", json=pix(), headers=headers_for("student")),
+        )
+        assert r1.status_code == 201, r1.text
+        assert r2.status_code == 201, r2.text
+
+        listing = (await client.get("/payment-methods", headers=headers_for("student"))).json()
+        defaults = [m for m in listing if m["is_default"]]
+        assert len(defaults) == 1, (
+            f"esperava exatamente 1 default, achou {len(defaults)}: {listing}"
+        )
+
+    async def test_concurrent_delete_of_default_and_create_of_new_default_does_not_duplicate(
+        self,
+        client: AsyncClient,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Segunda corrida medida pelo revisor: `DELETE` do método default
+        concorrente com `POST` de um método novo já pedindo
+        `is_default=true`.
+
+        MEDIÇÃO (achado desta rodada — quatro tentativas até um desenho que
+        funciona nos dois sentidos; contagens 20x completas de cada uma em
+        task-B9-report.md, seção "Divergência do lock"):
+
+        1ª: `asyncio.gather` puro, só 1 método existente (o default sendo
+        apagado). Contra o código sem proteção: `GREENS=20 REDS=0` — não
+        reproduz, porque `_limpar_outros_padroes` (`UPDATE ... WHERE
+        is_default=true`) e o `DELETE` disputam a MESMA linha (o único
+        default), e o Postgres serializa isso sozinho via lock de linha
+        nativo do `UPDATE`/`DELETE` concorrente — sem `with_for_update()`
+        nenhum.
+
+        2ª: sinal forçado (mesmo padrão do teste acima) + um segundo método
+        (`segundo`, não-default), cuja linha é DIFERENTE da que
+        `_limpar_outros_padroes` disputa. Contra o código sem proteção:
+        `GREENS=0 REDS=20` — reproduz. Mas contra o código COM a proteção:
+        `TimeoutError` — quando `with_for_update()` está ativo, uma das
+        duas chamadas a `_listar_metodos_com_lock` fica genuinamente
+        BLOQUEADA dentro do Postgres (não dentro do `asyncio.Event` do
+        teste), a segunda leitura nunca completa para disparar o sinal, e o
+        commit que espera o sinal trava em deadlock — mesma armadilha que a
+        B8 documentou (`task-B8-report.md`, teste do item sem sinal
+        forçado).
+
+        3ª: removido o sinal, mantido `segundo`, só `asyncio.gather` puro
+        (mais um tick de `asyncio.sleep(0)` entre `create_task` das duas
+        chamadas). Contra o código sem proteção: `GREENS=20 REDS=0` de
+        novo — sem sinal algum, as duas transações não intercalam no ponto
+        exato dentro deste harness em processo único (`ASGITransport`); o
+        eventloop cooperativo não gera o entrelaçamento por si só aqui.
+
+        4ª (final): sinal forçado com TIMEOUT CURTO (0.3s) em vez de 5s, e
+        o timeout é ENGOLIDO (não propagado) em vez de estourar o teste —
+        se a segunda leitura não completar a tempo, é porque
+        `with_for_update()` já bloqueou de verdade dentro do Postgres (a
+        proteção está funcionando), e não faz sentido esperar mais: os dois
+        lados prosseguem, e o próprio Postgres serializa. Contra o código
+        sem proteção, as duas leituras completam bem antes de 0.3s (não há
+        nada bloqueando) e o sinal dispara normalmente, reproduzindo a
+        corrida como na 2ª rodada. Funciona nos dois sentidos sem deadlock.
+        """
+        primeiro = (
+            await client.post(
+                "/payment-methods", json=credit_card(), headers=headers_for("student")
+            )
+        ).json()  # default
+        await client.post("/payment-methods", json=pix(), headers=headers_for("student"))
+        # `segundo` (não-default) é o que fica quando `primeiro` é apagado —
+        # é a linha que `apagar_metodo` PROMOVE, distinta da linha que
+        # `_limpar_outros_padroes` do POST concorrente disputa (`primeiro`).
+        # Sem essa segunda linha, a corrida não se reproduz (ver acima).
+
+        leituras_prontas = asyncio.Event()
+        estado = {"leituras": 0, "commits": 0}
+
+        lock_real = pagamento_service._listar_metodos_com_lock
+        commit_real = AsyncSession.commit
+
+        async def _lock_que_avisa(db: AsyncSession, user_id: uuid.UUID):
+            resultado = await lock_real(db, user_id)
+            estado["leituras"] += 1
+            if estado["leituras"] == 2:
+                leituras_prontas.set()
+            return resultado
+
+        async def _commit_que_espera_curto(self: AsyncSession, *args: object, **kwargs: object):
+            estado["commits"] += 1
+            if estado["commits"] == 1:
+                # Timeout CURTO e ENGOLIDO — se não disparar a tempo, é
+                # porque `with_for_update()` já travou de verdade dentro do
+                # Postgres (a proteção funcionando), não um bug do sinal.
+                # Ver docstring.
+                try:
+                    await asyncio.wait_for(leituras_prontas.wait(), timeout=0.3)
+                    await asyncio.sleep(0.01)
+                except TimeoutError:
+                    pass
+            return await commit_real(self, *args, **kwargs)
+
+        monkeypatch.setattr(pagamento_service, "_listar_metodos_com_lock", _lock_que_avisa)
+        monkeypatch.setattr(AsyncSession, "commit", _commit_que_espera_curto)
+
+        r_delete, r_post = await asyncio.gather(
+            client.delete(f"/payment-methods/{primeiro['id']}", headers=headers_for("student")),
+            client.post(
+                "/payment-methods", json=pix(is_default=True), headers=headers_for("student")
+            ),
+        )
+        assert r_delete.status_code == 204, r_delete.text
+        assert r_post.status_code == 201, r_post.text
+
+        listing = (await client.get("/payment-methods", headers=headers_for("student"))).json()
+        defaults = [m for m in listing if m["is_default"]]
+        assert len(defaults) == 1, (
+            f"esperava exatamente 1 default, achou {len(defaults)}: {listing}"
+        )
