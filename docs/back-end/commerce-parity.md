@@ -27,7 +27,7 @@ escrito que não houve.
 | Chaves das quatro rotas que o app consome | **idênticas** ao legacy (diff vazio nas quatro) |
 | Tipos JSON de cada valor | **idênticos** (zero divergências) |
 | Suíte do commerce | **187 passando** (`63f8977`; eram 177 no portão) |
-| Frota | 8/8 alvos, `ruff` limpo — 491 medidos no portão, **501 por aritmética** depois da B12 (§8) |
+| Frota | 8/8 alvos, `ruff` limpo — 491 medidos no portão, **501 medidos** depois da B12 (§8) |
 | Sync-check de schema | 5 de 5 vazios |
 | Buracos de porte | **0** — o único (§4) foi fechado pela B12 |
 | Divergências deliberadas | **5** (ver §5) |
@@ -317,13 +317,13 @@ uv run ruff format --check .    -> 80 files already formatted
 | chatbot | 23 | 23 | 0 | medido no portão |
 | notification | 24 | 24 | 0 | medido no portão |
 | analytics | 33 | 33 | 0 | medido no portão |
-| **total** | **402** | **501** | **+99** | **aritmética**, não execução |
+| **total** | **402** | **501** | **+99** | **medido**, `make services-test` |
 
-O total de 501 é **derivado** (491 medidos no portão + 10 acrescentados pela
-B12), não a saída de um `make services-test`. Os outros sete serviços não
-foram tocados: o commit da B12 mexe em dois arquivos, os dois dentro de
-`back-end/commerce-service/tests/`. A próxima rodada real da frota é que
-confirma o 501.
+O total de 501 foi **medido**, não derivado: `make services-test` rodado na
+raiz do repositório depois da B12 devolve, na ordem, 59 / 36 / 61 / 78 / 187 /
+23 / 24 / 33 — soma 501, e cada linha da tabela acima é uma linha daquela
+saída. Os três `uv.lock` que a rodada reescreve (analytics, auth-users,
+chatbot) foram revertidos; a árvore ficou limpa.
 
 Nenhum serviço diminuiu. `ruff check` limpo nos oito no portão, e re-confirmado
 no commerce na B12.
