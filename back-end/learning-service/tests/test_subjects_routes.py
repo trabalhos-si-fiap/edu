@@ -302,9 +302,16 @@ async def test_subtopics_pagination_is_stable_when_ordem_is_not_unique(
 # so o teste do cap (422 em `limite=99999`), que exercita a anotacao
 # `Query(le=50)` e nada mais — apagar `.limit(limite)` de
 # `app/routers/materias.py:118` o deixava verde. Task 23 traduz `limite`
-# para `limit` (era o unico param em portugues dos sete servicos) e
-# acrescenta `offset`, com `order_by(Questao.id)` para a pagina ser
-# estavel — sem duplicar linha nem pular nenhuma entre paginas. ────────
+# para `limit` e acrescenta `offset`, com `order_by(Questao.id)` para a
+# pagina ser estavel — sem duplicar linha nem pular nenhuma entre paginas.
+#
+# `limite` era o unico param em portugues DESTE arquivo, nao da frota: os
+# outros quatro seguem vivos e fora de escopo, medidos com
+# `grep -rnE 'Query\(|Path\(' back-end/*/app/routers/*.py` —
+# `learning/materias.py:81` `quantidade`, `commerce/admin.py:101`
+# `quantidade`, `analytics/analytics.py:117` `dias` e `:205`
+# `dias_historico`. A mensagem do commit 7f1eaa1 ja os lista; este
+# comentario e que tinha ficado para tras. ────────
 
 
 async def test_subtopic_questions_actually_applies_the_limit(client, auth_headers, db_session):
