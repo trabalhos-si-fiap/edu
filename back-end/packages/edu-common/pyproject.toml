@@ -55,13 +55,30 @@ extend-immutable-calls = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-# As duas linhas de loop_scope andam juntas. Só a de fixture não basta: o
-# default de teste é "function", e um engine criado no loop da sessão
-# estoura no segundo teste que tocar recurso compartilhado.
+# As duas linhas de loop_scope estão aqui por UNIFORMIDADE com a receita
+# dos sete serviços (mesmo par em `api-gateway`, `auth-users-service`,
+# `learning-service`, `commerce-service`, `chatbot-service`,
+# `notification-service` e `analytics-service`), não por sintoma observado
+# neste pacote: `grep -rnE "engine|create_async|sessionmaker|asyncio"
+# tests/` não devolve nada — o edu-common não tem engine, banco nem
+# fixture de escopo diferente de `function` (as três estão em
+# `tests/test_deps.py:15,51` e `tests/test_events.py:13`). Lá, onde há um
+# engine de escopo de sessão, só a linha de fixture não basta porque o
+# default de teste é "function"; aqui nenhuma das duas muda resultado.
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
+# Mesmo caso: o marcador é a linha uniforme das oito `pyproject.toml` da
+# frota, e não descreve nada que exista aqui — o edu-common não carrega
+# modelo de embeddings (`grep -rni "embedding" .` só acha esta linha) nem
+# tem teste marcado (`grep -rn "slow" tests/` não devolve nada). Os únicos
+# usos reais de `pytest.mark.slow` estão em
+# `commerce-service/tests/test_embeddings_fixture.py:71` e
+# `learning-service/tests/test_embeddings_fixture.py:93`. Fica declarado
+# porque `--strict-markers` transforma marcador não declarado em erro, e
+# manter as oito iguais é mais barato que lembrar de qual das oito é a
+# diferente — mas seis das oito o declaram sem usar.
 markers = [
     "slow: tests that load a real embeddings model (opt-in)",
 ]
