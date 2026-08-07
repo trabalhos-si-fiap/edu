@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict
 
 
 class PedidoItemIn(BaseModel):
-    produto_id: int
+    produto_id: UUID
     fornecedor_id: int
     quantidade: int
     preco_unitario: Decimal

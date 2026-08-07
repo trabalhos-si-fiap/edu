@@ -14,6 +14,8 @@ em caso de qualquer falha — o aluno recebe sugestões um pouco menos
 precisas, mas o fluxo nunca quebra.
 """
 
+import uuid
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,7 +27,7 @@ LIMIAR_SIMILARIDADE = 0.35
 
 async def _buscar_por_categoria(
     db: AsyncSession, produto_original: Product, limite: int
-) -> list[int]:
+) -> list[uuid.UUID]:
     """Fallback determinístico (sem IA) — mesma lógica que existia antes
     desta funcionalidade, usada quando os embeddings não estão disponíveis."""
     result = await db.execute(
@@ -42,12 +44,18 @@ async def _buscar_por_categoria(
     return [row[0] for row in result.all()]
 
 
-async def sugerir_substitutos(db: AsyncSession, produto_id: int, limite: int = 3) -> list[int]:
+async def sugerir_substitutos(
+    db: AsyncSession, produto_id: uuid.UUID, limite: int = 3
+) -> list[str]:
     """
     Sugere até `limite` produtos substitutos para `produto_id`, ordenados
     por similaridade semântica (nome + descrição), entre os produtos com
     estoque disponível em algum fornecedor — não restrito à mesma
     categoria, diferente da busca antiga.
+
+    Devolve lista de UUID em string, não `uuid.UUID`: o retorno vai direto
+    para `ocorrencias.produtos_sugeridos`, uma coluna JSONB, e JSON não tem
+    tipo UUID.
     """
     result = await db.execute(select(Product).where(Product.id == produto_id))
     produto_original = result.scalar_one_or_none()
@@ -80,15 +88,19 @@ async def sugerir_substitutos(db: AsyncSession, produto_id: int, limite: int = 3
 
         relevantes = [pid for pid, sim in pontuados if sim >= LIMIAR_SIMILARIDADE]
         if relevantes:
-            return relevantes[:limite]
+            # A lista vai direto para `ocorrencias.produtos_sugeridos`, que é
+            # JSONB. JSON não tem tipo UUID — devolver `uuid.UUID` faria o
+            # driver estourar na serialização, e devolver int (o que era
+            # antes) deixaria de casar com `products.id`.
+            return [str(pid) for pid in relevantes[:limite]]
 
         # Nenhum candidato passou do limiar de similaridade — cai para a
         # busca por categoria em vez de devolver uma lista vazia.
-        return await _buscar_por_categoria(db, produto_original, limite)
+        return [str(pid) for pid in await _buscar_por_categoria(db, produto_original, limite)]
 
     except Exception:
         # Falha ao carregar/rodar o modelo de embeddings (sem internet,
         # timeout etc.) — degrada para o comportamento determinístico
         # anterior, nunca propaga erro para quem está reportando a
         # ocorrência de falta de estoque.
-        return await _buscar_por_categoria(db, produto_original, limite)
+        return [str(pid) for pid in await _buscar_por_categoria(db, produto_original, limite)]

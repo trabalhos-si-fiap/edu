@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime
 from typing import Literal
 
@@ -6,7 +7,7 @@ from pydantic import BaseModel, ConfigDict
 
 class FaltaEstoqueIn(BaseModel):
     pedido_id: int
-    produto_id: int
+    produto_id: uuid.UUID
     motivo: str
 
 
@@ -21,11 +22,11 @@ ResolucaoTipo = Literal["substituir", "remover_item", "cancelar_pedido", "aceita
 
 class ResolverOcorrenciaIn(BaseModel):
     resolucao: ResolucaoTipo
-    produto_escolhido_id: int | None = None  # obrigatório se resolucao == "substituir"
+    produto_escolhido_id: uuid.UUID | None = None  # obrigatório se resolucao == "substituir"
 
 
 class ProdutoSugeridoOut(BaseModel):
-    id: int
+    id: uuid.UUID
     nome: str
     preco: float
     imagem_url: str | None = None
@@ -38,7 +39,7 @@ class OcorrenciaOut(BaseModel):
     pedido_id: int
     tipo: str
     status: str
-    produto_id: int | None
+    produto_id: uuid.UUID | None
     nova_data_sugerida: datetime | None
     motivo: str
     resolucao: str | None

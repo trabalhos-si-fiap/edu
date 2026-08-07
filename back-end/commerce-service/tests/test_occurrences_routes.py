@@ -122,7 +122,7 @@ async def test_stock_shortage_requires_authentication(client, db_session):
 
     response = await client.post(
         "/occurrences/stock-shortage",
-        json={"pedido_id": pedido.id, "produto_id": produto.id, "motivo": "sem estoque"},
+        json={"pedido_id": pedido.id, "produto_id": str(produto.id), "motivo": "sem estoque"},
     )
     assert response.status_code == 403
 
@@ -133,7 +133,7 @@ async def test_stock_shortage_forbids_a_separador_who_never_claimed_the_order(cl
 
     response = await client.post(
         "/occurrences/stock-shortage",
-        json={"pedido_id": pedido.id, "produto_id": produto.id, "motivo": "sem estoque"},
+        json={"pedido_id": pedido.id, "produto_id": str(produto.id), "motivo": "sem estoque"},
         headers=headers_for("separador", sub=PICKER_B),
     )
     assert response.status_code == 403
@@ -145,7 +145,7 @@ async def test_stock_shortage_allows_the_separador_who_claimed_the_order(client,
 
     response = await client.post(
         "/occurrences/stock-shortage",
-        json={"pedido_id": pedido.id, "produto_id": produto.id, "motivo": "sem estoque"},
+        json={"pedido_id": pedido.id, "produto_id": str(produto.id), "motivo": "sem estoque"},
         headers=headers_for("separador", sub=PICKER_A),
     )
     assert response.status_code == 201
@@ -157,7 +157,7 @@ async def test_stock_shortage_allows_admin_regardless_of_ownership(client, db_se
 
     response = await client.post(
         "/occurrences/stock-shortage",
-        json={"pedido_id": pedido.id, "produto_id": produto.id, "motivo": "sem estoque"},
+        json={"pedido_id": pedido.id, "produto_id": str(produto.id), "motivo": "sem estoque"},
         headers=headers_for("admin", sub=ADMIN),
     )
     assert response.status_code == 201
@@ -360,7 +360,7 @@ async def test_concurrent_resolves_apply_the_price_delta_once(client, db_session
     monkeypatch.setattr(AsyncSession, "execute", execute_espiao)
     monkeypatch.setattr(AsyncSession, "commit", commit_espiao)
 
-    corpo = {"resolucao": "substituir", "produto_escolhido_id": substituto.id}
+    corpo = {"resolucao": "substituir", "produto_escolhido_id": str(substituto.id)}
     primeira, segunda = await asyncio.gather(
         client.post(
             f"/occurrences/{ocorrencia.id}/resolve", json=corpo, headers=headers_for("student")

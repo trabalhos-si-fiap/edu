@@ -8,6 +8,7 @@ precisavam ser tocados para traduzir o prefixo (`/estoque` -> `/inventory`),
 fechamos a lacuna aqui em vez de deixá-la para uma próxima rodada de fix.
 """
 
+import uuid
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
@@ -17,7 +18,7 @@ class EstoqueOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    produto_id: int
+    produto_id: uuid.UUID
     fornecedor_id: int
     quantidade: int
     atualizado_em: datetime | None = None

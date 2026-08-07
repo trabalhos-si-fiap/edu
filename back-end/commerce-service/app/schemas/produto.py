@@ -5,6 +5,7 @@ internas (custo, margem, fornecedor preferencial) que não podem vazar para o
 app só porque foram adicionadas ao banco.
 """
 
+import uuid
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict
@@ -13,7 +14,7 @@ from pydantic import BaseModel, ConfigDict
 class ProductOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    id: uuid.UUID
     name: str
     description: str | None = None
     price: Decimal

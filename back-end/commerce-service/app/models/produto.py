@@ -11,8 +11,10 @@ from sqlalchemy import (
     func,
     text,
 )
+from sqlalchemy.dialects.postgresql import UUID
 
 from app.database import Base
+from app.ids import new_uuid
 
 
 class Fornecedor(Base):
@@ -42,7 +44,17 @@ class Product(Base):
 
     __tablename__ = "products"
 
-    id = Column(Integer, primary_key=True)
+    # `default=` cobre insert pelo ORM; `server_default` cobre insert que
+    # passa por fora dele (psql, seed em SQL, SQLAdmin) — mesmo padrão da
+    # regra 3/constraint já usada em `ativo`/`status` acima. `new_uuid` é
+    # UUIDv7 (ordenado no tempo, ver app/ids.py), `gen_random_uuid()` é v4:
+    # o server_default é rede de segurança, não o caminho normal.
+    id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=new_uuid,
+        server_default=text("gen_random_uuid()"),
+    )
     name = Column(String(150), nullable=False)
     description = Column(Text, nullable=True)
     price = Column(Numeric(10, 2), nullable=False)
@@ -57,7 +69,7 @@ class Estoque(Base):
     )
 
     id = Column(Integer, primary_key=True)
-    produto_id = Column(Integer, ForeignKey("products.id"))
+    produto_id = Column(UUID(as_uuid=True), ForeignKey("products.id"))
     fornecedor_id = Column(Integer, ForeignKey("fornecedores.id"))
     quantidade = Column(Integer, nullable=False, default=0, server_default=text("0"))
     atualizado_em = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

@@ -16,6 +16,7 @@ logística sobre o histórico real) é um passo natural quando houver volume
 de produção. Ver README.
 """
 
+import uuid
 from datetime import UTC, datetime
 
 from sqlalchemy import select
@@ -30,14 +31,16 @@ PESO_RISCO_ESTOQUE = 0.4
 HORAS_ESPERA_MAXIMA_NORMALIZACAO = 48  # espera considerada "máxima" para normalizar o score
 
 
-async def _estoque_total_por_produto(db: AsyncSession, produto_ids: list[int]) -> dict[int, int]:
+async def _estoque_total_por_produto(
+    db: AsyncSession, produto_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, int]:
     """Soma o estoque de cada produto entre todos os fornecedores."""
     if not produto_ids:
         return {}
     result = await db.execute(
         select(Estoque.produto_id, Estoque.quantidade).where(Estoque.produto_id.in_(produto_ids))
     )
-    totais: dict[int, int] = {}
+    totais: dict[uuid.UUID, int] = {}
     for produto_id, quantidade in result.all():
         totais[produto_id] = totais.get(produto_id, 0) + quantidade
     return totais
