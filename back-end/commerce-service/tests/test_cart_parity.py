@@ -342,6 +342,15 @@ def _e_select_lock_carrinho(stmt: object) -> bool:
     return str(stmt).startswith("SELECT carts.id \n")
 
 
+def _e_select_lock_item(stmt: object) -> bool:
+    """Identifica o `select(CartItem)...where(cart_id, product_id)` (com ou
+    sem `.with_for_update()`) — só ele filtra por `product_id`; o SELECT de
+    `montar_cart_out` filtra só por `cart_id` e tem `ORDER BY`. Mesma razão
+    de não exigir `FOR UPDATE` no texto de `_e_select_lock_carrinho` acima."""
+    texto = str(stmt)
+    return "FROM cart_items" in texto and "cart_items.product_id" in texto
+
+
 class TestCartLockConcurrency:
     """Prova os dois `.with_for_update()` de `app/services/carrinho.py`
     (constraint do task-B8-brief.md: "os dois with_for_update() são o
@@ -497,4 +506,101 @@ class TestCartLockConcurrency:
         items = r.json()["items"]
         assert items[0]["quantity"] == 7, (
             f"perdeu incremento: quantity={items[0]['quantity']} (esperado 1 (seed) + 3 + 3 = 7)"
+        )
+
+    async def test_item_lock_alone_prevents_lost_increment_when_cart_lock_is_neutralized(
+        self,
+        client: AsyncClient,
+        seeded_products: list[Product],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Regressão permanente para o lock do ITEM, isolada do lock do
+        carrinho SEM editar `app/services/carrinho.py` — rodada de correção
+        1 da B8.
+
+        Achado do revisor independente: com os dois locks presentes (código
+        como está), o do carrinho é adquirido primeiro e retido até o
+        commit, então a segunda requisição nunca alcança seu próprio lock
+        de item antes da primeira commitar — o teste
+        `test_concurrent_add_to_existing_item_does_not_lose_the_increment`
+        acima nunca exercita o lock do item sozinho. Medido pelo revisor:
+        removendo só o `.with_for_update()` do item em
+        `app/services/carrinho.py` e rodando `TestCartLockConcurrency` 20
+        vezes, `GREENS=20 REDS=0` — nenhum teste da suíte pega a remoção.
+        O teste ad-hoc que EU tinha usado para provar o lock do item por
+        mutação (task-B8-report.md) nunca entrou na suíte — era artefato de
+        medição, descartado depois. Esse é o buraco: um refactor futuro que
+        remova o lock do item passaria batido pelo CI.
+
+        Conserto: neutraliza só a query do LOCK DO CARRINHO via monkeypatch
+        em `AsyncSession.execute`, reaproveitando o detector
+        `_e_select_lock_carrinho` já usado no teste acima — zera
+        `stmt._for_update_arg` só quando a query bate no formato do lock do
+        carrinho, sem tocar `app/services/carrinho.py`. Com o lock do
+        carrinho neutralizado, a segunda requisição alcança livremente seu
+        próprio lock de item — o mesmo cenário que, com os dois locks REAIS
+        ativos ao mesmo tempo, travava em deadlock (ver "Rodada 1
+        descartada" no relatório). O sinal forçado passa a ser sobre o lock
+        do ITEM (2ª vez que a query dispara), mesmo padrão B7.
+
+        Este teste roda contra o código COMMITADO — não edita produção — e
+        fica vermelho se o `.with_for_update()` do item sumir de
+        `adicionar_item` num refactor futuro.
+        """
+        produto = seeded_products[0]
+        r = await client.post(
+            "/cart/items",
+            json={"product_id": str(produto.id), "quantity": 1},
+            headers=headers_for("student"),
+        )
+        assert r.status_code == 201, r.text
+
+        segundo_lock_item_disparado = asyncio.Event()
+        estado = {"locks_item": 0, "commits": 0}
+
+        execute_real = AsyncSession.execute
+        commit_real = AsyncSession.commit
+
+        async def _execute_neutraliza_carrinho_e_avisa(
+            self: AsyncSession, *args: object, **kwargs: object
+        ):
+            stmt = args[0] if args else None
+            if stmt is not None and _e_select_lock_carrinho(stmt):
+                # Neutraliza SÓ esta chamada específica (o objeto Select
+                # recebido nesta invocação) — não é uma mudança em
+                # app/services/carrinho.py, é o mesmo statement que o
+                # serviço construiu, com o FOR UPDATE apagado antes de ir
+                # para o Postgres.
+                stmt._for_update_arg = None
+            if stmt is not None and _e_select_lock_item(stmt):
+                estado["locks_item"] += 1
+                if estado["locks_item"] == 2:
+                    segundo_lock_item_disparado.set()
+            return await execute_real(self, *args, **kwargs)
+
+        async def _commit_que_espera(self: AsyncSession, *args: object, **kwargs: object):
+            estado["commits"] += 1
+            if estado["commits"] == 1:
+                await asyncio.wait_for(segundo_lock_item_disparado.wait(), timeout=5)
+                await asyncio.sleep(0.01)
+            return await commit_real(self, *args, **kwargs)
+
+        monkeypatch.setattr(AsyncSession, "execute", _execute_neutraliza_carrinho_e_avisa)
+        monkeypatch.setattr(AsyncSession, "commit", _commit_que_espera)
+
+        body = {"product_id": str(produto.id), "quantity": 3}
+        r1, r2 = await asyncio.gather(
+            client.post("/cart/items", json=body, headers=headers_for("student")),
+            client.post("/cart/items", json=body, headers=headers_for("student")),
+        )
+
+        assert r1.status_code == 201, r1.text
+        assert r2.status_code == 201, r2.text
+
+        r = await client.get("/cart", headers=headers_for("student"))
+        items = r.json()["items"]
+        assert items[0]["quantity"] == 7, (
+            f"perdeu incremento: quantity={items[0]['quantity']} "
+            "(esperado 1 (seed) + 3 + 3 = 7) — o lock do item não segurou "
+            "sozinho, com o do carrinho neutralizado."
         )
