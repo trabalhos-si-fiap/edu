@@ -81,7 +81,17 @@ async def test_product_response_exposes_only_declared_fields(client, db_session)
     await _seed_products(db_session, 1)
     response = await client.get("/products", headers=headers_for("student"))
     product = response.json()[0]
-    assert set(product) == {"id", "name", "description", "price", "type", "image_url"}
+    assert set(product) == {
+        "id",
+        "name",
+        "type",
+        "subtype",
+        "description",
+        "price",
+        "image_url",
+        "rating_avg",
+        "rating_count",
+    }
 
 
 async def test_products_can_be_filtered_by_category(client, db_session):
@@ -143,3 +153,35 @@ async def test_suggested_products_are_stored_as_uuid_strings(db_session):
     assert all(isinstance(s, str) for s in sugeridos)
     for s in sugeridos:
         uuid.UUID(s)
+
+
+async def test_product_carries_the_catalog_fields(client, db_session):
+    produto = Product(
+        name="Guia de Redação Nota 1000",
+        type="apostila",
+        subtype="Apostila Digital",
+        description="Estruturas prontas",
+        price=Decimal("49.90"),
+        image_url="products/seed-0.jpg",
+        rating_avg=4.5,
+        rating_count=128,
+    )
+    db_session.add(produto)
+    await db_session.commit()
+    await db_session.refresh(produto)
+
+    assert produto.subtype == "Apostila Digital"
+    assert float(produto.rating_avg) == 4.5
+    assert produto.rating_count == 128
+    assert produto.created_at is not None
+    assert produto.updated_at is not None
+
+
+async def test_rating_defaults_to_zero_for_a_product_without_reviews(db_session):
+    produto = Product(name="Sem review", type="digital", price=Decimal("10.00"))
+    db_session.add(produto)
+    await db_session.commit()
+    await db_session.refresh(produto)
+
+    assert float(produto.rating_avg) == 0.0
+    assert produto.rating_count == 0

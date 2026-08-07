@@ -8,7 +8,7 @@ app só porque foram adicionadas ao banco.
 import uuid
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_serializer
 
 
 class ProductOut(BaseModel):
@@ -16,7 +16,17 @@ class ProductOut(BaseModel):
 
     id: uuid.UUID
     name: str
-    description: str | None = None
+    type: str
+    subtype: str = ""
+    description: str = ""
     price: Decimal
-    type: str | None = None
-    image_url: str | None = None
+    image_url: str = ""
+    rating_avg: float = 0.0
+    rating_count: int = 0
+
+    @field_serializer("price")
+    def _price_as_string(self, value: Decimal) -> str:
+        # O contrato original serializa dinheiro como string ("49.90") para o
+        # cliente nunca herdar erro de arredondamento de float. Isso é
+        # contrato, não formatação — o app o lê como String.
+        return f"{value:.2f}"

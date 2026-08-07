@@ -55,11 +55,23 @@ class Product(Base):
         default=new_uuid,
         server_default=text("gen_random_uuid()"),
     )
-    name = Column(String(150), nullable=False)
-    description = Column(Text, nullable=True)
+    name = Column(String(160), nullable=False, index=True)
+    type = Column(String(64), nullable=False, index=True)
+    subtype = Column(String(64), nullable=False, default="", server_default=text("''"))
+    description = Column(Text, nullable=False, default="", server_default=text("''"))
     price = Column(Numeric(10, 2), nullable=False)
-    type = Column(String(50), nullable=True)
-    image_url = Column(String(255), nullable=True)
+    # Chave de objeto (`products/<uuid>.jpg`), NÃO uma URL. A serialização a
+    # transforma em GET presignado de vida curta — ver app/services/media.py.
+    image_url = Column(String(512), nullable=False, default="", server_default=text("''"))
+    # Agregados desnormalizados, mantidos em sincronia na criação da review
+    # sob lock de linha (ver app/services/produtos.py::criar_review), para a
+    # listagem não precisar de um join por linha.
+    rating_avg = Column(Numeric(3, 2), nullable=False, default=0, server_default=text("0"))
+    rating_count = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
 
 
 class Estoque(Base):
