@@ -1,5 +1,10 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/network/token_store.dart';
+import '../../../core/utils/jwt_utils.dart';
+import '../../logistics/presentation/picking_queue_screen.dart';
+import '../../logistics/presentation/delivery_queue_screen.dart';
+import '../../admin/presentation/admin_dashboard_screen.dart';
 import '../../notifications/data/messaging_service.dart';
 import '../data/auth_api.dart';
 
@@ -11,11 +16,14 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _authApi = AuthApi();
+  final _tokenStore = TokenStore();
   bool _obscurePassword = true;
   bool _submitting = false;
+  String? _erro;
   final int _currentTabIndex = 0;
 
   @override
@@ -47,28 +55,65 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _handleLogin() async {
     if (_submitting) return;
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+
     final email = _emailController.text.trim();
     final password = _passwordController.text;
 
-    setState(() => _submitting = true);
+    setState(() {
+      _submitting = true;
+      _erro = null;
+    });
     try {
       await _authApi.login(email: email, password: password);
       // Now that a JWT exists, register this device for push notifications.
       // Best-effort: never block navigation on it.
       await MessagingService().syncToken();
       if (!mounted) return;
-      Navigator.pushReplacementNamed(
-        context,
-        '/home',
-        arguments: {'justLoggedIn': true},
-      );
+      await _redirecionarPorPapel();
     } on AuthException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(e.message)));
+      setState(() => _erro = e.message);
     } finally {
       if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  /// Lê o claim `role` do access token recém-salvo e decide para onde
+  /// navegar. Separador e entregador têm seu próprio ponto de entrada;
+  /// aluno segue para a home de sempre.
+  Future<void> _redirecionarPorPapel() async {
+    final accessToken = await _tokenStore.readAccessToken();
+    final role = accessToken != null ? extrairRoleDoToken(accessToken) : null;
+
+    if (!mounted) return;
+
+    switch (role) {
+      case 'separador':
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const SeparadorFilaScreen()),
+        );
+        break;
+      case 'entregador':
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const EntregadorFilaScreen()),
+        );
+        break;
+      case 'admin':
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const AdminDashboardScreen()),
+        );
+        break;
+      case 'student':
+      default:
+        Navigator.pushReplacementNamed(
+          context,
+          '/home',
+          arguments: {'justLoggedIn': true},
+        );
     }
   }
 
@@ -85,9 +130,12 @@ class _LoginScreenState extends State<LoginScreen> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: _LoginCard(
+                formKey: _formKey,
                 emailController: _emailController,
                 passwordController: _passwordController,
                 obscurePassword: _obscurePassword,
+                submitting: _submitting,
+                erro: _erro,
                 onToggleObscure: () {
                   setState(() => _obscurePassword = !_obscurePassword);
                 },
@@ -120,20 +168,11 @@ class _LoginScreenState extends State<LoginScreen> {
                 textAlign: TextAlign.center,
               ),
             ),
-            const SizedBox(height: 12),
-            GestureDetector(
-              onTap: () => Navigator.pushNamed(context, '/logistics'),
-              child: const Text(
-                'Acessar Edu Logistics',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.purple,
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ),
             const SizedBox(height: 24),
+            // Nota: o antigo link "Acessar Edu Logistics" foi removido —
+            // com RBAC unificado, separador/entregador entram por este
+            // mesmo formulário e são redirecionados automaticamente
+            // (ver _redirecionarPorPapel). Ver STATUS.md para detalhes.
           ],
           ),
         ),
@@ -216,17 +255,23 @@ class _Header extends StatelessWidget {
 
 class _LoginCard extends StatelessWidget {
   const _LoginCard({
+    required this.formKey,
     required this.emailController,
     required this.passwordController,
     required this.obscurePassword,
+    required this.submitting,
+    required this.erro,
     required this.onToggleObscure,
     required this.onLogin,
     required this.onForgotPassword,
   });
 
+  final GlobalKey<FormState> formKey;
   final TextEditingController emailController;
   final TextEditingController passwordController;
   final bool obscurePassword;
+  final bool submitting;
+  final String? erro;
   final VoidCallback onToggleObscure;
   final VoidCallback onLogin;
   final VoidCallback onForgotPassword;
@@ -248,72 +293,117 @@ class _LoginCard extends StatelessWidget {
         ],
       ),
       padding: const EdgeInsets.fromLTRB(24, 32, 24, 28),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'E-mail',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: AppColors.textPrimary,
-            ),
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: emailController,
-            keyboardType: TextInputType.emailAddress,
-            decoration: const InputDecoration(hintText: 'nome@email.com'),
-          ),
-          const SizedBox(height: 20),
-          const Text(
-            'Senha',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: AppColors.textPrimary,
-            ),
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: passwordController,
-            obscureText: obscurePassword,
-            decoration: InputDecoration(
-              hintText: '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022',
-              suffixIcon: IconButton(
-                icon: Icon(
-                  obscurePassword ? Icons.visibility_off : Icons.visibility,
-                  color: AppColors.textSecondary,
-                ),
-                onPressed: onToggleObscure,
+      child: Form(
+        key: formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'E-mail',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textPrimary,
               ),
             ),
-          ),
-          const SizedBox(height: 12),
-          Align(
-            alignment: Alignment.centerRight,
-            child: GestureDetector(
-              onTap: onForgotPassword,
-              child: const Text(
-                'Esqueceu sua senha?',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: AppColors.purple,
-                  fontWeight: FontWeight.w500,
+            const SizedBox(height: 8),
+            TextFormField(
+              controller: emailController,
+              keyboardType: TextInputType.emailAddress,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(hintText: 'nome@email.com'),
+              validator: (v) {
+                if (v == null || v.trim().isEmpty) return 'Informe o e-mail';
+                if (!v.contains('@')) return 'E-mail inválido';
+                return null;
+              },
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'Senha',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextFormField(
+              controller: passwordController,
+              obscureText: obscurePassword,
+              textInputAction: TextInputAction.done,
+              onFieldSubmitted: (_) => onLogin(),
+              decoration: InputDecoration(
+                hintText: '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022',
+                suffixIcon: IconButton(
+                  icon: Icon(
+                    obscurePassword ? Icons.visibility_off : Icons.visibility,
+                    color: AppColors.textSecondary,
+                  ),
+                  onPressed: onToggleObscure,
+                ),
+              ),
+              validator: (v) =>
+                  (v == null || v.isEmpty) ? 'Informe a senha' : null,
+            ),
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerRight,
+              child: GestureDetector(
+                onTap: onForgotPassword,
+                child: const Text(
+                  'Esqueceu sua senha?',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: AppColors.purple,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ),
             ),
-          ),
-          const SizedBox(height: 28),
-          ElevatedButton(
-            onPressed: onLogin,
-            child: const Text('Entrar'),
-          ),
-          const SizedBox(height: 24),
-          const _Divider(),
-          const SizedBox(height: 24),
-          const _SocialButtons(),
-        ],
+            if (erro != null) ...[
+              const SizedBox(height: 14),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFDECEC),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.error_outline, color: Colors.red, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        erro!,
+                        style: const TextStyle(fontSize: 13, color: Colors.red),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 28),
+            ElevatedButton(
+              onPressed: submitting ? null : onLogin,
+              child: submitting
+                  ? const SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: AppColors.white,
+                      ),
+                    )
+                  : const Text('Entrar'),
+            ),
+            const SizedBox(height: 24),
+            const _Divider(),
+            const SizedBox(height: 24),
+            const _SocialButtons(),
+          ],
+        ),
       ),
     );
   }
@@ -376,7 +466,7 @@ class _SocialButtons extends StatelessWidget {
           child: OutlinedButton.icon(
             onPressed: () {},
             icon: const Text(
-              'iDS',
+              'iOS',
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w700,
