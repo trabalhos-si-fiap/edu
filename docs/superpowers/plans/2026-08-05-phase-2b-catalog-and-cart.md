@@ -749,7 +749,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ### Task B3: rename mecânico `produtos` → `products`
 
-**Só o rename.** Nenhuma coluna nova, PK ainda `Integer`, nenhuma rota nova, nenhuma mudança de forma de resposta. A suíte tem que estar verde antes e depois, e o diff tem que ser lível como uma substituição de nomes. É a mitigação que o spec pede para o risco "a tradução tem raio maior que o agregado".
+**Só o rename.** Nenhuma coluna nova, PK ainda `Integer`, nenhuma rota nova. Mecânico em tudo, **exceto um ponto medido na execução** (task-B3-report.md): o campo exposto por `ProductOut` muda de `category` para `type` — não é substituição de nome, é mudança de contrato declarada, porque `validation_alias` só afeta a direção de entrada e o campo que `GET /products` já expunha antes desta task era `category` (inglês), não `categoria`. A troca alinha com o `ProductOut` do legacy (`back-end/legacy/app/modules/products/schemas.py`), que já expõe `type: str`, evitando que a B5/B6 desfizessem esse mesmo rename adiante. As duas asserções de teste afetadas por essa mudança estão registradas no relatório da task. Fora esse ponto, a suíte tem que estar verde antes e depois, e o diff tem que ser lível como uma substituição de nomes. É a mitigação que o spec pede para o risco "a tradução tem raio maior que o agregado".
 
 Mapeamento: `produtos`→`products`, `nome`→`name`, `descricao`→`description`, `preco`→`price`, `categoria`→**`type`**, `imagem_url`→`image_url`.
 
