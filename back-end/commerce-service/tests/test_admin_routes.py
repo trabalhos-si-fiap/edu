@@ -35,6 +35,20 @@ async def _seed_pedido(db_session, status: str) -> Pedido:
     return pedido
 
 
+async def _historico_do_pedido(db_session, pedido_id: int) -> list[PedidoStatusHistorico]:
+    """Histórico de transições de um pedido, em ordem de criação.
+
+    Contra `PedidoStatusHistorico.pedido_id` — não `.order_id` — porque essa é
+    a coluna que existe hoje (medido em app/models/pedido.py:49-57). A task C2
+    renomeia a tabela/coluna; este helper acompanha na hora."""
+    result = await db_session.execute(
+        select(PedidoStatusHistorico)
+        .where(PedidoStatusHistorico.pedido_id == pedido_id)
+        .order_by(PedidoStatusHistorico.id)
+    )
+    return list(result.scalars().all())
+
+
 async def _seed_estoque(db_session) -> Estoque:
     produto = Product(name="Caderno", price=Decimal("19.90"), type="papelaria")
     fornecedor = Fornecedor(nome="Distribuidora X")
@@ -89,13 +103,19 @@ async def test_confirm_payment_is_idempotent_against_a_sequential_double_call(
     task-11-report.md, Fix round 2, para o que continua sem prova
     automatizada (a corrida concorrente em si).
 
-    O que isto prova: a mesma máquina de estados que o `.with_for_update()`
-    protege contra corrida também rejeita um reenvio sequencial — a
-    segunda chamada nunca encontra o pedido em CRIADO de novo (já está em
-    AGUARDANDO_SEPARACAO), então `validar_transicao` recusa ANTES de
-    qualquer `db.add(PedidoStatusHistorico(...))` ou `publish_event(...)`
-    rodar uma segunda vez. Exatamente um registro de histórico e
-    exatamente um evento `order.status_changed`, não dois.
+    Atualizado na task C1: `confirmar_pagamento` agora encadeia CRIADO ->
+    CONFIRMADO -> AGUARDANDO_SEPARACAO numa única chamada (ver
+    status_pedido.py), então a PRIMEIRA chamada por si só já grava duas
+    linhas de histórico e publica dois eventos — isso não é o duplo-clique
+    que este teste mede, é o comportamento normal de uma chamada. A
+    invariante que sobra, e que continua valendo, é a mesma de sempre: a
+    mesma máquina de estados que o `.with_for_update()` protege contra
+    corrida também rejeita um reenvio sequencial — a segunda chamada nunca
+    encontra o pedido em CRIADO de novo (já está em AGUARDANDO_SEPARACAO),
+    então `validar_transicao` recusa ANTES de qualquer
+    `db.add(PedidoStatusHistorico(...))` ou `publish_event(...)` rodar de
+    novo. A SEGUNDA chamada não acrescenta nada — nem histórico, nem
+    evento.
     """
     pedido = await _seed_pedido(db_session, StatusPedido.CRIADO.value)
 
@@ -110,18 +130,22 @@ async def test_confirm_payment_is_idempotent_against_a_sequential_double_call(
     )
     assert second.status_code == 400
 
-    historico_result = await db_session.execute(
-        select(PedidoStatusHistorico).where(PedidoStatusHistorico.pedido_id == pedido.id)
-    )
-    assert len(historico_result.scalars().all()) == 1
+    historico = await _historico_do_pedido(db_session, pedido.id)
+    assert [h.status for h in historico] == [
+        StatusPedido.CONFIRMADO.value,
+        StatusPedido.AGUARDANDO_SEPARACAO.value,
+    ]
 
     status_changed_events = [
         payload
         for routing_key, payload in _stub_publish_event
         if routing_key == "order.status_changed"
     ]
-    assert len(status_changed_events) == 1
-    assert status_changed_events[0]["pedido_id"] == pedido.id
+    assert [e["status"] for e in status_changed_events] == [
+        StatusPedido.CONFIRMADO.value,
+        StatusPedido.AGUARDANDO_SEPARACAO.value,
+    ]
+    assert all(e["pedido_id"] == pedido.id for e in status_changed_events)
 
 
 # ── B7: o cap declarado nao provava que o `.limit()`/`.offset()` da query
@@ -184,6 +208,38 @@ async def test_inventory_adjust_accepts_zero(client, db_session):
     )
     assert response.status_code == 200
     assert response.json()["quantidade"] == 0
+
+
+async def test_confirm_payment_lands_the_order_in_the_picking_queue(
+    client, db_session, _stub_publish_event
+):
+    """Confirmar pagamento passa por CONFIRMADO e para em AGUARDANDO_SEPARACAO.
+
+    Parar em CONFIRMADO deixaria a fila de separação sempre vazia — não há
+    simulador na fase 2 para avançar sozinho."""
+    pedido = await _seed_pedido(db_session, status=StatusPedido.CRIADO.value)
+
+    response = await client.patch(
+        f"/admin/orders/{pedido.id}/confirm-payment", headers=headers_for("admin")
+    )
+
+    assert response.status_code == 200
+    await db_session.refresh(pedido)
+    assert pedido.status == StatusPedido.AGUARDANDO_SEPARACAO.value
+
+    historico = [h.status for h in await _historico_do_pedido(db_session, pedido.id)]
+    assert historico == [
+        StatusPedido.CONFIRMADO.value,
+        StatusPedido.AGUARDANDO_SEPARACAO.value,
+    ]
+
+    chaves_status = [
+        payload["status"] for key, payload in _stub_publish_event if key == "order.status_changed"
+    ]
+    assert chaves_status == [
+        StatusPedido.CONFIRMADO.value,
+        StatusPedido.AGUARDANDO_SEPARACAO.value,
+    ]
 
 
 async def test_inventory_listing_actually_applies_limit_and_offset(client, db_session):

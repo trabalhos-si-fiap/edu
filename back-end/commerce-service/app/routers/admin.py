@@ -36,7 +36,23 @@ async def confirmar_pagamento(
     user: dict = Depends(requer_papel("admin")),
     db: AsyncSession = Depends(get_db),
 ):
-    """Transição CRIADO -> AGUARDANDO_SEPARACAO, feita pelo admin após confirmar o pagamento."""
+    """CRIADO -> CONFIRMADO -> AGUARDANDO_SEPARACAO, na mesma chamada.
+
+    `CONFIRMADO` é o estado que o contrato expõe como `confirmed`, e existir
+    é o que dá ao aluno o passo "Confirmado" na timeline. Mas ele não é um
+    estado de REPOUSO: não há simulador na fase 2 (é fase 3), e a fila de
+    separação seleciona `AGUARDANDO_SEPARACAO` — parar em `CONFIRMADO`
+    deixaria a fila sempre vazia e todo pedido preso atrás de um segundo
+    clique manual.
+
+    Encadear duas transições numa rota é o padrão que `finalizar_separacao`
+    (separacao.py) já usa para SEPARADO -> AGUARDANDO_COLETA. As duas geram
+    linha de histórico e evento, nessa ordem.
+
+    `pedido_id` continua `int` aqui — a task C3 (não rodada ainda) é quem
+    troca para `uuid.UUID`.
+    """
+    await transicionar_pedido(db, pedido_id, StatusPedido.CONFIRMADO.value, user["sub"])
     return await transicionar_pedido(
         db, pedido_id, StatusPedido.AGUARDANDO_SEPARACAO.value, user["sub"]
     )
