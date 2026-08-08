@@ -62,9 +62,15 @@ Reconciliação re-medida na B12 com
 `payment_methods/test_routes.py` 12, `seeds/test_products_seed.py` 10,
 `core/test_media.py` 8, `core/test_storage.py` 1.
 
-> No portão (`9ea4398`) esta conta era **70 − 15 = 55; 55 + 26 = 81**. Os 9
+> No portão (`9ea4398`) esta conta era **70 − 14 = 56; 56 + 25 = 81**. Os 9
 > testes de `products/test_services.py` saíram da coluna "ausentes" e entraram
 > na de "em comum" quando a B12 os portou.
+>
+> O portão escreveu 15/55/26 aqui. Re-medido por diff de nomes conjunto a
+> conjunto: os ausentes eram **14**, não 15 — um dos nove nomes,
+> `test_returns_product`, já existia em `tests/test_products_parity.py` no
+> próprio `9ea4398`. O total 81 estava certo (é `177 passed` medido), porque
+> os dois erros se cancelavam.
 
 ### Os 6 ausentes
 
@@ -133,8 +139,19 @@ Contrato verificado item a item, idêntico nos dois lados:
   ou executada.
 - O **api-gateway** e o roteamento por `SERVICE_MAP`. O gateway mapeia
   `products`, `cart` e `payment-methods` para `commerce` em
-  `api-gateway/app/routing.py`, mas o app Flutter hoje fala **direto** com o
-  monolito na porta 8001 — nenhum cliente chega ao `SERVICE_MAP` ainda.
+  `api-gateway/app/routing.py`.
+
+  **Correção medida, e ela muda o risco do corte.** Os blocos A e B
+  trabalharam inteiros sobre a premissa de que "o app Flutter fala direto com
+  o monolito na 8001, então nenhum cliente chega ao `SERVICE_MAP`". Isso é
+  **falso** no código: `front-end-flutter/lib/core/network/api_config.dart:35-39`
+  compila como default `http://localhost:8100/api` (e `10.0.2.2:8100` no
+  emulador Android) — **o gateway**. Só `make front` / `make front-device`
+  (`Makefile:42-43,55,59`) sobrescrevem para 8001. O
+  `front-end-flutter/README.md:39,66-71` ainda descreve a 8001; o código não.
+  Ou seja: o gateway já é o caminho padrão do app, e montar `cart` e
+  `payment-methods` no `SERVICE_MAP` passa a ser mudança visível ao cliente,
+  não preparação inerte.
 - **Auth real**: a dependência de usuário foi sobrescrita nos dois apps.
 - **Redis real** e **MinIO real**: stub em memória e assinatura local.
 
@@ -150,13 +167,31 @@ por `curl` contra 8103 antes do corte mede o código errado.
 ### O que o portão (`9ea4398`) encontrou
 
 `legacy/tests/modules/products/test_services.py` (**9 testes**) nunca tinha
-sido portado, e nenhum dos nove nomes existia no commerce sob outro nome. Não
-era carve-out declarado: o plano cita esse arquivo **uma única vez**, dentro do
-comando de comparação do próprio portão, e nunca mandou nenhuma task portá-lo.
+sido portado como arquivo. Não era carve-out declarado: o plano cita esse
+arquivo **uma única vez**, dentro do comando de comparação do próprio portão,
+e nunca mandou nenhuma task portá-lo.
 
-Seis dos nove comportamentos tinham equivalente ao nível de rota. **Três não
-tinham** — e os três foram provados por mutação: a suíte inteira ficava verde
-com o comportamento quebrado.
+O portão escreveu aqui que "nenhum dos nove nomes existia no commerce sob
+outro nome". **Re-medido: oito não existiam, um existia** —
+`test_returns_product` já estava em `tests/test_products_parity.py` no próprio
+`9ea4398` (`git grep -n test_returns_product 9ea4398 -- back-end/commerce-service/tests`).
+
+Quanto ao que estava travado, a re-medição por mutação (11 mutações, cada uma
+contra a suíte pré-B12) desenha assim, e **não** como o portão descreveu:
+
+- **5 dos nove** já tinham guarda ao nível de rota — a mutação ficava vermelha
+  sem os testes da B12.
+- **1 pela metade**: `author` era pego, `user_id` não.
+- **3 sem guarda nenhuma**: `test_q_filters_by_name_case_insensitive`,
+  `test_pagination_limits_and_reports_full_total` e
+  `test_missing_product_raises`. Com a propriedade quebrada, a suíte inteira
+  ficava verde em `177 passed`.
+
+A tabela de mutações abaixo lista como terceiro item o **POST 404 ao nível de
+rota**, que é uma **adição** da B12 e não um dos nove — a terceira propriedade
+sem guarda entre os nove é `test_missing_product_raises`. As três linhas da
+tabela continuam corretas como medição; só a contagem "três dos nove" é que
+misturava as duas listas.
 
 ### O que a B12 fez (`63f8977`)
 
@@ -208,7 +243,7 @@ idêntico; o caminho de falha do auth não é.
 
 | # | Divergência | Onde | Razão | Quem decidiu |
 |---|---|---|---|---|
-| 1 | **403 vs 401** quando falta o header `Authorization` | `packages/edu-common/src/edu_common/deps.py` | `edu-common` responde **403** `{"detail":"Não autenticado"}` para header ausente e **401** `{"detail":"Token inválido ou expirado"}` para token presente-mas-inválido; o legacy responde 401 nos dois. Alinhar o `edu-common` afetaria 6 serviços e 53 asserções `== 403` em 16 arquivos, para um caso que o app quase não exercita — o `TokenRefresher` do Flutter dispara no **401**, idêntico dos dois lados. **Vale igual para o bloco C.** | Plano, confirmado por medição (task B0) |
+| 1 | **403 vs 401** quando falta o header `Authorization` | `packages/edu-common/src/edu_common/deps.py` | `edu-common` responde **403** `{"detail":"Não autenticado"}` para header ausente e **401** `{"detail":"Token inválido ou expirado"}` para token presente-mas-inválido; o legacy responde 401 nos dois. Alinhar o `edu-common` afetaria 6 serviços e 53 asserções `== 403` em 16 arquivos **na medição da B0, em `d2427f5`** — o próprio bloco B acrescentou mais 5, então hoje são **58 asserções em 19 arquivos** (`git grep -c "== 403" HEAD -- "back-end/*.py" ":!back-end/legacy"`, descontando 1 ocorrência que é código de produção). Para um caso que o app quase não exercita — o `TokenRefresher` do Flutter dispara no **401**, idêntico dos dois lados. **Vale igual para o bloco C.** | Plano, confirmado por medição (task B0) |
 | 2 | **`GET /payment-methods` sem paginação** | `commerce-service/app/routers/pagamento.py` | Contraria a regra 4 do `CLAUDE.md` (paginação obrigatória). Réplica exata do legacy. Medido: o conjunto é escopado por usuário mas **não tem teto** nem no banco nem na aplicação — e o legacy também não tem. | **Usuário, 2026-08-07**: o plano governa |
 | 3 | **Lock de linha + índice único parcial** em `payment_methods` | `commerce-service/app/services/pagamento.py`; migration `942f75a9a3f2` | O legacy não tem nenhum dos dois e deixa **dois defaults simultâneos** em 10/10 tentativas de DELETE-do-default concorrente com POST. A regra 3 do `CLAUDE.md` (read→write atômico) é inviolável, e a proteção **não muda o contrato HTTP** — medido, o PATCH concorrente devolve `(200, 200)` com 1 default, igual ao legacy. | **Usuário, 2026-08-07**: pôr o lock |
 | 4 | **Asserção de PNG substituída** no teste do seed | `commerce-service/tests/test_products_seed.py` | `validate_image_bytes` não existe no commerce (carve-out de upload). Virou checagem estrutural de PNG pela stdlib. Revisor mediu que a substituta é **estritamente mais forte**: um PNG com CRC calculado sobre `data` em vez de `typ+data` passa na checagem do legacy e falha na nova. | Task B10, ratificado na revisão |
@@ -238,10 +273,10 @@ tabela, do arquivo que a B12 criou, medidas em `63f8977`.
 | `tests/test_products_routes.py:120` | `item = response.json()[0]` | `item = response.json()["items"][0]` | idem |
 | `tests/test_products_routes.py:89-99` | `set(product) == {id,name,description,price,category,image_url}` | `set(product) == {id,name,type,subtype,description,price,image_url,rating_avg,rating_count}` | divergência 5 (`category`→`type`) + três campos de catálogo do legacy |
 | `tests/test_products_seed.py:131-143` | `test_solid_png_is_a_valid_image` via `validate_image_bytes` | leitura estrutural do PNG pela stdlib | divergência 4 |
-| `tests/test_products_services_parity.py:145` | `pytest.raises(ProductNotFound)` (`test_missing_raises`) | `pytest.raises(ProductNotFoundError)` | a exceção do commerce leva sufixo `Error` (regra N818 do `ruff`) — mesma classe de renome já registrada em `app/exceptions.py` |
-| `tests/test_products_services_parity.py:198` | `pytest.raises(ProductNotFound)` (`test_missing_product_raises`) | `pytest.raises(ProductNotFoundError)` | idem |
-| `tests/test_products_services_parity.py:191` | `assert review.author == created_user.name` | `assert review.author == USER_NAME` (`"Maria Silva"`) | não há tabela de usuários no commerce (auth é outro serviço, outro banco). `USER_NAME` é o literal do `created_user` do legacy (`legacy/tests/modules/products/conftest.py:17`), então a asserção afirma o mesmo valor |
-| `tests/test_products_services_parity.py:192` | `assert review.user_id == created_user.id` | `assert review.user_id == user_id` (fixture `uuid.uuid4()`) | `Review.user_id` é FK **lógica** para o auth-users-service, sem constraint física — um uuid solto exerce a propagação igual. Mesma decisão da task B8 em `test_cart_services_parity.py` |
+| `tests/test_products_services_parity.py:146` | `pytest.raises(ProductNotFound)` (`test_missing_raises`) | `pytest.raises(ProductNotFoundError)` | a exceção do commerce leva sufixo `Error` (regra N818 do `ruff`) — mesma classe de renome já registrada em `app/exceptions.py` |
+| `tests/test_products_services_parity.py:199` | `pytest.raises(ProductNotFound)` (`test_missing_product_raises`) | `pytest.raises(ProductNotFoundError)` | idem |
+| `tests/test_products_services_parity.py:192` | `assert review.author == created_user.name` | `assert review.author == USER_NAME` (`"Maria Silva"`) | não há tabela de usuários no commerce (auth é outro serviço, outro banco). `USER_NAME` é o literal do `created_user` do legacy (`legacy/tests/modules/products/conftest.py:17`), então a asserção afirma o mesmo valor |
+| `tests/test_products_services_parity.py:193` | `assert review.user_id == created_user.id` | `assert review.user_id == user_id` (fixture `uuid.uuid4()`) | `Review.user_id` é FK **lógica** para o auth-users-service, sem constraint física — um uuid solto exerce a propagação igual. Mesma decisão da task B8 em `test_cart_services_parity.py` |
 
 ### Testes removidos, não adaptados
 
@@ -259,8 +294,11 @@ categoria hoje**. Remoção deliberada, mandada pelo plano.
 
 1. **`commerce_db` está no baseline e vazio.** Medido:
    `alembic_version = 62926745dd94`, tabela ainda chamada `produtos`, 0 linhas.
-   As oito migrations do bloco B (`77290516f1b1` … `942f75a9a3f2`) **nunca
-   foram aplicadas** ali. O corte precisa de `alembic upgrade head` e depois do
+   As **sete** migrations do bloco B (`77290516f1b1` … `942f75a9a3f2`)
+   **nunca foram aplicadas** ali. (`alembic/versions/` tem oito arquivos; o
+   oitavo é a baseline `62926745dd94`, que já está aplicada — a cadeia é
+   `62926745dd94 → 77290516f1b1 → 1308bb221890 → d3a5f5cd6ea8 → c28f71cb6e30
+   → ae70488977ef → 6c409ccb480c → 942f75a9a3f2`.) O corte precisa de `alembic upgrade head` e depois do
    seed. Risco relacionado, medido na task B5: `server_default` **não** protege
    `ALTER COLUMN … SET NOT NULL` contra linha pré-existente com NULL (o
    Postgres não faz backfill). Hoje a tabela está vazia; se alguém popular
