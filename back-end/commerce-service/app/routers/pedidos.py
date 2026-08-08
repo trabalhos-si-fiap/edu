@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.dependencies import get_current_user_id
 from app.events.publisher import publish_event
-from app.models.pedido import Pedido, PedidoItem, PedidoStatusHistorico
+from app.models.pedido import Order, OrderItem, PedidoStatusHistorico
 from app.schemas.pedido import (
     PedidoCreateIn,
     PedidoOut,
@@ -29,29 +29,29 @@ async def criar_pedido(
     if not payload.itens:
         raise HTTPException(400, "O pedido precisa ter ao menos um item")
 
-    valor_total = sum(item.preco_unitario * item.quantidade for item in payload.itens)
+    valor_total = sum(item.unit_price * item.quantity for item in payload.itens)
 
-    pedido = Pedido(
-        aluno_id=aluno_id,
+    pedido = Order(
+        user_id=aluno_id,
         status=StatusPedido.CRIADO.value,
         endereco_entrega=payload.endereco_entrega,
-        valor_total=valor_total,
+        total=valor_total,
     )
     db.add(pedido)
     await db.flush()  # gera pedido.id sem commitar ainda
 
     for item in payload.itens:
         db.add(
-            PedidoItem(
-                pedido_id=pedido.id,
-                produto_id=item.produto_id,
-                fornecedor_id=item.fornecedor_id,
-                quantidade=item.quantidade,
-                preco_unitario=item.preco_unitario,
+            OrderItem(
+                order_id=pedido.id,
+                product_id=item.product_id,
+                supplier_id=item.supplier_id,
+                quantity=item.quantity,
+                unit_price=item.unit_price,
             )
         )
 
-    db.add(PedidoStatusHistorico(pedido_id=pedido.id, status=StatusPedido.CRIADO.value))
+    db.add(PedidoStatusHistorico(order_id=pedido.id, status=StatusPedido.CRIADO.value))
     await db.commit()
     await db.refresh(pedido)
 
@@ -75,9 +75,9 @@ async def meus_pedidos(
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(Pedido)
-        .where(Pedido.aluno_id == aluno_id)
-        .order_by(Pedido.id)
+        select(Order)
+        .where(Order.user_id == aluno_id)
+        .order_by(Order.id)
         .limit(limit)
         .offset(offset)
     )
@@ -90,9 +90,7 @@ async def detalhe_pedido(
     aluno_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Pedido).where(Pedido.id == pedido_id, Pedido.aluno_id == aluno_id)
-    )
+    result = await db.execute(select(Order).where(Order.id == pedido_id, Order.user_id == aluno_id))
     pedido = result.scalar_one_or_none()
     if not pedido:
         raise HTTPException(404, "Pedido não encontrado")
@@ -108,15 +106,13 @@ async def rastreio_pedido(
     db: AsyncSession = Depends(get_db),
 ):
     # Garante que o pedido pertence ao aluno autenticado antes de expor o histórico
-    result = await db.execute(
-        select(Pedido).where(Pedido.id == pedido_id, Pedido.aluno_id == aluno_id)
-    )
+    result = await db.execute(select(Order).where(Order.id == pedido_id, Order.user_id == aluno_id))
     if not result.scalar_one_or_none():
         raise HTTPException(404, "Pedido não encontrado")
 
     historico = await db.execute(
         select(PedidoStatusHistorico)
-        .where(PedidoStatusHistorico.pedido_id == pedido_id)
+        .where(PedidoStatusHistorico.order_id == pedido_id)
         .order_by(PedidoStatusHistorico.criado_em.asc())
         .limit(limit)
         .offset(offset)
@@ -139,19 +135,17 @@ async def previsao_entrega_pedido(
     embasam o número (`amostras_historicas`) e se é confiável o
     suficiente (`confiavel`, false com poucas amostras).
     """
-    result = await db.execute(
-        select(Pedido).where(Pedido.id == pedido_id, Pedido.aluno_id == aluno_id)
-    )
+    result = await db.execute(select(Order).where(Order.id == pedido_id, Order.user_id == aluno_id))
     pedido = result.scalar_one_or_none()
     if not pedido:
         raise HTTPException(404, "Pedido não encontrado")
 
-    if pedido.data_prevista_entrega is not None:
+    if pedido.estimated_delivery_at is not None:
         # Já existe uma data definida (previsão automática anterior ou
         # aceite de nova data via ocorrência) — não recalcula por cima.
         _estimativa, amostras = await estimar_prazo_entrega(db, datetime.now(UTC))
         return PrevisaoEntregaOut(
-            data_estimada=pedido.data_prevista_entrega,
+            data_estimada=pedido.estimated_delivery_at,
             amostras_historicas=amostras,
             confiavel=amostras >= MINIMO_AMOSTRAS,
         )

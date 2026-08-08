@@ -4,7 +4,7 @@ from decimal import Decimal
 from edu_common.security import create_access_token
 
 from app.config import settings
-from app.models.pedido import Pedido
+from app.models.pedido import Order
 from app.services.status_pedido import StatusPedido
 
 
@@ -40,15 +40,15 @@ async def test_old_portuguese_order_path_is_gone(client):
 
 # ── Cobertura adicional — não pedida literalmente pelo brief, mas exigida
 # pelo comportamento que a task 11 introduz nestas rotas (paginação em
-# /orders/mine, ownership por aluno_id já preexistente) ──────────────────
+# /orders/mine, ownership por user_id já preexistente) ──────────────────
 
 
-async def _seed_pedido(db_session, aluno_id: str) -> Pedido:
-    pedido = Pedido(
-        aluno_id=aluno_id,
+async def _seed_pedido(db_session, aluno_id: str) -> Order:
+    pedido = Order(
+        user_id=aluno_id,
         status=StatusPedido.CRIADO.value,
         endereco_entrega="Rua Teste, 123",
-        valor_total=Decimal("100.00"),
+        total=Decimal("100.00"),
     )
     db_session.add(pedido)
     await db_session.commit()
@@ -79,13 +79,14 @@ async def test_my_orders_only_returns_orders_owned_by_the_caller(client, db_sess
 
     response = await client.get("/orders/mine", headers=headers_for("student", mine))
     assert response.status_code == 200
-    ids = {row["aluno_id"] for row in response.json()}
+    ids = {row["user_id"] for row in response.json()}
     assert ids == {mine}
 
 
 async def test_my_orders_response_does_not_leak_staff_assignee_ids(client, db_session):
-    """Fix round 1 (reviewer finding, MINOR #4): `separador_id`/
-    `entregador_id` são identificadores operacionais internos — quem está
+    """Fix round 1 (reviewer finding, MINOR #4): `picker_id`/
+    `deliverer_id` (`separador_id`/`entregador_id` antes da task C2) são
+    identificadores operacionais internos — quem está
     separando/entregando o pedido não é assunto do aluno. Mesma classe do
     vazamento de `descricao_ia` fechado no learning-service. `PedidoOut`
     (contrato do aluno) não deve incluí-los; `PedidoStaffOut`
@@ -98,16 +99,16 @@ async def test_my_orders_response_does_not_leak_staff_assignee_ids(client, db_se
     order = response.json()[0]
     assert set(order) == {
         "id",
-        "aluno_id",
+        "user_id",
         "status",
         "endereco_entrega",
-        "valor_total",
-        "transportadora_nome",
-        "data_prevista_entrega",
-        "criado_em",
+        "total",
+        "carrier_name",
+        "estimated_delivery_at",
+        "created_at",
     }
-    assert "separador_id" not in order
-    assert "entregador_id" not in order
+    assert "picker_id" not in order
+    assert "deliverer_id" not in order
 
 
 # ── B7: nada provava que o `.limit(limit).offset(offset)` de
@@ -125,11 +126,11 @@ async def test_order_tracking_actually_applies_limit_and_offset(client, db_sessi
     from app.models.pedido import PedidoStatusHistorico
 
     aluno_id = str(uuid.uuid4())
-    pedido = Pedido(
-        aluno_id=aluno_id,
+    pedido = Order(
+        user_id=aluno_id,
         status=StatusPedido.CRIADO.value,
         endereco_entrega="Rua Teste, 123",
-        valor_total=Decimal("100.00"),
+        total=Decimal("100.00"),
     )
     db_session.add(pedido)
     await db_session.commit()
@@ -140,7 +141,7 @@ async def test_order_tracking_actually_applies_limit_and_offset(client, db_sessi
     for i in range(total):
         db_session.add(
             PedidoStatusHistorico(
-                pedido_id=pedido.id,
+                order_id=pedido.id,
                 status=StatusPedido.CRIADO.value,
                 observacao=f"evento-{i}",
                 criado_em=base + timedelta(minutes=i),

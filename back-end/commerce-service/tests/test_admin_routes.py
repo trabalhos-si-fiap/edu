@@ -12,7 +12,7 @@ from edu_common.security import create_access_token
 from sqlalchemy import select
 
 from app.config import settings
-from app.models.pedido import Pedido, PedidoStatusHistorico
+from app.models.pedido import Order, PedidoStatusHistorico
 from app.models.produto import Estoque, Fornecedor, Product
 from app.services.status_pedido import StatusPedido
 
@@ -22,12 +22,12 @@ def headers_for(role: str, sub: str = "00000000-0000-0000-0000-000000000001") ->
     return {"Authorization": f"Bearer {token}"}
 
 
-async def _seed_pedido(db_session, status: str) -> Pedido:
-    pedido = Pedido(
-        aluno_id=str(uuid.uuid4()),
+async def _seed_pedido(db_session, status: str) -> Order:
+    pedido = Order(
+        user_id=str(uuid.uuid4()),
         status=status,
         endereco_entrega="Rua Teste, 123",
-        valor_total=Decimal("100.00"),
+        total=Decimal("100.00"),
     )
     db_session.add(pedido)
     await db_session.commit()
@@ -38,12 +38,13 @@ async def _seed_pedido(db_session, status: str) -> Pedido:
 async def _historico_do_pedido(db_session, pedido_id: int) -> list[PedidoStatusHistorico]:
     """Histórico de transições de um pedido, em ordem de criação.
 
-    Contra `PedidoStatusHistorico.pedido_id` — não `.order_id` — porque essa é
-    a coluna que existe hoje (medido em app/models/pedido.py:49-57). A task C2
-    renomeia a tabela/coluna; este helper acompanha na hora."""
+    Contra `PedidoStatusHistorico.order_id`: a task C2 renomeou o FK de
+    `pedido_id` para `order_id` (a TABELA `pedido_status_historico` fica em
+    português — agregado sem cliente — só o FK acompanhou o rename de
+    `pedidos` para `orders`). Medido em app/models/pedido.py."""
     result = await db_session.execute(
         select(PedidoStatusHistorico)
-        .where(PedidoStatusHistorico.pedido_id == pedido_id)
+        .where(PedidoStatusHistorico.order_id == pedido_id)
         .order_by(PedidoStatusHistorico.id)
     )
     return list(result.scalars().all())
@@ -160,11 +161,11 @@ async def test_orders_listing_actually_applies_limit_and_offset(client, db_sessi
     total = 55
     for i in range(total):
         db_session.add(
-            Pedido(
-                aluno_id=str(uuid.uuid4()),
+            Order(
+                user_id=str(uuid.uuid4()),
                 status=StatusPedido.CRIADO.value,
                 endereco_entrega=f"Rua Teste, {i}",
-                valor_total=Decimal("100.00"),
+                total=Decimal("100.00"),
             )
         )
     await db_session.commit()

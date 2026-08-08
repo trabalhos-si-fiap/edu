@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import requer_papel
-from app.models.pedido import Pedido
+from app.models.pedido import Order
 from app.models.produto import Estoque
 from app.routers.separacao import transicionar_pedido
 from app.schemas.estoque import EstoqueOut
@@ -22,10 +22,10 @@ async def listar_pedidos(
     user: dict = Depends(requer_papel("admin")),
     db: AsyncSession = Depends(get_db),
 ):
-    query = select(Pedido)
+    query = select(Order)
     if status:
-        query = query.where(Pedido.status == status)
-    query = query.order_by(Pedido.id).limit(limit).offset(offset)
+        query = query.where(Order.status == status)
+    query = query.order_by(Order.id).limit(limit).offset(offset)
     result = await db.execute(query)
     return result.scalars().all()
 
@@ -65,11 +65,11 @@ async def atribuir_separador(
     user: dict = Depends(requer_papel("admin")),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(Pedido).where(Pedido.id == pedido_id))
+    result = await db.execute(select(Order).where(Order.id == pedido_id))
     pedido = result.scalar_one_or_none()
     if not pedido:
         raise HTTPException(404, "Pedido não encontrado")
-    pedido.separador_id = separador_id
+    pedido.picker_id = separador_id
     await db.commit()
     await db.refresh(pedido)
     return pedido
@@ -82,11 +82,11 @@ async def atribuir_entregador(
     user: dict = Depends(requer_papel("admin")),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(Pedido).where(Pedido.id == pedido_id))
+    result = await db.execute(select(Order).where(Order.id == pedido_id))
     pedido = result.scalar_one_or_none()
     if not pedido:
         raise HTTPException(404, "Pedido não encontrado")
-    pedido.entregador_id = entregador_id
+    pedido.deliverer_id = entregador_id
     await db.commit()
     await db.refresh(pedido)
     return pedido

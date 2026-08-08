@@ -34,12 +34,12 @@ async def _historico_transito_para_entregue(db: AsyncSession) -> list[float]:
     """
     result = await db.execute(
         select(
-            PedidoStatusHistorico.pedido_id,
+            PedidoStatusHistorico.order_id,
             PedidoStatusHistorico.status,
             PedidoStatusHistorico.criado_em,
         )
         .where(PedidoStatusHistorico.status.in_(["EM_TRANSITO", "ENTREGUE"]))
-        .order_by(PedidoStatusHistorico.pedido_id, PedidoStatusHistorico.criado_em)
+        .order_by(PedidoStatusHistorico.order_id, PedidoStatusHistorico.criado_em)
     )
 
     por_pedido: dict[int, dict[str, datetime]] = defaultdict(dict)

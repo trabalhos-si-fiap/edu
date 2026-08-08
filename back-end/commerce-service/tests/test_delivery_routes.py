@@ -4,7 +4,7 @@ from decimal import Decimal
 from edu_common.security import create_access_token
 
 from app.config import settings
-from app.models.pedido import Pedido
+from app.models.pedido import Order
 from app.services.status_pedido import StatusPedido
 
 
@@ -18,13 +18,13 @@ DELIVERER_B = "00000000-0000-0000-0000-0000000000d2"
 ADMIN = "00000000-0000-0000-0000-0000000000d9"
 
 
-async def _seed_pedido(db_session, status: str, entregador_id: str | None = None) -> Pedido:
-    pedido = Pedido(
-        aluno_id=str(uuid.uuid4()),
+async def _seed_pedido(db_session, status: str, entregador_id: str | None = None) -> Order:
+    pedido = Order(
+        user_id=str(uuid.uuid4()),
         status=status,
         endereco_entrega="Rua Teste, 123",
-        valor_total=Decimal("100.00"),
-        entregador_id=entregador_id,
+        total=Decimal("100.00"),
+        deliverer_id=entregador_id,
     )
     db_session.add(pedido)
     await db_session.commit()
@@ -91,7 +91,7 @@ async def test_collect_claims_the_order_for_the_caller(client, db_session):
         f"/delivery/{pedido.id}/collect", headers=headers_for("entregador", sub=DELIVERER_A)
     )
     assert response.status_code == 200
-    assert response.json()["entregador_id"] == DELIVERER_A
+    assert response.json()["deliverer_id"] == DELIVERER_A
 
 
 # ── Gap de autorização #2: confirmar_entrega/deliver não checava posse ──
@@ -121,7 +121,7 @@ async def test_deliver_allows_the_deliverer_who_collected_the_order(client, db_s
 
 
 # ── Fix round 1, reviewer finding #2: collect must honor a pre-set
-# entregador_id (e.g. from admin's assign-deliverer) instead of letting
+# deliverer_id (e.g. from admin's assign-deliverer) instead of letting
 # any other entregador overwrite it on claim. ──────────────────────────
 
 
@@ -138,7 +138,7 @@ async def test_collect_rejects_a_deliverer_when_admin_already_assigned_someone_e
         headers=headers_for("admin", sub=ADMIN),
     )
     assert assign_response.status_code == 200
-    assert assign_response.json()["entregador_id"] == DELIVERER_A
+    assert assign_response.json()["deliverer_id"] == DELIVERER_A
 
     hijack_response = await client.patch(
         f"/delivery/{pedido.id}/collect", headers=headers_for("entregador", sub=DELIVERER_B)
@@ -170,11 +170,11 @@ async def test_delivery_queue_actually_applies_limit_and_offset(client, db_sessi
     total = 55
     for i in range(total):
         db_session.add(
-            Pedido(
-                aluno_id=str(uuid.uuid4()),
+            Order(
+                user_id=str(uuid.uuid4()),
                 status=StatusPedido.AGUARDANDO_COLETA.value,
                 endereco_entrega=f"Rua Teste, {i}",
-                valor_total=Decimal("100.00"),
+                total=Decimal("100.00"),
             )
         )
     await db_session.commit()
@@ -200,12 +200,12 @@ async def test_delivery_mine_actually_applies_limit_and_offset(client, db_sessio
     total = 55
     for i in range(total):
         db_session.add(
-            Pedido(
-                aluno_id=str(uuid.uuid4()),
+            Order(
+                user_id=str(uuid.uuid4()),
                 status=StatusPedido.EM_TRANSITO.value,
                 endereco_entrega=f"Rua Teste, {i}",
-                valor_total=Decimal("100.00"),
-                entregador_id=DELIVERER_A,
+                total=Decimal("100.00"),
+                deliverer_id=DELIVERER_A,
             )
         )
     await db_session.commit()

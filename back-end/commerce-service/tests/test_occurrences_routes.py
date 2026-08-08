@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models.ocorrencia import Ocorrencia
-from app.models.pedido import Pedido, PedidoItem
+from app.models.pedido import Order, OrderItem
 from app.models.produto import Product
 from app.services.status_pedido import StatusPedido
 
@@ -28,15 +28,15 @@ ADMIN = "00000000-0000-0000-0000-0000000000aa"
 ALUNO = "00000000-0000-0000-0000-000000000001"
 
 
-async def _seed_pedido(db_session, status: str, **overrides) -> Pedido:
+async def _seed_pedido(db_session, status: str, **overrides) -> Order:
     defaults = {
-        "aluno_id": str(uuid.uuid4()),
+        "user_id": str(uuid.uuid4()),
         "status": status,
         "endereco_entrega": "Rua Teste, 123",
-        "valor_total": Decimal("100.00"),
+        "total": Decimal("100.00"),
     }
     defaults.update(overrides)
-    pedido = Pedido(**defaults)
+    pedido = Order(**defaults)
     db_session.add(pedido)
     await db_session.commit()
     await db_session.refresh(pedido)
@@ -91,7 +91,7 @@ async def test_old_portuguese_resolver_path_is_gone(client, db_session):
     antiga 404aria em "Ocorrência não encontrada" de qualquer forma,
     independente de tradução."""
     aluno_id = "00000000-0000-0000-0000-000000000001"  # sub padrão de headers_for("student")
-    pedido = await _seed_pedido(db_session, StatusPedido.CRIADO.value, aluno_id=aluno_id)
+    pedido = await _seed_pedido(db_session, StatusPedido.CRIADO.value, user_id=aluno_id)
     ocorrencia = Ocorrencia(
         pedido_id=pedido.id,
         tipo="ATRASO_ENTREGA",
@@ -118,7 +118,7 @@ async def test_old_portuguese_resolver_path_is_gone(client, db_session):
 
 async def test_stock_shortage_requires_authentication(client, db_session):
     produto = await _seed_produto(db_session)
-    pedido = await _seed_pedido(db_session, StatusPedido.EM_SEPARACAO.value, separador_id=PICKER_A)
+    pedido = await _seed_pedido(db_session, StatusPedido.EM_SEPARACAO.value, picker_id=PICKER_A)
 
     response = await client.post(
         "/occurrences/stock-shortage",
@@ -129,7 +129,7 @@ async def test_stock_shortage_requires_authentication(client, db_session):
 
 async def test_stock_shortage_forbids_a_separador_who_never_claimed_the_order(client, db_session):
     produto = await _seed_produto(db_session)
-    pedido = await _seed_pedido(db_session, StatusPedido.EM_SEPARACAO.value, separador_id=PICKER_A)
+    pedido = await _seed_pedido(db_session, StatusPedido.EM_SEPARACAO.value, picker_id=PICKER_A)
 
     response = await client.post(
         "/occurrences/stock-shortage",
@@ -141,7 +141,7 @@ async def test_stock_shortage_forbids_a_separador_who_never_claimed_the_order(cl
 
 async def test_stock_shortage_allows_the_separador_who_claimed_the_order(client, db_session):
     produto = await _seed_produto(db_session)
-    pedido = await _seed_pedido(db_session, StatusPedido.EM_SEPARACAO.value, separador_id=PICKER_A)
+    pedido = await _seed_pedido(db_session, StatusPedido.EM_SEPARACAO.value, picker_id=PICKER_A)
 
     response = await client.post(
         "/occurrences/stock-shortage",
@@ -153,7 +153,7 @@ async def test_stock_shortage_allows_the_separador_who_claimed_the_order(client,
 
 async def test_stock_shortage_allows_admin_regardless_of_ownership(client, db_session):
     produto = await _seed_produto(db_session)
-    pedido = await _seed_pedido(db_session, StatusPedido.EM_SEPARACAO.value, separador_id=PICKER_A)
+    pedido = await _seed_pedido(db_session, StatusPedido.EM_SEPARACAO.value, picker_id=PICKER_A)
 
     response = await client.post(
         "/occurrences/stock-shortage",
@@ -164,12 +164,12 @@ async def test_stock_shortage_allows_admin_regardless_of_ownership(client, db_se
 
 
 # ── Gap de autorização #5: reportar_atraso_entrega/delivery-delay ────────
-# Mesmo judgement call, espelhado para entregador/entregador_id.
+# Mesmo judgement call, espelhado para entregador/deliverer_id.
 
 
 async def test_delivery_delay_requires_authentication(client, db_session):
     pedido = await _seed_pedido(
-        db_session, StatusPedido.EM_TRANSITO.value, entregador_id=DELIVERER_A
+        db_session, StatusPedido.EM_TRANSITO.value, deliverer_id=DELIVERER_A
     )
 
     response = await client.post(
@@ -185,7 +185,7 @@ async def test_delivery_delay_requires_authentication(client, db_session):
 
 async def test_delivery_delay_forbids_a_deliverer_who_never_claimed_the_order(client, db_session):
     pedido = await _seed_pedido(
-        db_session, StatusPedido.EM_TRANSITO.value, entregador_id=DELIVERER_A
+        db_session, StatusPedido.EM_TRANSITO.value, deliverer_id=DELIVERER_A
     )
 
     response = await client.post(
@@ -202,7 +202,7 @@ async def test_delivery_delay_forbids_a_deliverer_who_never_claimed_the_order(cl
 
 async def test_delivery_delay_allows_the_deliverer_who_claimed_the_order(client, db_session):
     pedido = await _seed_pedido(
-        db_session, StatusPedido.EM_TRANSITO.value, entregador_id=DELIVERER_A
+        db_session, StatusPedido.EM_TRANSITO.value, deliverer_id=DELIVERER_A
     )
 
     response = await client.post(
@@ -219,7 +219,7 @@ async def test_delivery_delay_allows_the_deliverer_who_claimed_the_order(client,
 
 async def test_delivery_delay_allows_admin_regardless_of_ownership(client, db_session):
     pedido = await _seed_pedido(
-        db_session, StatusPedido.EM_TRANSITO.value, entregador_id=DELIVERER_A
+        db_session, StatusPedido.EM_TRANSITO.value, deliverer_id=DELIVERER_A
     )
 
     response = await client.post(
@@ -322,18 +322,18 @@ async def test_concurrent_resolves_apply_the_price_delta_once(client, db_session
     substituto = Product(name="Substituto", price=Decimal("150.00"), type="apostila")
     db_session.add(substituto)
     pedido = await _seed_pedido(
-        db_session, StatusPedido.EM_SEPARACAO.value, aluno_id=ALUNO, separador_id=PICKER_A
+        db_session, StatusPedido.EM_SEPARACAO.value, user_id=ALUNO, picker_id=PICKER_A
     )
     db_session.add(
-        PedidoItem(
-            pedido_id=pedido.id,
-            produto_id=original.id,
-            fornecedor_id=None,
-            quantidade=2,
-            preco_unitario=Decimal("100.00"),
+        OrderItem(
+            order_id=pedido.id,
+            product_id=original.id,
+            supplier_id=None,
+            quantity=2,
+            unit_price=Decimal("100.00"),
         )
     )
-    pedido.valor_total = Decimal("200.00")
+    pedido.total = Decimal("200.00")
     await db_session.commit()
     await db_session.refresh(substituto)
     ocorrencia = await _seed_ocorrencia_falta_estoque(db_session, pedido, original)
@@ -378,7 +378,7 @@ async def test_concurrent_resolves_apply_the_price_delta_once(client, db_session
     db_session.expire_all()
     await db_session.refresh(pedido)
     # 200.00 + (150.00 - 100.00) * 2 = 300.00. Aplicada UMA vez.
-    assert pedido.valor_total == Decimal("300.00")
+    assert pedido.total == Decimal("300.00")
 
 
 async def test_cancel_publishes_the_status_change_after_the_commit(
@@ -387,7 +387,7 @@ async def test_cancel_publishes_the_status_change_after_the_commit(
     """Ordem relativa dos eventos. A prova de que são pós-commit é o teste
     seguinte — este sozinho passaria também com o publish antes do commit."""
     pedido = await _seed_pedido(
-        db_session, StatusPedido.EM_SEPARACAO.value, aluno_id=ALUNO, separador_id=PICKER_A
+        db_session, StatusPedido.EM_SEPARACAO.value, user_id=ALUNO, picker_id=PICKER_A
     )
     ocorrencia = Ocorrencia(
         pedido_id=pedido.id,
@@ -422,7 +422,7 @@ async def test_a_failed_commit_publishes_nothing(
 ):
     """Se o commit estourar, o aluno não pode ter sido notificado."""
     pedido = await _seed_pedido(
-        db_session, StatusPedido.EM_SEPARACAO.value, aluno_id=ALUNO, separador_id=PICKER_A
+        db_session, StatusPedido.EM_SEPARACAO.value, user_id=ALUNO, picker_id=PICKER_A
     )
     ocorrencia = Ocorrencia(
         pedido_id=pedido.id,
@@ -455,7 +455,7 @@ async def test_a_failed_commit_publishes_nothing(
 
 
 async def test_a_picker_cannot_read_occurrences_of_an_order_they_do_not_hold(client, db_session):
-    pedido = await _seed_pedido(db_session, StatusPedido.EM_SEPARACAO.value, separador_id=PICKER_A)
+    pedido = await _seed_pedido(db_session, StatusPedido.EM_SEPARACAO.value, picker_id=PICKER_A)
 
     response = await client.get(
         f"/occurrences/order/{pedido.id}", headers=headers_for("separador", sub=PICKER_B)
@@ -465,7 +465,7 @@ async def test_a_picker_cannot_read_occurrences_of_an_order_they_do_not_hold(cli
 
 async def test_a_courier_cannot_read_occurrences_of_an_order_they_do_not_hold(client, db_session):
     pedido = await _seed_pedido(
-        db_session, StatusPedido.EM_TRANSITO.value, entregador_id=DELIVERER_A
+        db_session, StatusPedido.EM_TRANSITO.value, deliverer_id=DELIVERER_A
     )
 
     response = await client.get(
@@ -476,7 +476,7 @@ async def test_a_courier_cannot_read_occurrences_of_an_order_they_do_not_hold(cl
 
 
 async def test_a_picker_with_no_assignment_at_all_is_also_refused(client, db_session):
-    """`separador_id is None` não pode ser lido como "é meu"."""
+    """`picker_id is None` não pode ser lido como "é meu"."""
     pedido = await _seed_pedido(db_session, StatusPedido.AGUARDANDO_SEPARACAO.value)
 
     response = await client.get(
@@ -486,7 +486,7 @@ async def test_a_picker_with_no_assignment_at_all_is_also_refused(client, db_ses
 
 
 async def test_the_assigned_picker_can_read_them(client, db_session):
-    pedido = await _seed_pedido(db_session, StatusPedido.EM_SEPARACAO.value, separador_id=PICKER_A)
+    pedido = await _seed_pedido(db_session, StatusPedido.EM_SEPARACAO.value, picker_id=PICKER_A)
 
     response = await client.get(
         f"/occurrences/order/{pedido.id}", headers=headers_for("separador", sub=PICKER_A)
@@ -495,7 +495,7 @@ async def test_the_assigned_picker_can_read_them(client, db_session):
 
 
 async def test_an_admin_still_reads_any_order(client, db_session):
-    pedido = await _seed_pedido(db_session, StatusPedido.EM_SEPARACAO.value, separador_id=PICKER_A)
+    pedido = await _seed_pedido(db_session, StatusPedido.EM_SEPARACAO.value, picker_id=PICKER_A)
     response = await client.get(
         f"/occurrences/order/{pedido.id}", headers=headers_for("admin", sub=ADMIN)
     )
@@ -504,7 +504,7 @@ async def test_an_admin_still_reads_any_order(client, db_session):
 
 async def test_occurrence_detail_applies_the_same_rule(client, db_session):
     produto = await _seed_produto(db_session)
-    pedido = await _seed_pedido(db_session, StatusPedido.EM_SEPARACAO.value, separador_id=PICKER_A)
+    pedido = await _seed_pedido(db_session, StatusPedido.EM_SEPARACAO.value, picker_id=PICKER_A)
     ocorrencia = await _seed_ocorrencia_falta_estoque(db_session, pedido, produto)
 
     response = await client.get(

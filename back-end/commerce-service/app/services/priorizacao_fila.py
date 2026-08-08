@@ -22,7 +22,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.pedido import Pedido, PedidoItem
+from app.models.pedido import Order, OrderItem
 from app.models.produto import Estoque
 
 LIMIAR_ESTOQUE_BAIXO = 5
@@ -46,7 +46,7 @@ async def _estoque_total_por_produto(
     return totais
 
 
-async def priorizar_fila(db: AsyncSession, pedidos: list[Pedido]) -> list[tuple[Pedido, float]]:
+async def priorizar_fila(db: AsyncSession, pedidos: list[Order]) -> list[tuple[Order, float]]:
     """
     Retorna os pedidos ordenados por score de risco (maior primeiro),
     junto com o score calculado (0.0 a 1.0) — combina tempo de espera na
@@ -56,24 +56,24 @@ async def priorizar_fila(db: AsyncSession, pedidos: list[Pedido]) -> list[tuple[
         return []
 
     pedido_ids = [p.id for p in pedidos]
-    itens_result = await db.execute(select(PedidoItem).where(PedidoItem.pedido_id.in_(pedido_ids)))
-    itens_por_pedido: dict[int, list[PedidoItem]] = {}
+    itens_result = await db.execute(select(OrderItem).where(OrderItem.order_id.in_(pedido_ids)))
+    itens_por_pedido: dict[int, list[OrderItem]] = {}
     for item in itens_result.scalars().all():
-        itens_por_pedido.setdefault(item.pedido_id, []).append(item)
+        itens_por_pedido.setdefault(item.order_id, []).append(item)
 
-    todos_produto_ids = [item.produto_id for itens in itens_por_pedido.values() for item in itens]
+    todos_produto_ids = [item.product_id for itens in itens_por_pedido.values() for item in itens]
     estoque_por_produto = await _estoque_total_por_produto(db, todos_produto_ids)
 
     agora = datetime.now(UTC)
     pontuados = []
 
     for pedido in pedidos:
-        horas_espera = (agora - pedido.criado_em).total_seconds() / 3600
+        horas_espera = (agora - pedido.created_at).total_seconds() / 3600
         espera_normalizada = min(horas_espera / HORAS_ESPERA_MAXIMA_NORMALIZACAO, 1.0)
 
         itens = itens_por_pedido.get(pedido.id, [])
         tem_item_com_estoque_baixo = any(
-            estoque_por_produto.get(item.produto_id, 0) <= LIMIAR_ESTOQUE_BAIXO for item in itens
+            estoque_por_produto.get(item.product_id, 0) <= LIMIAR_ESTOQUE_BAIXO for item in itens
         )
         risco_estoque = 1.0 if tem_item_com_estoque_baixo else 0.0
 

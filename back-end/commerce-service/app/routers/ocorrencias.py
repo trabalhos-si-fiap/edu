@@ -8,7 +8,7 @@ from app.database import get_db
 from app.dependencies import get_current_user_id, requer_papel
 from app.events.publisher import publish_event
 from app.models.ocorrencia import Ocorrencia
-from app.models.pedido import Pedido, PedidoItem, PedidoStatusHistorico
+from app.models.pedido import Order, OrderItem, PedidoStatusHistorico
 from app.models.produto import Product
 from app.schemas.ocorrencia import (
     AtrasoEntregaIn,
@@ -24,7 +24,7 @@ from app.services.substituicao_ia import sugerir_substitutos
 router = APIRouter(prefix="/occurrences", tags=["occurrences"])
 
 
-def _pode_ver_pedido(user: dict, pedido: Pedido) -> bool:
+def _pode_ver_pedido(user: dict, pedido: Order) -> bool:
     """Mesma regra que `reportar_falta_estoque`/`reportar_atraso_entrega` já
     aplicam na escrita: admin vê tudo, aluno vê o próprio pedido, e
     separador/entregador só veem o pedido que reivindicaram.
@@ -36,11 +36,11 @@ def _pode_ver_pedido(user: dict, pedido: Pedido) -> bool:
     if papel == "admin":
         return True
     if papel == "student":
-        return str(pedido.aluno_id) == user["sub"]
+        return str(pedido.user_id) == user["sub"]
     if papel == "separador":
-        return pedido.separador_id is not None and str(pedido.separador_id) == user["sub"]
+        return pedido.picker_id is not None and str(pedido.picker_id) == user["sub"]
     if papel == "entregador":
-        return pedido.entregador_id is not None and str(pedido.entregador_id) == user["sub"]
+        return pedido.deliverer_id is not None and str(pedido.deliverer_id) == user["sub"]
     return False
 
 
@@ -52,7 +52,8 @@ async def reportar_falta_estoque(
 ):
     """
     Fix do gap de autorização #4 do sweep de segurança: nada checava se o
-    separador que reporta a falta era o `separador_id` do pedido. Decisão
+    separador que reporta a falta era o `orders.picker_id` (`separador_id`
+    antes da task C2) do pedido. Decisão
     (judgement call, ver task-11-report.md): tratamos isso com a MESMA
     regra do gap #3 (`finalizar_separacao`, separacao.py) — só o separador
     que reivindicou o pedido (ou um admin) pode abrir esta ocorrência. Um
@@ -62,12 +63,12 @@ async def reportar_falta_estoque(
     Admin é exceção deliberada, como no resto do serviço: atua sobre
     qualquer pedido (ver admin.py).
     """
-    result = await db.execute(select(Pedido).where(Pedido.id == payload.pedido_id))
+    result = await db.execute(select(Order).where(Order.id == payload.pedido_id))
     pedido = result.scalar_one_or_none()
     if not pedido:
         raise HTTPException(404, "Pedido não encontrado")
 
-    if user["role"] != "admin" and str(pedido.separador_id) != user["sub"]:
+    if user["role"] != "admin" and str(pedido.picker_id) != user["sub"]:
         raise HTTPException(
             403, "Apenas o separador responsável por este pedido pode reportar a falta de estoque"
         )
@@ -91,7 +92,7 @@ async def reportar_falta_estoque(
         "order.stock_issue",
         {
             "pedido_id": pedido.id,
-            "aluno_id": str(pedido.aluno_id),
+            "aluno_id": str(pedido.user_id),
             "ocorrencia_id": ocorrencia.id,
             "produto_id": payload.produto_id,
             "produtos_sugeridos": produtos_sugeridos_ids,
@@ -109,15 +110,16 @@ async def reportar_atraso_entrega(
 ):
     """
     Fix do gap de autorização #5 do sweep de segurança — mesmo raciocínio
-    do gap #4 acima, espelhado para entregador/`entregador_id`: só quem
+    do gap #4 acima, espelhado para entregador/`orders.deliverer_id`
+    (`entregador_id` antes da task C2): só quem
     coletou o pedido (ou um admin) pode reportar atraso nele.
     """
-    result = await db.execute(select(Pedido).where(Pedido.id == payload.pedido_id))
+    result = await db.execute(select(Order).where(Order.id == payload.pedido_id))
     pedido = result.scalar_one_or_none()
     if not pedido:
         raise HTTPException(404, "Pedido não encontrado")
 
-    if user["role"] != "admin" and str(pedido.entregador_id) != user["sub"]:
+    if user["role"] != "admin" and str(pedido.deliverer_id) != user["sub"]:
         raise HTTPException(
             403, "Apenas o entregador responsável por este pedido pode reportar o atraso"
         )
@@ -138,7 +140,7 @@ async def reportar_atraso_entrega(
         "order.delivery_delayed",
         {
             "pedido_id": pedido.id,
-            "aluno_id": str(pedido.aluno_id),
+            "aluno_id": str(pedido.user_id),
             "ocorrencia_id": ocorrencia.id,
             "nova_data_sugerida": payload.nova_data_sugerida.isoformat(),
             "motivo": payload.motivo,
@@ -157,7 +159,7 @@ async def listar_ocorrencias_pedido(
     user: dict = Depends(requer_papel("separador", "entregador", "admin", "student")),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(Pedido).where(Pedido.id == pedido_id))
+    result = await db.execute(select(Order).where(Order.id == pedido_id))
     pedido = result.scalar_one_or_none()
     if not pedido:
         raise HTTPException(404, "Pedido não encontrado")
@@ -212,7 +214,7 @@ async def detalhe_ocorrencia(
     if not ocorrencia:
         raise HTTPException(404, "Ocorrência não encontrada")
 
-    pedido_result = await db.execute(select(Pedido).where(Pedido.id == ocorrencia.pedido_id))
+    pedido_result = await db.execute(select(Order).where(Order.id == ocorrencia.pedido_id))
     pedido = pedido_result.scalar_one_or_none()
     if not pedido or not _pode_ver_pedido(user, pedido):
         raise HTTPException(403, "Sem permissão para ver esta ocorrência")
@@ -234,7 +236,7 @@ async def resolver_ocorrencia(
     # `with_for_update()` nos dois: sem ele, o `status != ABERTA` abaixo é um
     # TOCTOU — duas requisições concorrentes leem "ABERTA", as duas passam, e
     # a diferença de preço da substituição é aplicada duas vezes no
-    # `valor_total`. Regra 3 do CLAUDE.md.
+    # `orders.total` (`valor_total` antes da task C2). Regra 3 do CLAUDE.md.
     result = await db.execute(
         select(Ocorrencia).where(Ocorrencia.id == ocorrencia_id).with_for_update()
     )
@@ -246,10 +248,10 @@ async def resolver_ocorrencia(
         raise HTTPException(400, "Esta ocorrência já foi resolvida")
 
     pedido_result = await db.execute(
-        select(Pedido).where(Pedido.id == ocorrencia.pedido_id).with_for_update()
+        select(Order).where(Order.id == ocorrencia.pedido_id).with_for_update()
     )
     pedido = pedido_result.scalar_one_or_none()
-    if not pedido or str(pedido.aluno_id) != aluno_id:
+    if not pedido or str(pedido.user_id) != aluno_id:
         raise HTTPException(403, "Sem permissão para resolver esta ocorrência")
 
     resolucao = payload.resolucao
@@ -263,9 +265,9 @@ async def resolver_ocorrencia(
             raise HTTPException(400, "produto_escolhido_id é obrigatório")
 
         item_result = await db.execute(
-            select(PedidoItem).where(
-                PedidoItem.pedido_id == pedido.id,
-                PedidoItem.produto_id == ocorrencia.produto_id,
+            select(OrderItem).where(
+                OrderItem.order_id == pedido.id,
+                OrderItem.product_id == ocorrencia.produto_id,
             )
         )
         item = item_result.scalar_one_or_none()
@@ -279,10 +281,10 @@ async def resolver_ocorrencia(
         if not novo_produto:
             raise HTTPException(404, "Produto escolhido não encontrado")
 
-        diferenca = (novo_produto.price - item.preco_unitario) * item.quantidade
-        item.produto_id = novo_produto.id
-        item.preco_unitario = novo_produto.price
-        pedido.valor_total = pedido.valor_total + diferenca
+        diferenca = (novo_produto.price - item.unit_price) * item.quantity
+        item.product_id = novo_produto.id
+        item.unit_price = novo_produto.price
+        pedido.total = pedido.total + diferenca
 
         ocorrencia.produto_escolhido_id = novo_produto.id
 
@@ -291,21 +293,21 @@ async def resolver_ocorrencia(
             raise HTTPException(400, "Resolução inválida para este tipo de ocorrência")
 
         item_result = await db.execute(
-            select(PedidoItem).where(
-                PedidoItem.pedido_id == pedido.id,
-                PedidoItem.produto_id == ocorrencia.produto_id,
+            select(OrderItem).where(
+                OrderItem.order_id == pedido.id,
+                OrderItem.product_id == ocorrencia.produto_id,
             )
         )
         item = item_result.scalar_one_or_none()
         if item:
-            pedido.valor_total = pedido.valor_total - (item.preco_unitario * item.quantidade)
+            pedido.total = pedido.total - (item.unit_price * item.quantity)
             await db.delete(item)
 
     # ── Resoluções de ATRASO_ENTREGA ─────────────────────────
     elif resolucao == "aceitar_nova_data":
         if ocorrencia.tipo != "ATRASO_ENTREGA":
             raise HTTPException(400, "Resolução inválida para este tipo de ocorrência")
-        pedido.data_prevista_entrega = ocorrencia.nova_data_sugerida
+        pedido.estimated_delivery_at = ocorrencia.nova_data_sugerida
 
     elif resolucao == "cancelar_pedido":
         if not validar_transicao(pedido.status, StatusPedido.CANCELADO.value):
@@ -313,7 +315,7 @@ async def resolver_ocorrencia(
         pedido.status = StatusPedido.CANCELADO.value
         db.add(
             PedidoStatusHistorico(
-                pedido_id=pedido.id,
+                order_id=pedido.id,
                 status=StatusPedido.CANCELADO.value,
                 user_id=aluno_id,
                 observacao=f"Cancelado pelo aluno via ocorrência #{ocorrencia.id}",
@@ -337,7 +339,7 @@ async def resolver_ocorrencia(
             "order.status_changed",
             {
                 "pedido_id": pedido.id,
-                "aluno_id": str(pedido.aluno_id),
+                "aluno_id": str(pedido.user_id),
                 "status": StatusPedido.CANCELADO.value,
             },
         )
@@ -346,7 +348,7 @@ async def resolver_ocorrencia(
         "order.occurrence_resolved",
         {
             "pedido_id": pedido.id,
-            "aluno_id": str(pedido.aluno_id),
+            "aluno_id": str(pedido.user_id),
             "ocorrencia_id": ocorrencia.id,
             "resolucao": resolucao,
         },
