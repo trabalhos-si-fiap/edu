@@ -79,6 +79,21 @@ async def handle_order_status_changed(message: aio_pika.abc.AbstractIncomingMess
         payload = json.loads(message.body)
         pedido_status = payload.get("status")
 
+        # CONFIRMADO não gera notificação, de propósito: é um estado
+        # transitório que `confirmar_pagamento` (commerce-service) atravessa
+        # direto para AGUARDANDO_SEPARACAO, na MESMA chamada — nunca é um
+        # estado de repouso em operação normal. Sem esta supressão o aluno
+        # receberia duas notificações por um único clique do admin, e a
+        # mensagem de AGUARDANDO_SEPARACAO ("Seu pedido foi confirmado e
+        # entrará na fila de separação.") já diz o que uma mensagem de
+        # CONFIRMADO diria — a segunda seria sempre uma duplicata publicada
+        # milissegundos depois da primeira. O evento em si continua sendo
+        # publicado e consumido normalmente (analytics-service e o
+        # status-history do commerce-service dependem dele) — só a
+        # notificação é suprimida, aqui.
+        if pedido_status == "CONFIRMADO":
+            return
+
         mensagens = {
             "AGUARDANDO_SEPARACAO": "Seu pedido foi confirmado e entrará na fila de separação.",
             "EM_SEPARACAO": "Seu pedido está sendo separado no nosso centro de distribuição.",

@@ -166,6 +166,43 @@ async def test_order_status_changed_creates_a_notification(
     assert "entrega" in stored[0].descricao.lower()
 
 
+async def test_order_status_changed_confirmado_creates_no_notification(
+    db_session, test_session_factory, monkeypatch
+):
+    """CONFIRMADO é o estado que `confirmar_pagamento` (commerce-service)
+    atravessa a caminho de AGUARDANDO_SEPARACAO na mesma chamada — nunca é
+    um estado de repouso em operação normal. Sem esta supressão, o aluno
+    receberia DUAS notificações por um único clique do admin, e a primeira
+    leria o texto cru de fallback ("Status atualizado: CONFIRMADO") ao lado
+    de sete vizinhas em português — porque `mensagens` não tem entrada
+    própria para CONFIRMADO, de propósito (ver consumer.py)."""
+    monkeypatch.setattr(consumer_module, "async_session", test_session_factory)
+
+    await consumer_module.handle_order_status_changed(
+        fake_message({"aluno_id": STUDENT_ID, "pedido_id": 7, "status": "CONFIRMADO"})
+    )
+
+    stored = (await db_session.execute(select(Notificacao))).scalars().all()
+    assert len(stored) == 0
+
+
+async def test_order_status_changed_aguardando_separacao_still_notifies(
+    db_session, test_session_factory, monkeypatch
+):
+    """Guarda de regressão: a supressão de CONFIRMADO não pode se alargar e
+    engolir o evento seguinte da mesma cadeia — AGUARDANDO_SEPARACAO
+    continua criando exatamente uma notificação, com o texto de sempre."""
+    monkeypatch.setattr(consumer_module, "async_session", test_session_factory)
+
+    await consumer_module.handle_order_status_changed(
+        fake_message({"aluno_id": STUDENT_ID, "pedido_id": 7, "status": "AGUARDANDO_SEPARACAO"})
+    )
+
+    stored = (await db_session.execute(select(Notificacao))).scalars().all()
+    assert len(stored) == 1
+    assert stored[0].descricao == "Seu pedido foi confirmado e entrará na fila de separação."
+
+
 async def test_revision_scheduled_creates_a_notification(
     db_session, test_session_factory, monkeypatch
 ):
