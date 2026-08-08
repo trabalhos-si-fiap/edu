@@ -2,6 +2,113 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+---
+
+## AVISO DE PROCEDÊNCIA — leia antes de executar qualquer task
+
+**Este plano foi escrito inteiro antes de qualquer execução. Todo `Expected:`
+nele é previsão NÃO MEDIDA, não fato.** Não trate nenhum deles como verdade
+estabelecida, e nunca escreva um deles em comentário, docstring ou mensagem de
+commit como se tivesse sido medido.
+
+Placar do bloco B, que foi executado com o mesmo processo: **doze tasks, e todas
+menos uma derrubaram pelo menos uma previsão do plano.** O bloco A antes dele
+produziu quinze afirmações factuais falsas em comentário, docstring e mensagem
+de commit, e **nenhuma foi pega por teste**.
+
+### As três regras que valem acima do texto deste plano
+
+Valem para todo implementador e todo revisor, em toda task:
+
+1. **Rode o teste ANTES do fix e confirme que ele falha pelo motivo certo.** Um
+   teste que já passava antes da mudança não prova nada; um que falha pelo
+   motivo errado prova menos ainda.
+2. **Toda afirmação factual precisa do comando que a produziu** — em comentário,
+   docstring, mensagem de commit e relatório. Afirmação auto-referente ("este
+   grep acha só esta linha", "não há outro consumidor") tem que ser **re-medida
+   DEPOIS da edição**, porque a própria edição pode tê-la falsificado.
+3. **Quando implementador e revisor discordarem sobre algo verificável, meça
+   você mesmo.** Isso aconteceu seis vezes no bloco A e três no bloco B; a
+   medição decidiu todas, e na maioria delas quem contestava o brief estava
+   certo. Quando o conflito for entre dois pontos do próprio plano, ou entre o
+   plano e o `CLAUDE.md`, **pare e escale** — não decida sozinho.
+
+### Erratas já medidas que governam acima do texto abaixo
+
+- **Linha ~237 (task C0/Step 2):** corrigida no lugar. O `make services-seed`
+  nunca rodou e `commerce_db` não tem tabela `products`. Ver a nota lá.
+- **Nomes de exceção levam o sufixo `Error`.** A regra `N818` do ruff está ativa
+  em `commerce-service/pyproject.toml` (`select` inclui `"N"`), sem
+  `per-file-ignore` em `app/`. As seções **Interfaces** deste plano usam
+  `EmptyCart`, `OrderNotFound`, `AuthServiceUnavailable`, `CartProductNotFound`
+  e `RouteUnavailable` — **os cinco estão errados**. Os nomes corretos são
+  `EmptyCartError`, `OrderNotFoundError`, `AuthServiceUnavailableError`,
+  `CartProductNotFoundError` (este **já existe** em `app/exceptions.py`) e
+  `RouteUnavailableError`. Mesma correção que o bloco B já aplicou em
+  `ProductNotFoundError`, `CartItemNotFoundError` e `PaymentMethodNotFoundError`.
+- **`alembic/env.py` mantém a própria lista de imports de model**, independente
+  da de `tests/conftest.py`. Todo model novo entra nos **dois**; só o conftest
+  faz o autogenerate sair vazio por engano.
+- **`tests/conftest.py` monta o schema por `Base.metadata`** — não roda alembic.
+  Migration e model podem divergir sem a suíte notar; o sync-check é o que pega.
+- **O `Makefile` fica na RAIZ do repositório**, não em `back-end/`.
+- **`server_default` NÃO protege `ALTER COLUMN … SET NOT NULL`** contra linha
+  pré-existente com NULL — o Postgres não faz backfill. Medido duas vezes no
+  bloco B.
+- **O legacy NÃO é a forma pré-migração.** `back-end/legacy/` já tem `Product`,
+  `type`, `subtype`, `product_id` e o mesmo `new_uuid()` UUIDv7 do commerce; só o
+  nome da tabela difere. Qualquer passo que presuma "o legacy ainda usa
+  inteiro/categoria" está errado antes de começar.
+- **`fakeredis` é o Redis da suíte** (decisão do usuário no bloco B), e o
+  `conftest` do **legacy** dá `flushdb` no Redis vivo do usuário (db 15) —
+  **nunca rode a suíte do legacy**. Para comparar com o legacy, instancie o app
+  dele em processo.
+- **O app Flutter aponta por padrão para o gateway na 8100**, não para o monolito
+  na 8001 (`front-end-flutter/lib/core/network/api_config.dart:35-39`). Mexer no
+  `SERVICE_MAP` do gateway é mudança visível ao cliente, não preparação inerte.
+- **O container na 8103 é construído do checkout principal** e não tem o código
+  desta branch. Comparar por `curl` contra ele mede o código errado. Prova de
+  rota é **em processo** (`httpx.AsyncClient` + `ASGITransport` contra
+  `app.main.app`), como o portão do bloco B fez.
+
+### Proibições absolutas — dano irreversível
+
+1. **NUNCA** `docker compose up/down/restart/build`, `make stack-up`,
+   `make stack-down`, `make services-migrate`, `make services-seed`. O stack do
+   usuário está no ar, construído do checkout principal, e o compose usa o mesmo
+   `COMPOSE_PROJECT_NAME` — subiria por cima dos containers dele. Use
+   `docker build` puro e `docker exec -i edu-postgres` (Postgres: `edu-postgres`,
+   porta 5433; Redis: `edu-redis`, 6380). Leitura contra banco real é permitida.
+2. **NUNCA** `alembic upgrade head` contra banco real. Para sync-check, banco
+   descartável:
+
+   ```bash
+   docker exec -i edu-postgres psql -U edu -d postgres -c 'CREATE DATABASE syncchk_<nome>;'
+   DATABASE_URL='postgresql+asyncpg://edu:<senha>@localhost:5433/syncchk_<nome>' uv run alembic upgrade head
+   DATABASE_URL='...' uv run alembic revision --autogenerate -m "sync check"
+   # confirme upgrade() e downgrade() VAZIOS, APAGUE o arquivo gerado
+   docker exec -i edu-postgres psql -U edu -d postgres -c 'DROP DATABASE syncchk_<nome>;'
+   ```
+
+   Ao fim, zero linhas em
+   `SELECT datname FROM pg_database WHERE datname LIKE 'syncchk%';`
+3. **Nunca `git stash`** — a pilha é compartilhada com os outros worktrees e com
+   outras sessões vivas.
+4. Container provisionado: `docker run` puro, nome inconfundível, porta livre —
+   **nunca 9000/9001**, que são do `maquina-minio-1`, de outro projeto — e
+   remoção com `docker rm -f -v` (sem `-v` fica volume anônimo pendurado).
+
+### Frota e lockfiles
+
+- A frota está em **501 testes** (edu-common 59, api-gateway 36, auth-users 61,
+  learning 78, commerce 187, chatbot 23, notification 24, analytics 33).
+  **Nenhum serviço pode diminuir.**
+- `uv run pytest` **e** `uv run alembic` reescrevem o `uv.lock` de analytics,
+  auth-users e chatbot. Rode `git status` depois de cada teste/lint e reverta
+  **apenas os lockfiles**.
+
+---
+
 **Goal:** Fazer o `commerce-service` servir o ciclo de pedido que o app consome — listagem, checkout a partir do carrinho, recompra, rastreio, rota e ETA — sobre a máquina de estados real de staff que já existe, sem inventar um simulador.
 
 **Architecture:** `pedidos`/`pedido_itens` viram `orders`/`order_items` com PK UUID, os oito `ship_*` do legacy e o snapshot de produto. A máquina interna ganha `CONFIRMADO` e passa a ter **nove** estados; o contrato expõe **seis**. O checkout lê o carrinho (não o preço que o cliente mandou) e busca o endereço no `auth-users-service` por HTTP com repasse do bearer do aluno. O rastreio é uma função pura sobre o status do contrato.
@@ -234,7 +341,18 @@ docker compose exec -T postgres psql -U edu -d commerce_db -c "
 - **Todas 0:** siga. As migrations de C3 podem ser reconstrução declarada.
 - **Qualquer > 0:** pare e leve ao autor do spec. Alguém rodou um seed ou exercitou as rotas de staff; a migration vira preservadora e o custo do bloco sobe.
 
-> A task B10 rodou `make services-seed`, que popula **`products`**, não `pedidos`. Se `pedidos` tiver linha, foi uso manual — investigue de onde veio antes de apagar.
+> **CORRIGIDO (medido, 2026-08-07).** A frase original desta linha — "a task B10
+> rodou `make services-seed`, que popula `products`" — é **falsa nos dois
+> pontos**, e `docs/back-end/commerce-parity.md` §7.2 registra a medição: o alvo
+> `services-seed` foi **escrito e nunca executado** (a proibição de `docker
+> compose` valeu o bloco B inteiro), e `commerce_db` **não tem tabela
+> `products`** — está na revision de baseline `62926745dd94`, com a tabela ainda
+> chamada `produtos` e 0 linhas, porque nenhuma das sete migrations do bloco B
+> foi aplicada ali.
+>
+> O que vale: **nenhum seed rodou contra `commerce_db`**. Se `pedidos` tiver
+> linha, foi uso manual das rotas de staff — investigue de onde veio antes de
+> apagar.
 
 - [ ] **Step 3: Releia o relatório da task B0**
 
