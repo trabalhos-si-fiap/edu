@@ -1,6 +1,7 @@
 import redis.asyncio as aioredis
 
 from app.config import settings
+from app.schemas.carrinho import CartOut
 from app.storage import ObjectStorage
 
 
@@ -36,3 +37,18 @@ async def presigned_image_url(
     url = await storage.generate_presigned_get(key, expires_in=settings.media_presign_ttl_seconds)
     await redis.set(cache_key, url, ex=settings.media_presign_cache_ttl_seconds)
     return url
+
+
+async def presign_cart(cart: CartOut, *, storage: ObjectStorage, redis: aioredis.Redis) -> CartOut:
+    """Presina a `image_url` de cada item do carrinho.
+
+    Movido de `app/routers/carrinho.py::_presign_cart` (task C7): a task C6
+    já tinha escrito o mesmo loop pela segunda vez em
+    `app/routers/pedidos.py::_order_out` (que opera sobre `OrderOut`, forma
+    diferente — não mexido, unificar os dois seria abstração prematura de
+    verdade). A rota de recompra desta task escreveria o loop pela
+    TERCEIRA vez; em vez disso, `carrinho.py` e `pedidos.py` importam esta
+    função pública."""
+    for item in cart.items:
+        item.image_url = await presigned_image_url(item.image_url, storage=storage, redis=redis)
+    return cart

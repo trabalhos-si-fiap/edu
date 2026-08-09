@@ -9,18 +9,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.events.publisher import publish_event
-from app.exceptions import EmptyCartError, OrderNotFoundError
+from app.exceptions import CartProductNotFoundError, EmptyCartError, OrderNotFoundError
 from app.models.pedido import Order, PedidoStatusHistorico
 from app.redis_client import get_redis
+from app.schemas.carrinho import CartItemIn, CartOut
 from app.schemas.pedido import (
     OrderCreateIn,
     OrderOut,
     PedidoStatusHistoricoOut,
     PrevisaoEntregaOut,
 )
+from app.services import carrinho as cart_services
 from app.services import pedidos as services
 from app.services.auth_client import AuthServiceUnavailableError, get_address
-from app.services.media import presigned_image_url
+from app.services.media import presign_cart, presigned_image_url
 from app.services.previsao_entrega import MINIMO_AMOSTRAS, estimar_prazo_entrega
 from app.storage import ObjectStorage, get_storage
 
@@ -205,3 +207,52 @@ async def previsao_entrega_pedido(
         amostras_historicas=amostras,
         confiavel=amostras >= MINIMO_AMOSTRAS,
     )
+
+
+@router.post("/{order_id}/rebuy", response_model=CartOut)
+async def recomprar(
+    order_id: uuid.UUID,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    storage: ObjectStorage = Depends(get_storage),
+    redis: aioredis.Redis = Depends(get_redis),
+) -> CartOut:
+    """Repõe no carrinho os itens de um pedido passado.
+
+    Costura de composição no router, não no serviço: `services/pedidos.py`
+    fica desacoplado de escrita no carrinho.
+
+    Produto que saiu do catálogo é PULADO, não derruba a recompra — um
+    pedido de meses atrás quase sempre tem pelo menos um item descontinuado,
+    e falhar por causa dele tornaria o botão inútil.
+
+    NÃO É ATÔMICO, de propósito: `cart_services.adicionar_item` comita a
+    cada item (`app/services/carrinho.py`), então uma recompra de N itens
+    faz N commits — uma falha no meio deixa o carrinho parcialmente
+    reposto. Mesma composição do legacy; a costura fica aqui, no router,
+    para `services/pedidos.py` não ganhar dependência de escrita no
+    carrinho (ver acima). `adicionar_item` levanta
+    `CartProductNotFoundError` ANTES de qualquer escrita — o `select` do
+    produto é a primeira coisa que ela faz —, então o `continue` abaixo não
+    deixa a sessão em estado sujo.
+    """
+    user_id = uuid.UUID(user["sub"])
+    try:
+        order = await services.buscar_pedido(db, user_id, order_id)
+    except OrderNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Pedido não encontrado") from exc
+
+    cart: CartOut | None = None
+    for item in order.items:
+        try:
+            cart = await cart_services.adicionar_item(
+                db, user_id, CartItemIn(product_id=item.product_id, quantity=item.quantity)
+            )
+        except CartProductNotFoundError:
+            continue
+
+    if cart is None:
+        # Nenhum produto do pedido existe mais — devolve o carrinho atual.
+        cart = await cart_services.obter_carrinho(db, user_id)
+
+    return await presign_cart(cart, storage=storage, redis=redis)

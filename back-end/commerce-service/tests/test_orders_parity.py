@@ -26,18 +26,28 @@ casos que exercitam `address_id` remendam `app.routers.pedidos.get_address`
 (`test_rejects_address_of_another_user` no legacy) depende da resolução HTTP
 e por isso mora aqui, em `TestCheckoutAddress` abaixo.
 
-NÃO portado: `TestRebuy` (`test_rebuy_repopulates_cart`,
-`test_rebuy_unknown_order_returns_404`) — os dois batem em `POST
-/orders/{id}/rebuy`, que não está no escopo desta task: não aparece na
-lista de Interfaces/Produces do brief nem no código do Step 5, e não tem
-consumidor Flutter (`grep -rn "rebuy" front-end-flutter/lib/` não devolve
-nada). O terceiro teste de "rebuy" do legacy
+`TestRebuy` (`test_rebuy_repopulates_cart`, `test_rebuy_unknown_order_returns_404`)
+ficou de fora da C6 porque `POST /orders/{id}/rebuy` ainda não existia — a
+rota é escrita agora, pela task C7, que também porta esses dois testes (ver
+task-C6-report.md para o registro original da decisão de deixá-los fora).
+`test_rebuy_of_another_students_order_returns_404` é cobertura nova desta
+task: o legacy só cobre o id inexistente, não o pedido de outro aluno —
+mesma regra 2 do CLAUDE.md que `test_get_enforces_ownership`
+(`test_orders_services_parity.py`) já cobre no nível de serviço, aqui
+coberta no nível de rota (precedente da task C5). E
+`test_rebuy_skips_a_product_that_left_the_catalog`, fora da classe
+`TestRebuy` (mesmo formato solto do brief), não existe no legacy em lugar
+nenhum — é o comportamento central da rota e não tinha cobertura na
+origem; ver task-C7-report.md para a medição que embasa como o teste
+simula "produto saiu do catálogo" sem violar a FK real de
+`order_items.product_id`.
+
+O terceiro teste de "rebuy" do legacy
 (`TestRebuyRepopulatesCart.test_order_items_can_refill_cart`, em
-`test_services.py`) NÃO bate na rota — só prova que os itens do pedido dão
-para realimentar o carrinho via `cart_services.add_item`, uma propriedade
-do MODELO de dados, não da rota — esse SIM foi portado, em
-`test_orders_services_parity.py`. Ver task-C6-report.md para o registro
-completo desta decisão.
+`test_services.py`) continua NÃO batendo na rota — só prova que os itens do
+pedido dão para realimentar o carrinho via `cart_services.add_item`, uma
+propriedade do MODELO de dados, não da rota — esse foi portado na C6, em
+`test_orders_services_parity.py`.
 
 `test_lifecycle.py` e `test_status_pipeline.py` do legacy também não são
 portados — carve-out declarado da task (constraint 22 do plano do bloco C):
@@ -48,6 +58,7 @@ não há simulador de avanço de status na fase 2
 import asyncio
 import uuid
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 from edu_common.security import create_access_token
@@ -162,6 +173,144 @@ class TestListOrders:
         r = await client.get("/orders", headers=headers_for("student", sub=ALUNO))
         assert r.status_code == 200
         assert len(r.json()) == 1
+
+
+class TestRebuy:
+    """Porte de `TestRebuy`
+    (`back-end/legacy/tests/modules/orders/test_routes.py:77`) — só os dois
+    testes que existem lá. Produto semeado pelo model com `db_session`, não
+    pelo fixture `filled_cart` (a diferença deliberada desta task — ver
+    task-C7-report.md); o total abaixo foi recalculado a partir do que
+    ESTE teste semeia (1x Cálculo a 100.00 + 2x Caderno a 24.50 = 149.00),
+    não copiado do legacy.
+
+    `test_rebuy_of_another_students_order_returns_404` não existe no
+    legacy — ver o docstring do módulo."""
+
+    async def test_rebuy_repopulates_cart(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        produtos = [
+            Product(
+                name="Cálculo", type="Livro", subtype="Mat", description="", price=Decimal("100.00")
+            ),
+            Product(
+                name="Caderno",
+                type="Material",
+                subtype="Pap",
+                description="",
+                price=Decimal("24.50"),
+            ),
+        ]
+        db_session.add_all(produtos)
+        await db_session.commit()
+        for p in produtos:
+            await db_session.refresh(p)
+
+        headers = headers_for("student", sub=ALUNO)
+        await client.post(
+            "/cart/items",
+            json={"product_id": str(produtos[0].id), "quantity": 1},
+            headers=headers,
+        )
+        await client.post(
+            "/cart/items",
+            json={"product_id": str(produtos[1].id), "quantity": 2},
+            headers=headers,
+        )
+        order = (await client.post("/orders", headers=headers)).json()
+
+        r = await client.post(f"/orders/{order['id']}/rebuy", headers=headers)
+        assert r.status_code == 200, r.text
+        assert r.json()["total"] == "149.00"
+
+    async def test_rebuy_unknown_order_returns_404(self, client: AsyncClient) -> None:
+        r = await client.post(
+            f"/orders/{uuid.uuid4()}/rebuy", headers=headers_for("student", sub=ALUNO)
+        )
+        assert r.status_code == 404
+
+    async def test_rebuy_of_another_students_order_returns_404(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        """`services.buscar_pedido` filtra por `user_id` sempre (task C6) —
+        o pedido de outro aluno cai no mesmo 404 de um id inexistente, de
+        propósito (regra 2 do CLAUDE.md, ownership)."""
+        produto = Product(
+            name="Caderno", type="Material", subtype="Pap", description="", price=Decimal("24.50")
+        )
+        db_session.add(produto)
+        await db_session.commit()
+        await db_session.refresh(produto)
+
+        dono = ALUNO
+        outro_aluno = str(uuid.uuid4())
+        await client.post(
+            "/cart/items",
+            json={"product_id": str(produto.id), "quantity": 1},
+            headers=headers_for("student", sub=dono),
+        )
+        order = (await client.post("/orders", headers=headers_for("student", sub=dono))).json()
+
+        r = await client.post(
+            f"/orders/{order['id']}/rebuy", headers=headers_for("student", sub=outro_aluno)
+        )
+        assert r.status_code == 404
+
+
+async def test_rebuy_skips_a_product_that_left_the_catalog(client, db_session, monkeypatch):
+    """Pular, não falhar: um pedido antigo com um produto descontinuado ainda
+    tem que conseguir repor o resto no carrinho.
+
+    Não existe no legacy (medido: `class TestRebuy` em
+    `back-end/legacy/tests/modules/orders/test_routes.py:77` tem só os dois
+    testes portados acima) — é o comportamento central da rota, escrito
+    aqui pela primeira vez.
+
+    `order_items.product_id` tem `ForeignKey("products.id")` SEM
+    `ondelete` (`app/models/pedido.py`), e a suíte roda contra Postgres
+    real — medido isolando um teste descartável: apagar um `Product`
+    referenciado por um `OrderItem` estoura
+    `sqlalchemy.exc.IntegrityError` /
+    `asyncpg.exceptions.ForeignKeyViolationError` ("update or delete on
+    table products violates foreign key constraint
+    order_items_product_id_fkey"). Ou seja, não existe jeito de, pelo ORM,
+    montar um pedido de verdade cujo item aponte para um produto que "não
+    existe mais" — uma vez comprado, o produto nunca pode ser apagado do
+    catálogo enquanto aquele pedido existir. Este teste substitui
+    `services.buscar_pedido` por um dublê que devolve um pedido falso
+    (nunca gravado em `order_items`) com dois itens: um produto real e um
+    `uuid.uuid4()` solto que nunca foi produto nenhum. O resto do caminho —
+    a chamada real a `cart_services.adicionar_item`, que É quem levanta
+    `CartProductNotFoundError` de verdade ao não achar o produto — roda sem
+    nenhum outro dublê."""
+    produto = Product(
+        name="Cálculo", type="Livro", subtype="Mat", description="", price=Decimal("100.00")
+    )
+    db_session.add(produto)
+    await db_session.commit()
+    await db_session.refresh(produto)
+
+    pedido_falso = SimpleNamespace(
+        items=[
+            SimpleNamespace(product_id=produto.id, quantity=2),
+            SimpleNamespace(product_id=uuid.uuid4(), quantity=1),  # saiu do catálogo
+        ]
+    )
+
+    async def _buscar_pedido_falso(db, user_id, order_id):
+        return pedido_falso
+
+    monkeypatch.setattr("app.routers.pedidos.services.buscar_pedido", _buscar_pedido_falso)
+
+    r = await client.post(
+        f"/orders/{uuid.uuid4()}/rebuy", headers=headers_for("student", sub=ALUNO)
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert len(body["items"]) == 1
+    assert body["items"][0]["product_id"] == str(produto.id)
+    assert body["total"] == "200.00"
 
 
 class TestOrderImagePresign:
