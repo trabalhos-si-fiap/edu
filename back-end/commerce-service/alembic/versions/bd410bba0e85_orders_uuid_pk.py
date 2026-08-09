@@ -60,8 +60,36 @@ descartável separado (`nulltest_c3`, também dropado):
     ALTER TABLE t ALTER COLUMN x TYPE uuid USING NULL;   -- ALTER TABLE
 
 e o `\\d t` depois mostra `x | uuid | | not null |`: o NOT NULL sobrevive à
-conversão. É mais uma razão para o guard de linhas rodar primeiro — com
-dado, este mesmo ALTER falharia em vez de apagar em silêncio.
+conversão.
+
+Uma versão anterior deste docstring afirmava que "com dado, este mesmo ALTER
+falharia em vez de apagar em silêncio". Isso é FALSO para duas das três
+colunas, e a correção importa porque a frase errada sugeria uma proteção que
+não existe. Medido (fix round 1, banco descartável `nulltest_c3b`, dropado):
+
+    CREATE TABLE nullable_col (x integer);
+    INSERT INTO nullable_col (x) VALUES (42);
+    ALTER TABLE nullable_col ALTER COLUMN x TYPE uuid USING NULL;  -- ALTER TABLE
+    SELECT x IS NULL AS virou_null, count(*) FROM nullable_col GROUP BY 1;
+    --  virou_null | count
+    -- ------------+-------
+    --  t          |     1
+
+    CREATE TABLE notnull_col (x integer NOT NULL);
+    INSERT INTO notnull_col (x) VALUES (42);
+    ALTER TABLE notnull_col ALTER COLUMN x TYPE uuid USING NULL;
+    -- ERROR:  column "x" of relation "notnull_col" contains null values
+
+Ou seja, com dado presente:
+
+- `order_items.order_id` e `pedido_status_historico.order_id` (nullable): o
+  ALTER **passa** e apaga o vínculo em silêncio — pior que falhar;
+- `ocorrencias.pedido_id` (NOT NULL): aí sim o ALTER falha.
+
+Logo, o guard de linhas NÃO é redundante com o comportamento do Postgres: em
+dois dos três casos ele é a ÚNICA coisa entre esta revision e a perda
+silenciosa dos vínculos. É por isso que ele roda primeiro e levanta antes de
+qualquer DDL.
 
 `gen_random_uuid()` é nativo do PostgreSQL 17.4, sem precisar da extensão
 `pgcrypto` — medição da task B4, reaproveitada aqui porque é o mesmo
