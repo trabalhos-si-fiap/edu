@@ -96,10 +96,10 @@ class LogisticsApi {
 
   Future<List<Pedido>> fetchFilaSeparacao() => _listaPedidos('/picking/queue');
 
-  Future<Pedido> iniciarSeparacao(int pedidoId) =>
+  Future<Pedido> iniciarSeparacao(String pedidoId) =>
       _patchPedido('/picking/$pedidoId/start');
 
-  Future<Pedido> finalizarSeparacao(int pedidoId) =>
+  Future<Pedido> finalizarSeparacao(String pedidoId) =>
       _patchPedido('/picking/$pedidoId/finish');
 
   // ── Entregador ─────────────────────────────────────────────
@@ -109,10 +109,10 @@ class LogisticsApi {
 
   Future<List<Pedido>> fetchMinhasEntregas() => _listaPedidos('/delivery/mine');
 
-  Future<Pedido> confirmarColeta(int pedidoId) =>
+  Future<Pedido> confirmarColeta(String pedidoId) =>
       _patchPedido('/delivery/$pedidoId/collect');
 
-  Future<Pedido> confirmarEntrega(int pedidoId) =>
+  Future<Pedido> confirmarEntrega(String pedidoId) =>
       _patchPedido('/delivery/$pedidoId/deliver');
 
   // ── Ocorrências ────────────────────────────────────────────
@@ -124,8 +124,8 @@ class LogisticsApi {
   /// Reportado pelo separador quando um item do pedido está em falta no
   /// estoque. O backend já sugere produtos similares automaticamente.
   Future<Ocorrencia> reportarFaltaEstoque({
-    required int pedidoId,
-    required int produtoId,
+    required String pedidoId,
+    required String produtoId,
     required String motivo,
   }) async {
     final res = await _client.post(
@@ -146,7 +146,7 @@ class LogisticsApi {
   /// Reportado pelo entregador quando há atraso, sugerindo uma nova data
   /// para o aluno aceitar ou cancelar o pedido.
   Future<Ocorrencia> reportarAtrasoEntrega({
-    required int pedidoId,
+    required String pedidoId,
     required String motivo,
     required DateTime novaDataSugerida,
   }) async {
@@ -168,7 +168,7 @@ class LogisticsApi {
   /// Ocorrências de um pedido — usado para badge "aguardando decisão do
   /// aluno" nas telas de separação/entrega.
   Future<List<Ocorrencia>> fetchOcorrenciasPedido(
-    int pedidoId, {
+    String pedidoId, {
     bool apenasAbertas = false,
   }) async {
     final query = apenasAbertas ? '?apenas_abertas=true' : '';
@@ -201,7 +201,7 @@ class LogisticsApi {
   Future<void> resolverOcorrencia({
     required int ocorrenciaId,
     required String resolucao,
-    int? produtoEscolhidoId,
+    String? produtoEscolhidoId,
   }) async {
     final res = await _client.post(
       Uri.parse('${ApiConfig.baseUrl}/occurrences/$ocorrenciaId/resolve'),
