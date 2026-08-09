@@ -55,7 +55,7 @@ class _SeparadorPickingScreenState extends State<SeparadorPickingScreen> {
     }
   }
 
-  bool _temOcorrenciaAbertaPara(int produtoId) {
+  bool _temOcorrenciaAbertaPara(String produtoId) {
     return _ocorrenciasAbertas.any(
       (o) => o.tipo == 'FALTA_ESTOQUE' && o.produtoId == produtoId,
     );
@@ -97,7 +97,7 @@ class _SeparadorPickingScreenState extends State<SeparadorPickingScreen> {
     }
   }
 
-  Future<void> _abrirDialogoFaltaEstoque(int produtoId, String nomeProduto) async {
+  Future<void> _abrirDialogoFaltaEstoque(String produtoId, String nomeProduto) async {
     final motivoController = TextEditingController();
 
     final confirmar = await showDialog<bool>(
@@ -177,7 +177,7 @@ class _SeparadorPickingScreenState extends State<SeparadorPickingScreen> {
           backgroundColor: Colors.white,
           elevation: 0,
           title: Text(
-            'Pedido #${widget.pedido.id}',
+            'Pedido #${widget.pedido.idCurto}',
             style: const TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w700,

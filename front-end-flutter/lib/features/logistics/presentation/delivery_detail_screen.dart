@@ -45,7 +45,7 @@ class _EntregadorDetalheScreenState extends State<EntregadorDetalheScreen> {
           backgroundColor: Colors.white,
           elevation: 0,
           title: Text(
-            'Pedido #${pedido.id}',
+            'Pedido #${pedido.idCurto}',
             style: const TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w700,
