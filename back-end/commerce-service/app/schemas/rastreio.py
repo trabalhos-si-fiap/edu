@@ -41,7 +41,13 @@ class TrackingLocationOut(BaseModel):
     """Última localização conhecida do pedido."""
 
     name: str = Field(..., max_length=120)
-    city: str = Field(..., max_length=80)
+    # 120, não 80: bate com `Order.ship_city` (app/models/pedido.py,
+    # `String(120)`), a coluna que alimenta este campo — achado 5 da
+    # revisão da task C8. Com 80, uma cidade de 81-120 caracteres era
+    # armazenável no pedido e não serializável aqui, e o rastreio desse
+    # pedido estourava 500. O legacy tem o mesmo mismatch (80 vs. 120 na
+    # coluna equivalente); aqui foi corrigido, não copiado.
+    city: str = Field(..., max_length=120)
     state: str = Field(..., max_length=2)
     updated_at: datetime | None = None
 

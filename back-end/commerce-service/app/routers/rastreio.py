@@ -10,6 +10,7 @@ num módulo próprio em vez de ser mais uma rota emendada em `pedidos.py`.
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
+from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -40,4 +41,13 @@ async def rastreio_pedido(
         order = await services.buscar_pedido(db, uuid.UUID(user["sub"]), order_id)
     except OrderNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Pedido não encontrado") from exc
+    # Log de auditoria: achado 4 da revisão da task C8 — o legacy
+    # (app/modules/tracking/services.py::get_order_tracking) emite este
+    # log e o porte tinha deixado a linha cair sem nenhuma nota.
+    logger.info(
+        "tracking: rastreio solicitado order={} user={} status={}",
+        order_id,
+        user["sub"],
+        order.status,
+    )
     return build_order_tracking(order)
