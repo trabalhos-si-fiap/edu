@@ -20,10 +20,16 @@ class LogisticsException implements Exception {
 }
 
 /// Cliente HTTP para os endpoints de separação, entrega e ocorrências do
-/// Commerce Service (`/separacao`, `/entrega`, `/ocorrencias`). Segue a
-/// mesma convenção dos demais serviços do app: usa [appAuthClient] (que
-/// já cuida do refresh automático de token em 401) em vez de gerenciar o
-/// header de autorização manualmente.
+/// Commerce Service — `/picking`, `/delivery`, `/occurrences`, não
+/// `/separacao`/`/entrega`/`/ocorrencias` (esses nomes eram do router
+/// interno em português; o path exposto é em inglês, ver o comentário de
+/// cada seção abaixo). Medido nos métodos deste arquivo:
+/// `fetchFilaSeparacao` chama `/picking/queue`, `fetchFilaEntrega` chama
+/// `/delivery/queue`, `reportarFaltaEstoque` chama
+/// `/occurrences/stock-shortage`. Segue a mesma convenção dos demais
+/// serviços do app: usa [appAuthClient] (que já cuida do refresh
+/// automático de token em 401) em vez de gerenciar o header de
+/// autorização manualmente.
 class LogisticsApi {
   LogisticsApi({http.Client? client, TokenStore? tokenStore})
     : _client = client ?? appAuthClient,
