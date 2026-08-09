@@ -21,7 +21,7 @@ class OcorrenciaResolucaoScreen extends StatefulWidget {
 class _OcorrenciaResolucaoScreenState extends State<OcorrenciaResolucaoScreen> {
   final _api = LogisticsApi();
   late Future<Ocorrencia> _ocorrenciaFuture;
-  int? _produtoSelecionadoId;
+  String? _produtoSelecionadoId;
   bool _enviando = false;
 
   @override
@@ -34,7 +34,7 @@ class _OcorrenciaResolucaoScreenState extends State<OcorrenciaResolucaoScreen> {
     setState(() => _ocorrenciaFuture = _api.fetchOcorrencia(widget.ocorrenciaId));
   }
 
-  Future<void> _resolver(String resolucao, {int? produtoEscolhidoId}) async {
+  Future<void> _resolver(String resolucao, {String? produtoEscolhidoId}) async {
     setState(() => _enviando = true);
     try {
       await _api.resolverOcorrencia(
@@ -203,9 +203,9 @@ class _FaltaEstoqueContent extends StatelessWidget {
   });
 
   final Ocorrencia ocorrencia;
-  final int? produtoSelecionadoId;
+  final String? produtoSelecionadoId;
   final bool enviando;
-  final ValueChanged<int> onSelecionarProduto;
+  final ValueChanged<String> onSelecionarProduto;
   final VoidCallback onSubstituir;
   final VoidCallback onRemoverItem;
   final VoidCallback onCancelarPedido;
@@ -266,7 +266,7 @@ class _FaltaEstoqueContent extends StatelessWidget {
                     width: selecionado ? 1.5 : 1,
                   ),
                 ),
-                child: RadioListTile<int>(
+                child: RadioListTile<String>(
                   value: produto.id,
                   groupValue: produtoSelecionadoId,
                   onChanged: (id) => onSelecionarProduto(id!),
