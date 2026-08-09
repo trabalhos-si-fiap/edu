@@ -417,6 +417,41 @@ async def test_cancel_publishes_the_status_change_after_the_commit(
     assert pedido.status == StatusPedido.CANCELADO.value
 
 
+async def test_cancelling_through_an_occurrence_stamps_status_updated_at(client, db_session):
+    """`cancelar_pedido` (resolução de ocorrência) muta `Order.status` fora
+    do funil `transicionar_pedido` — é o único outro lugar do serviço que
+    faz isso (`grep -rn "\\.status = " app/routers/ app/services/`, ver
+    task-C4-report.md). Sem o mesmo carimbo que o Step 5 da C4 deu ao
+    funil, a timeline do rastreio mostraria a hora da criação para sempre
+    para o único cancelamento que o próprio aluno pode disparar."""
+    pedido = await _seed_pedido(
+        db_session, StatusPedido.EM_SEPARACAO.value, user_id=ALUNO, picker_id=PICKER_A
+    )
+    antes = pedido.status_updated_at
+    ocorrencia = Ocorrencia(
+        pedido_id=pedido.id,
+        tipo="ATRASO_ENTREGA",
+        status="ABERTA",
+        nova_data_sugerida=datetime.now(UTC) + timedelta(days=2),
+        motivo="Chuva na rota",
+        criado_por=DELIVERER_A,
+    )
+    db_session.add(ocorrencia)
+    await db_session.commit()
+    await db_session.refresh(ocorrencia)
+
+    response = await client.post(
+        f"/occurrences/{ocorrencia.id}/resolve",
+        json={"resolucao": "cancelar_pedido"},
+        headers=headers_for("student"),
+    )
+    assert response.status_code == 200, response.text
+
+    db_session.expire_all()
+    await db_session.refresh(pedido)
+    assert pedido.status_updated_at > antes
+
+
 async def test_a_failed_commit_publishes_nothing(
     client, db_session, monkeypatch, _stub_publish_event
 ):

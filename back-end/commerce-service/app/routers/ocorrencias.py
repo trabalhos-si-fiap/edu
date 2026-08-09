@@ -321,6 +321,13 @@ async def resolver_ocorrencia(
         if not validar_transicao(pedido.status, StatusPedido.CANCELADO.value):
             raise HTTPException(400, f"Não é possível cancelar um pedido em status {pedido.status}")
         pedido.status = StatusPedido.CANCELADO.value
+        # Este caminho muta `Order.status` fora do funil `transicionar_pedido`
+        # (separacao.py) de propósito — ver o docstring de lá sobre por que
+        # não reusá-lo aqui (publica evento e grava histórico próprios, e
+        # este resolve já faz as duas coisas do seu jeito). Mas o carimbo é
+        # o mesmo do Step 5 da C4: sem ele, a timeline do rastreio mostraria
+        # a hora da criação para sempre para este cancelamento.
+        pedido.status_updated_at = datetime.now(UTC)
         db.add(
             PedidoStatusHistorico(
                 order_id=pedido.id,
