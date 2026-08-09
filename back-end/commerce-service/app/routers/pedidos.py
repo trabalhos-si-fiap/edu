@@ -1,62 +1,100 @@
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+import redis.asyncio as aioredis
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import get_current_user_id
+from app.dependencies import get_current_user
 from app.events.publisher import publish_event
-from app.models.pedido import Order, OrderItem, PedidoStatusHistorico
+from app.exceptions import EmptyCartError, OrderNotFoundError
+from app.models.pedido import Order, PedidoStatusHistorico
+from app.redis_client import get_redis
 from app.schemas.pedido import (
-    PedidoCreateIn,
-    PedidoOut,
+    OrderCreateIn,
+    OrderOut,
     PedidoStatusHistoricoOut,
     PrevisaoEntregaOut,
 )
+from app.services import pedidos as services
+from app.services.auth_client import AuthServiceUnavailableError, get_address
+from app.services.media import presigned_image_url
 from app.services.previsao_entrega import MINIMO_AMOSTRAS, estimar_prazo_entrega
-from app.services.status_pedido import StatusPedido
+from app.storage import ObjectStorage, get_storage
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 
 
-@router.post("", response_model=PedidoOut, status_code=201)
-async def criar_pedido(
-    payload: PedidoCreateIn,
-    aluno_id: str = Depends(get_current_user_id),
+async def _order_out(order: Order, *, storage: ObjectStorage, redis: aioredis.Redis) -> OrderOut:
+    out = OrderOut.de_order(order)
+    for item in out.items:
+        item.image_url = await presigned_image_url(item.image_url, storage=storage, redis=redis)
+    return out
+
+
+@router.get("", response_model=list[OrderOut])
+async def listar_pedidos(
+    user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
-    if not payload.itens:
-        raise HTTPException(400, "O pedido precisa ter ao menos um item")
+    storage: ObjectStorage = Depends(get_storage),
+    redis: aioredis.Redis = Depends(get_redis),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+) -> list[OrderOut]:
+    """ARRAY PURO, sem envelope — ao contrário de `/products` e `/cart`.
 
-    valor_total = sum(item.unit_price * item.quantity for item in payload.itens)
+    Isso é contrato, não descuido: o app faz `jsonDecode(body) as List` aqui
+    e `jsonDecode(body)['items']` lá. Reproduzir a inconsistência é o
+    trabalho; "consertá-la" quebraria a tela de pedidos.
 
-    pedido = Order(
-        user_id=aluno_id,
-        status=StatusPedido.CRIADO.value,
-        total=valor_total,
-    )
-    db.add(pedido)
-    await db.flush()  # gera pedido.id sem commitar ainda
+    Ordenado por `created_at desc`; `limit` 1-100 com default 50 (o de
+    `/products` é 20 — também medido, também diferente de propósito).
+    """
+    pedidos = await services.listar_pedidos(db, uuid.UUID(user["sub"]), limit=limit, offset=offset)
+    return [await _order_out(p, storage=storage, redis=redis) for p in pedidos]
 
-    for item in payload.itens:
-        db.add(
-            OrderItem(
-                order_id=pedido.id,
-                product_id=item.product_id,
-                product_name=item.product_name,
-                supplier_id=item.supplier_id,
-                quantity=item.quantity,
-                unit_price=item.unit_price,
+
+@router.post("", response_model=OrderOut, status_code=status.HTTP_201_CREATED)
+async def criar_pedido(
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    storage: ObjectStorage = Depends(get_storage),
+    redis: aioredis.Redis = Depends(get_redis),
+    payload: OrderCreateIn | None = None,
+) -> OrderOut:
+    """Corpo OPCIONAL — `payload: OrderCreateIn | None = None`. O legacy
+    aceita `POST /orders` sem corpo nenhum, e o app antigo fazia isso."""
+    payment_method = payload.payment_method if payload is not None else ""
+    address_id = payload.address_id if payload is not None else None
+
+    address: dict | None = None
+    if address_id is not None:
+        try:
+            address = await get_address(user["raw_token"], address_id)
+        except AuthServiceUnavailableError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Serviço de usuários indisponível",
+            ) from exc
+        if address is None:
+            # Id obsoleto ou de outro usuário é erro do cliente, não 404 do
+            # pedido — é assim que o legacy trata.
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid delivery address"
             )
+
+    try:
+        order = await services.criar_pedido_do_carrinho(
+            db, uuid.UUID(user["sub"]), payment_method, address=address
         )
+    except EmptyCartError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Cart is empty"
+        ) from exc
 
-    db.add(PedidoStatusHistorico(order_id=pedido.id, status=StatusPedido.CRIADO.value))
-    await db.commit()
-    await db.refresh(pedido)
-
-    # `str(pedido.id)`: `orders.id` é UUID desde a fase 2 e JSON não tem tipo
+    # `str(order.id)`: `orders.id` é UUID desde a fase 2 e JSON não tem tipo
     # UUID — o transporte (`edu_common/events.py`, `json.dumps(payload)`)
     # estoura `TypeError` com o valor cru. As CHAVES continuam em português:
     # renomeá-las dessincronizaria produtor e consumidor sem nenhum cliente
@@ -64,61 +102,61 @@ async def criar_pedido(
     await publish_event(
         "order.created",
         {
-            "pedido_id": str(pedido.id),
-            "aluno_id": str(aluno_id),
-            "valor_total": float(valor_total),
+            "pedido_id": str(order.id),
+            "aluno_id": str(order.user_id),
+            "valor_total": float(order.total),
         },
     )
-
-    return pedido
-
-
-@router.get("/mine", response_model=list[PedidoOut])
-async def meus_pedidos(
-    limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
-    aluno_id: str = Depends(get_current_user_id),
-    db: AsyncSession = Depends(get_db),
-):
-    result = await db.execute(
-        select(Order)
-        .where(Order.user_id == aluno_id)
-        .order_by(Order.id)
-        .limit(limit)
-        .offset(offset)
-    )
-    return result.scalars().all()
+    return await _order_out(order, storage=storage, redis=redis)
 
 
-@router.get("/{pedido_id}", response_model=PedidoOut)
+@router.get("/{order_id}", response_model=OrderOut)
 async def detalhe_pedido(
-    pedido_id: uuid.UUID,
-    aluno_id: str = Depends(get_current_user_id),
+    order_id: uuid.UUID,
+    user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
-    result = await db.execute(select(Order).where(Order.id == pedido_id, Order.user_id == aluno_id))
-    pedido = result.scalar_one_or_none()
-    if not pedido:
-        raise HTTPException(404, "Pedido não encontrado")
-    return pedido
+    storage: ObjectStorage = Depends(get_storage),
+    redis: aioredis.Redis = Depends(get_redis),
+) -> OrderOut:
+    """Não existe no legacy, não colide com nada, e fica — traduzida: devolve
+    o MESMO `OrderOut` da listagem."""
+    try:
+        order = await services.buscar_pedido(db, uuid.UUID(user["sub"]), order_id)
+    except OrderNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Pedido não encontrado") from exc
+    return await _order_out(order, storage=storage, redis=redis)
 
 
-@router.get("/{pedido_id}/tracking", response_model=list[PedidoStatusHistoricoOut])
+@router.get("/{order_id}/tracking", response_model=list[PedidoStatusHistoricoOut])
 async def rastreio_pedido(
-    pedido_id: uuid.UUID,
-    limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
-    aluno_id: str = Depends(get_current_user_id),
+    order_id: uuid.UUID,
+    user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
-    # Garante que o pedido pertence ao aluno autenticado antes de expor o histórico
-    result = await db.execute(select(Order).where(Order.id == pedido_id, Order.user_id == aluno_id))
-    if not result.scalar_one_or_none():
-        raise HTTPException(404, "Pedido não encontrado")
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> list[PedidoStatusHistoricoOut]:
+    """Histórico de status do pedido — tabela sem cliente
+    (`pedido_status_historico`), fica em português (ver
+    `PedidoStatusHistoricoOut`).
+
+    Esta rota não está no plano da task C6 (nem no legacy, que não tem
+    conceito de histórico granulado assim) — é mantida sem mudança de
+    contrato porque o Flutter de rastreio já a consome
+    (`front-end-flutter/lib/features/order_tracking/data/order_service.dart:49`,
+    `GET /orders/{id}/tracking`). Apagá-la quebraria a tela de rastreio sem
+    nenhum pedido do brief para isso. O ownership passou a usar
+    `services.buscar_pedido` — mesma técnica usada em `detalhe_pedido` e em
+    `previsao_entrega_pedido` abaixo — em vez do `where` inline que a rota
+    tinha antes desta task.
+    """
+    try:
+        await services.buscar_pedido(db, uuid.UUID(user["sub"]), order_id)
+    except OrderNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Pedido não encontrado") from exc
 
     historico = await db.execute(
         select(PedidoStatusHistorico)
-        .where(PedidoStatusHistorico.order_id == pedido_id)
+        .where(PedidoStatusHistorico.order_id == order_id)
         .order_by(PedidoStatusHistorico.criado_em.asc())
         .limit(limit)
         .offset(offset)
@@ -126,29 +164,27 @@ async def rastreio_pedido(
     return historico.scalars().all()
 
 
-@router.get("/{pedido_id}/delivery-estimate", response_model=PrevisaoEntregaOut)
+@router.get("/{order_id}/delivery-estimate", response_model=PrevisaoEntregaOut)
 async def previsao_entrega_pedido(
-    pedido_id: uuid.UUID,
-    aluno_id: str = Depends(get_current_user_id),
+    order_id: uuid.UUID,
+    user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Estimativa de prazo de entrega — se o pedido já tem uma data definida
-    (seja pela previsão automática ao confirmar coleta, seja por uma
-    ocorrência de atraso que o aluno aceitou), retorna ela diretamente.
-    Caso contrário, calcula uma estimativa "a partir de agora" com base
-    no histórico real de entregas — transparente sobre quantas entregas
-    embasam o número (`amostras_historicas`) e se é confiável o
-    suficiente (`confiavel`, false com poucas amostras).
+    (pela previsão automática ao confirmar coleta, ou por uma ocorrência de
+    atraso que o aluno aceitou), devolve ela. Caso contrário calcula "a
+    partir de agora" com base no histórico real, e é transparente sobre
+    quantas entregas embasam o número (`amostras_historicas`) e se ele é
+    confiável (`confiavel`, false com poucas amostras).
     """
-    result = await db.execute(select(Order).where(Order.id == pedido_id, Order.user_id == aluno_id))
-    pedido = result.scalar_one_or_none()
-    if not pedido:
-        raise HTTPException(404, "Pedido não encontrado")
+    try:
+        pedido = await services.buscar_pedido(db, uuid.UUID(user["sub"]), order_id)
+    except OrderNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Pedido não encontrado") from exc
 
     if pedido.estimated_delivery_at is not None:
-        # Já existe uma data definida (previsão automática anterior ou
-        # aceite de nova data via ocorrência) — não recalcula por cima.
+        # Já existe data definida — não recalcula por cima.
         _estimativa, amostras = await estimar_prazo_entrega(db, datetime.now(UTC))
         return PrevisaoEntregaOut(
             data_estimada=pedido.estimated_delivery_at,

@@ -1,3 +1,21 @@
+"""NOTA (task C6): este arquivo testava o contrato ANTIGO de `/orders`
+(`POST /orders` com `{"itens": [...]}` fornecido pelo cliente, `GET
+/orders/mine` para listagem) — o contrato que a task C6 apaga porque a
+rota antiga compunha `valor_total` a partir do `preco_unitario` do
+cliente, sem nunca importar o model de produto. `test_my_orders_*` foram
+adaptados para bater em `GET /orders` (bare, sem `/mine`), e
+`test_creating_an_order_publishes_a_serialisable_event` foi reescrito para
+montar o pedido a partir do carrinho (o único jeito de criar um pedido
+agora). `test_my_orders_requires_authentication` foi REMOVIDO: media
+`GET /orders/mine`, que sem a rota `/mine` passa a casar com `GET
+/orders/{order_id}` (`order_id="mine"`, um UUID inválido) — continuava
+"passando" com 403, mas só porque a dependência de auth roda antes da
+validação do path param, não porque provava o que o nome promete. A
+cobertura real de "listar pedidos exige autenticação" já existe, portada
+do legacy, em `test_orders_parity.py::TestAuthRequired::test_list_requires_auth`.
+Ver task-C6-report.md para a lista completa de testes apagados/adaptados
+e a razão de cada um."""
+
 import uuid
 from decimal import Decimal
 
@@ -16,10 +34,6 @@ def headers_for(role: str, sub: str = "00000000-0000-0000-0000-000000000001") ->
 async def test_create_order_requires_authentication(client):
     response = await client.post("/orders", json={"itens": []})
     assert response.status_code == 403
-
-
-async def test_my_orders_requires_authentication(client):
-    assert (await client.get("/orders/mine")).status_code == 403
 
 
 async def test_order_detail_requires_authentication(client):
@@ -129,6 +143,16 @@ async def test_order_id_is_a_uuid_string_in_the_response(client, db_session):
     uuid.UUID(response.json()["id"])
 
 
+async def test_order_detail_of_an_unknown_id_is_404(client):
+    """Cobertura nova da task C6: nenhum teste em nenhum arquivo batia no
+    ramo `except OrderNotFoundError` de `detalhe_pedido` com um UUID
+    sintaticamente válido mas inexistente (só havia o caso do UUID
+    malformado, que para na validação do path antes de chegar ao service —
+    ver `test_a_malformed_order_id_is_a_422_not_a_500` abaixo)."""
+    response = await client.get(f"/orders/{uuid.uuid4()}", headers=headers_for("student"))
+    assert response.status_code == 404
+
+
 async def test_a_malformed_order_id_is_a_422_not_a_500(client):
     """O caso `nao-e-uuid` NÃO é guarda de regressão desta task: ele já era
     verde ANTES dela, com `pedido_id: int` em `app/routers/pedidos.py`. O
@@ -169,34 +193,31 @@ async def test_creating_an_order_publishes_a_serialisable_event(
     O `str()` do payload é verificado indiretamente e de propósito: quem
     reprova um payload impublicável é o `json.dumps` do stub, no mesmo lugar
     onde `edu_common/events.py` falharia em runtime.
+
+    Reescrito na task C6: o corpo antigo (`{"itens": [...]}`, preço vindo do
+    cliente) não existe mais — o pedido agora nasce do carrinho, então o
+    setup vira "adiciona ao carrinho, depois faz checkout".
     """
-    from app.models.produto import Fornecedor, Product
+    from app.models.produto import Product
 
     aluno_id = str(uuid.uuid4())
 
-    fornecedor = Fornecedor(nome="Papelaria Teste")
     produto = Product(name="Caderno", price=Decimal("10.00"), type="apostila")
-    db_session.add_all([fornecedor, produto])
+    db_session.add(produto)
     await db_session.commit()
-    await db_session.refresh(fornecedor)
     await db_session.refresh(produto)
 
-    response = await client.post(
-        "/orders",
-        json={
-            "itens": [
-                {
-                    "product_id": str(produto.id),
-                    "product_name": produto.name,
-                    "supplier_id": fornecedor.id,
-                    "quantity": 2,
-                    "unit_price": "10.00",
-                }
-            ],
-        },
+    await client.post(
+        "/cart/items",
+        json={"product_id": str(produto.id), "quantity": 2},
         headers=headers_for("student", sub=aluno_id),
     )
-    assert response.status_code == 201
+    response = await client.post(
+        "/orders",
+        json={"payment_method": "PIX"},
+        headers=headers_for("student", sub=aluno_id),
+    )
+    assert response.status_code == 201, response.text
 
     criados = [payload for chave, payload in _stub_publish_event if chave == "order.created"]
     assert len(criados) == 1
@@ -210,26 +231,30 @@ async def test_my_orders_listing_is_paginated(client, db_session):
     for _ in range(5):
         await _seed_pedido(db_session, aluno_id)
 
-    response = await client.get("/orders/mine?limit=2", headers=headers_for("student", aluno_id))
+    # C6: `/orders/mine` some, absorvida por `GET /orders` (bare).
+    response = await client.get("/orders?limit=2", headers=headers_for("student", aluno_id))
     assert response.status_code == 200
     assert len(response.json()) == 2
 
 
 async def test_my_orders_listing_rejects_limit_above_the_cap(client):
-    response = await client.get("/orders/mine?limit=5000", headers=headers_for("student"))
+    response = await client.get("/orders?limit=5000", headers=headers_for("student"))
     assert response.status_code == 422
 
 
 async def test_my_orders_only_returns_orders_owned_by_the_caller(client, db_session):
     mine = str(uuid.uuid4())
     someone_elses = str(uuid.uuid4())
-    await _seed_pedido(db_session, mine)
+    pedido_meu = await _seed_pedido(db_session, mine)
     await _seed_pedido(db_session, someone_elses)
 
-    response = await client.get("/orders/mine", headers=headers_for("student", mine))
+    response = await client.get("/orders", headers=headers_for("student", mine))
     assert response.status_code == 200
-    ids = {row["user_id"] for row in response.json()}
-    assert ids == {mine}
+    # C6: `OrderOut` (contrato do aluno) não expõe `user_id` — a mesma
+    # propriedade (isolamento entre alunos) agora é conferida pelo
+    # CONJUNTO DE IDS de pedido, não pelo dono cru.
+    ids = {row["id"] for row in response.json()}
+    assert ids == {str(pedido_meu.id)}
 
 
 async def test_my_orders_response_does_not_leak_staff_assignee_ids(client, db_session):
@@ -237,37 +262,35 @@ async def test_my_orders_response_does_not_leak_staff_assignee_ids(client, db_se
     `deliverer_id` (`separador_id`/`entregador_id` antes da task C2) são
     identificadores operacionais internos — quem está
     separando/entregando o pedido não é assunto do aluno. Mesma classe do
-    vazamento de `descricao_ia` fechado no learning-service. `PedidoOut`
-    (contrato do aluno) não deve incluí-los; `PedidoStaffOut`
+    vazamento de `descricao_ia` fechado no learning-service. `OrderOut`
+    (contrato do aluno, ex-`PedidoOut`) não deve incluí-los; `PedidoStaffOut`
     (picking/delivery/admin) é quem os expõe.
 
-    `endereco_entrega` saiu do conjunto na task C4 — não virou um computado
-    aqui. Medido: `grep -rn "endereco_entrega" front-end-flutter/lib/` só
-    devolve `features/logistics/domain/order.dart:112`, que é Flutter de
-    STAFF (alvo da C4b); o cliente do aluno
-    (`features/marketplace/domain/order_summary.dart::OrderSummary.fromJson`)
-    lê só `id, total, status, created_at, items`, sem endereço. O alvo de
-    paridade (`back-end/legacy/app/modules/orders/schemas.py:40::OrderOut`)
-    também não tem o campo, e a task C6 substitui `PedidoOut` por
-    `OrderOut` com esse mesmo conjunto — expor ao aluno um campo que
-    ninguém lê e que morre duas tasks depois não faria sentido."""
+    Adaptado na task C6: `GET /orders/mine` virou `GET /orders`, e o
+    conjunto de campos esperado é o de `OrderOut` (`id, total, status,
+    payment_method, created_at, items`) — `user_id`/`carrier_name`/
+    `estimated_delivery_at` saíram do contrato do aluno junto com
+    `PedidoOut`, não só `picker_id`/`deliverer_id`. A PROPRIEDADE que este
+    teste trava (nenhum id operacional vaza para o aluno) continua valendo
+    e seria quebrada silenciosamente se alguém expandisse `OrderOut` sem
+    passar por este teste."""
     aluno_id = str(uuid.uuid4())
     await _seed_pedido(db_session, aluno_id)
 
-    response = await client.get("/orders/mine", headers=headers_for("student", aluno_id))
+    response = await client.get("/orders", headers=headers_for("student", aluno_id))
     assert response.status_code == 200
     order = response.json()[0]
     assert set(order) == {
         "id",
-        "user_id",
-        "status",
         "total",
-        "carrier_name",
-        "estimated_delivery_at",
+        "status",
+        "payment_method",
         "created_at",
+        "items",
     }
     assert "picker_id" not in order
     assert "deliverer_id" not in order
+    assert "user_id" not in order
 
 
 # ── B7: nada provava que o `.limit(limit).offset(offset)` de

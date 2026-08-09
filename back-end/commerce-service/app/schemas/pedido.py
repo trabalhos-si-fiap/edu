@@ -2,70 +2,85 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 from app.models.pedido import Order
 from app.services.pedidos import endereco_formatado
+from app.services.status_pedido import StatusContrato, status_do_contrato
+
+# `PedidoItemIn`/`PedidoCreateIn`/`PedidoOut` morreram nesta task (C6): o
+# `product_name` que `PedidoItemIn` carregava era dívida temporária
+# declarada com a C6 como dona (task C4) — some porque agora o nome vem do
+# catálogo, não do corpo da requisição. `PedidoOut` é substituído por
+# `OrderOut` abaixo, mesmo conjunto de campos do alvo de paridade
+# (`back-end/legacy/app/modules/orders/schemas.py:40::OrderOut`).
 
 
-class PedidoItemIn(BaseModel):
-    """Campos em inglês porque seguem `order_items` (regra de língua do
-    spec: o schema segue a TABELA, não o router).
+class OrderCreateIn(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
 
-    `product_name`: `order_items.product_name` é `NOT NULL` sem default (a
-    tabela já nasce assim — ver a migration desta task), e `criar_pedido`
-    (app/routers/pedidos.py) monta o `OrderItem` a partir deste schema. Sem
-    o campo aqui, o INSERT estouraria para todo `POST /orders`. Este campo
-    morre junto com o schema inteiro na task C6, quando o nome do produto
-    passa a vir do carrinho, não do corpo da requisição."""
+    # Rótulo escolhido no cliente ("PIX", "Visa ••••1234"). Opcional para
+    # ficar perto do contrato de corpo vazio do legacy.
+    payment_method: str = Field(default="", max_length=120)
+    # Qual endereço salvo recebe o pedido. Opcional pelo mesmo motivo; o app
+    # sempre manda o id do endereço selecionado.
+    address_id: UUID | None = None
+
+
+class OrderItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
 
     product_id: UUID
-    supplier_id: int
-    quantity: int
+    product_name: str
     unit_price: Decimal
-    product_name: str = Field(max_length=160)
+    quantity: int
+    image_url: str = ""
+    rating_avg: float = 0.0
+    rating_count: int = 0
+
+    @field_serializer("unit_price")
+    def _price_as_string(self, value: Decimal) -> str:
+        return f"{value:.2f}"
 
 
-class PedidoCreateIn(BaseModel):
-    """`endereco_entrega` saiu: a coluna morreu (vira os oito `ship_*`) e
-    não existe para onde escrever a string. Entre esta task e a C6,
-    `POST /orders` cria pedido sem snapshot de endereço — o mesmo contrato
-    que a C6 e o legacy têm (`OrderCreateIn.address_id: uuid.UUID | None =
-    None`, corpo vazio aceito). O endereço volta na C6, pela fonte real
-    (`address_id` → auth-users), não por texto livre."""
+class OrderOut(BaseModel):
+    """Contrato do aluno. `status` é o valor do CONTRATO (seis), não o
+    interno (nove) — a tradução acontece em `de_order` abaixo.
 
-    itens: list[PedidoItemIn]
+    NÃO inclui `picker_id`/`deliverer_id`: identificadores operacionais não
+    são assunto do aluno. Staff usa `PedidoStaffOut`.
 
-
-class PedidoOut(BaseModel):
-    """Contrato voltado ao aluno — `POST /orders`, `GET /orders/mine`,
-    `GET /orders/{id}`. NÃO inclui `picker_id`/`deliverer_id`:
-    identificadores operacionais internos (quem está separando/entregando)
-    não são assunto do aluno, mesma classe do vazamento de `descricao_ia`
-    fechado no learning-service (fix round 1, reviewer finding). Endpoints
-    de staff (separador/entregador/admin) usam `PedidoStaffOut` abaixo.
-
-    NÃO inclui `endereco_entrega` nem um substituto computado: medido,
+    NÃO inclui `endereco_entrega` nem os `ship_*`: medido,
     `grep -rn "endereco_entrega" front-end-flutter/lib/` só devolve
     `features/logistics/domain/order.dart::Pedido.fromJson` (Flutter de
-    STAFF, alvo da C4b), e o cliente do aluno
+    STAFF), e o cliente do aluno
     (`features/marketplace/domain/order_summary.dart::OrderSummary.fromJson`)
     lê só `id, total, status, created_at, items`. O alvo de paridade
     (`back-end/legacy/app/modules/orders/schemas.py:40::OrderOut`) também
-    não tem o campo, e a C6 substitui este schema por `OrderOut` com esse
-    mesmo conjunto — dar ao aluno um campo que ninguém lê e que morre duas
-    tasks depois não faria sentido.
+    não tem o campo.
     """
 
-    model_config = ConfigDict(from_attributes=True)
-
     id: UUID
-    user_id: UUID
-    status: str
     total: Decimal
-    carrier_name: str | None
-    estimated_delivery_at: datetime | None
+    status: StatusContrato
+    payment_method: str = ""
     created_at: datetime
+    items: list[OrderItemOut]
+
+    @field_serializer("total")
+    def _total_as_string(self, value: Decimal) -> str:
+        return f"{value:.2f}"
+
+    @classmethod
+    def de_order(cls, order: Order) -> "OrderOut":
+        return cls(
+            id=order.id,
+            total=order.total,
+            status=status_do_contrato(order.status),
+            payment_method=order.payment_method,
+            created_at=order.created_at,
+            items=[OrderItemOut.model_validate(i) for i in order.items],
+        )
 
 
 class PedidoStaffOut(BaseModel):
