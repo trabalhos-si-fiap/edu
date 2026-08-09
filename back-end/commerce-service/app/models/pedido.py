@@ -88,11 +88,10 @@ class Order(Base):
     # histórico de PARA ONDE foi entregue, então o endereço é copiado aqui e
     # não pode mudar se o aluno editar ou apagar o endereço de origem.
     #
-    # Nullable: entre a task C4 e a C6, `POST /orders` cria pedido sem
-    # snapshot de endereço (`PedidoCreateIn` perdeu `endereco_entrega` e não
-    # ganhou `address_id` ainda — ver app/schemas/pedido.py). Nesse caso
-    # `GET /orders/{id}/route` responde 503 por falta de destino, que é o
-    # comportamento do legacy.
+    # Nullable: mesmo depois da C6, `POST /orders` pode criar pedido sem
+    # snapshot de endereço — `address_id` em `OrderCreateIn` é opcional
+    # (ver app/schemas/pedido.py). Nesse caso `GET /orders/{id}/route`
+    # responde 503 por falta de destino, que é o comportamento do legacy.
     #
     # Os tamanhos batem com `auth-users-service/app/models/address.py:23-30`
     # (label 60, zip_code 9, street 160, number 20, complement 120,
@@ -147,11 +146,14 @@ class OrderItem(Base):
     # nullable). Medido na cadeia de migrations aplicada a um banco
     # descartável, `\d pedido_itens`: `fornecedor_id | integer | | ` — sem
     # `not null`. `cart_items` não tem noção de fornecedor (ver
-    # models/carrinho.py), então um item que nascesse do carrinho chegaria
-    # aqui sem fornecedor. Hoje o único write é o payload de `POST /orders`
-    # — `grep -rn "supplier_id" app/routers/`:
-    #     app/routers/pedidos.py:48:                supplier_id=item.supplier_id,
-    # uma linha só; a separação não escreve nesta coluna.
+    # models/carrinho.py), então um item que nasce do carrinho — o único
+    # jeito de criar um pedido desde a task C6 — chega aqui sem fornecedor.
+    # Reconfirmado depois da C6 (2026-08-09), `grep -rn "supplier_id" app/`
+    # não devolve nenhuma escrita na coluna em lugar nenhum do serviço — só
+    # esta declaração de coluna e o comentário "`supplier_id` fica None" em
+    # `app/services/pedidos.py::criar_pedido_do_carrinho`, que documenta a
+    # omissão de propósito. Quem a preenche é trabalho futuro da separação,
+    # ainda não implementado.
     supplier_id = Column(Integer, ForeignKey("fornecedores.id"), nullable=True)
 
     order = relationship("Order", back_populates="items")

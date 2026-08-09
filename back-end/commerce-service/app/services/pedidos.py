@@ -37,8 +37,8 @@ def endereco_formatado(order: Order) -> str:
     sem compor rua+número+complemento numa mesma parte), não uma string para
     a operação LER — formatos diferentes, propósitos diferentes.
 
-    Pedido sem snapshot nenhum (criação com corpo vazio, ver
-    `PedidoCreateIn`) devolve string vazia, não "None, None - None": cada
+    Pedido sem snapshot nenhum (checkout sem `address_id`, ver
+    `OrderCreateIn`) devolve string vazia, não "None, None - None": cada
     parte só entra na composição se o campo correspondente não for None.
     """
     linha = ", ".join(p for p in (order.ship_street, order.ship_number, order.ship_complement) if p)

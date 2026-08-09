@@ -134,7 +134,7 @@ async def rastreio_pedido(
     db: AsyncSession = Depends(get_db),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
-) -> list[PedidoStatusHistoricoOut]:
+):
     """Histórico de status do pedido — tabela sem cliente
     (`pedido_status_historico`), fica em português (ver
     `PedidoStatusHistoricoOut`).
@@ -148,6 +148,13 @@ async def rastreio_pedido(
     `services.buscar_pedido` — mesma técnica usada em `detalhe_pedido` e em
     `previsao_entrega_pedido` abaixo — em vez do `where` inline que a rota
     tinha antes desta task.
+
+    Sem anotação de retorno de propósito (achado 7 da revisão da task C6):
+    a função devolve `Sequence[PedidoStatusHistorico]` (linhas do ORM), não
+    `list[PedidoStatusHistoricoOut]` — quem converte um no outro é o
+    `response_model=` do decorator, não esta função. Mesmo padrão (sem
+    anotação) de `previsao_entrega_pedido` logo abaixo, que também devolve
+    um tipo diferente do que constrói inline.
     """
     try:
         await services.buscar_pedido(db, uuid.UUID(user["sub"]), order_id)
