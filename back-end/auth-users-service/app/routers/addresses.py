@@ -86,6 +86,25 @@ async def criar_endereco(
     return endereco
 
 
+@router.get("/{address_id}", response_model=AddressOut)
+async def detalhe_endereco(
+    address_id: uuid.UUID,
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Um endereço do próprio usuário.
+
+    Existe para o checkout do commerce-service, que copia o endereço para o
+    snapshot do pedido e não pode ler o banco do auth. O bearer repassado é
+    o do próprio aluno, então a autorização continua sendo daqui.
+
+    Endereço de outro usuário devolve o MESMO 404 de um id inexistente —
+    `_buscar_endereco_do_usuario` já filtra por `user_id`. Um 403 confirmaria
+    que o id existe.
+    """
+    return await _buscar_endereco_do_usuario(db, address_id, user_id)
+
+
 @router.patch("/{address_id}", response_model=AddressOut)
 async def atualizar_endereco(
     address_id: uuid.UUID,
