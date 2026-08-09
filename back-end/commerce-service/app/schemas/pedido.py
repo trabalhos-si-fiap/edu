@@ -69,15 +69,25 @@ class PedidoOut(BaseModel):
 
 
 class PedidoStaffOut(BaseModel):
-    """Visão de staff. Campos vindos de `orders` em inglês; nenhum em
-    português nesta classe (`score_risco`, de `priorizacao_fila`, entra só
-    em `PedidoFilaOut` abaixo) — é a regra de língua por agregado.
+    """Visão de staff. Campos vindos de `orders` em inglês, com uma exceção
+    deliberada: `endereco_entrega` continua em português porque é o nome
+    de chave que o Flutter de staff já lê (medido:
+    `grep -rn "endereco_entrega" front-end-flutter/lib/` devolve
+    `features/logistics/domain/order.dart:112`) — o valor é computado por
+    `endereco_formatado`, não uma coluna do model. `score_risco` (de
+    `priorizacao_fila`) é a outra exceção, mas só entra em `PedidoFilaOut`
+    abaixo, não aqui. Correção de fix round 2 (code review): a versão
+    anterior deste docstring dizia "nenhum [campo] em português nesta
+    classe", contradita pela própria declaração de `endereco_entrega`
+    seis linhas abaixo.
 
     Classe PLANA (não herda de `PedidoOut`) porque `endereco_entrega` não é
     mais uma coluna do model — é composta por `endereco_formatado` a partir
-    dos oito `ship_*`. `from_attributes`/`model_validate` não alcançaria
-    isso (não há atributo `endereco_entrega` no ORM), por isso o único
-    construtor é `de_order`; não use `PedidoStaffOut.model_validate(order)`.
+    de sete dos oito `ship_*` (ver o docstring de `endereco_formatado` para
+    o porquê do oitavo, `ship_label`, ficar de fora).
+    `from_attributes`/`model_validate` não alcançaria isso (não há atributo
+    `endereco_entrega` no ORM), por isso o único construtor é `de_order`;
+    não use `PedidoStaffOut.model_validate(order)`.
     """
 
     model_config = ConfigDict(from_attributes=True)

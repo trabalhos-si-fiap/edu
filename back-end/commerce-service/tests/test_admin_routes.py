@@ -120,8 +120,9 @@ async def test_orders_listing_is_paginated(client):
 
 async def test_staff_view_composes_the_address_from_the_snapshot(client, db_session):
     """Os schemas de staff mostravam `endereco_entrega`; a coluna morreu, mas
-    a informação não — ela passa a ser composta dos oito campos do
-    snapshot."""
+    a informação não — ela passa a ser composta de sete dos oito campos
+    `ship_*` do snapshot (`ship_label` fica de fora — ver
+    app/services/pedidos.py::endereco_formatado)."""
     await _seed_pedido_com_endereco(db_session)
     response = await client.get("/admin/orders", headers=headers_for("admin"))
     assert response.status_code == 200

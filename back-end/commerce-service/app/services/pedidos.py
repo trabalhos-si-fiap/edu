@@ -2,8 +2,15 @@ from app.models.pedido import Order
 
 
 def endereco_formatado(order: Order) -> str:
-    """Monta a string que `endereco_entrega` guardava, a partir dos oito
-    campos `ship_*` do snapshot (ver app/models/pedido.py::Order).
+    """Monta a string que `endereco_entrega` guardava, a partir de sete dos
+    oito campos `ship_*` do snapshot (ver app/models/pedido.py::Order).
+    `ship_label` fica de fora de propósito: é um apelido escolhido pelo
+    aluno ("Casa", "Trabalho"), não parte do endereço postal — não faz
+    sentido dentro de uma string para geocodificar nem para a operação ler
+    como endereço. Correção de fix round 2 (code review): a versão
+    anterior deste docstring dizia "oito campos", contado errado — o corpo
+    da função só lê `ship_street`, `ship_number`, `ship_complement`,
+    `ship_neighborhood`, `ship_city`, `ship_state` e `ship_zip_code`.
 
     A coluna morreu porque um endereço em texto livre não dá para
     geocodificar (`GET /orders/{id}/route` precisa dos campos separados) nem

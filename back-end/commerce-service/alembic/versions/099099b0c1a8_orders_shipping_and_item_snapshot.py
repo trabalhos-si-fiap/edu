@@ -11,11 +11,20 @@ snapshot do produto (`product_name`, `image_url`, `rating_avg`,
 `ondelete="CASCADE"` na FK de `order_id` — ver app/models/pedido.py (task
 C4) para o porquê de cada campo.
 
-QUARTA parede da cadeia de reconstruções declaradas (B4, C3, e a rename da
-C2 antes dela) — `drop_column("orders", "endereco_entrega")` apaga dado por
-construção se houver linha. Mesmo padrão da `bd410bba0e85_orders_uuid_pk.py`
-(C3): `_TABELAS_AFETADAS`, `_falhar_se_houver_dado(conn)` levantando
+TERCEIRA parede da cadeia de reconstruções declaradas com guard —
+`drop_column("orders", "endereco_entrega")` apaga dado por construção se
+houver linha. Mesmo padrão da `bd410bba0e85_orders_uuid_pk.py` (C3):
+`_TABELAS_AFETADAS`, `_falhar_se_houver_dado(conn)` levantando
 `RuntimeError` antes de qualquer DDL, e downgrade que recusa.
+
+Correção de fix round 2 (task-C4, code review): esta revision e o commit
+`98614ca` chamavam isto de "quarta parede", contando a rename da C2
+(`39d3b55161af`) entre elas. Medido: `grep -ln "_falhar_se_houver_dado"
+alembic/versions/*.py` devolve três arquivos —
+`1308bb221890_products_uuid_pk.py` (B4), `bd410bba0e85_orders_uuid_pk.py`
+(C3) e este. A rename da C2 não tem guard porque não destrói nada (`ALTER
+TABLE ... RENAME` não apaga linha nenhuma); ela não é uma parede da mesma
+cadeia. São três, esta é a terceira.
 
 Contagem medida no `commerce_db` real, ANTES de qualquer migration do bloco
 B ou C (banco na revision de baseline `62926745dd94`, nomes ainda em
