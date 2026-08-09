@@ -56,6 +56,40 @@ async def _seed_pedido(db_session, aluno_id: str) -> Order:
     return pedido
 
 
+async def test_order_id_is_a_uuid_string_in_the_response(client, db_session):
+    aluno_id = str(uuid.uuid4())
+    pedido = await _seed_pedido(db_session, aluno_id)
+    response = await client.get(
+        f"/orders/{pedido.id}", headers=headers_for("student", sub=aluno_id)
+    )
+    assert response.status_code == 200
+    assert isinstance(response.json()["id"], str)
+    uuid.UUID(response.json()["id"])
+
+
+async def test_a_malformed_order_id_is_a_422_not_a_500(client):
+    """O caso `nao-e-uuid` NÃO é guarda de regressão desta task: ele já era
+    verde ANTES dela, com `pedido_id: int` em `app/routers/pedidos.py`. O
+    FastAPI valida o path param antes de entrar na função, e `int` rejeita
+    `nao-e-uuid` com o mesmo 422 que `uuid.UUID` rejeita. Medido isolando
+    a versão do brief num arquivo temporário (`1 passed`) antes de tocar
+    em qualquer código — ver task-C3-report.md, seção Red, para o comando
+    e a saída literais.
+
+    O SEGUNDO caso é o que ficou vermelho antes desta task e verde depois:
+    `123` é um `int` válido, então antes ele passava da validação, chegava
+    à query e devolvia 404. Com `pedido_id: uuid.UUID` ele para na
+    validação do path e vira 422. O Red literal foi `assert 404 == 422` —
+    e o fato de a execução ter CHEGADO nesta segunda asserção é a segunda
+    prova, independente, de que a primeira já passava.
+    """
+    response = await client.get("/orders/nao-e-uuid", headers=headers_for("student"))
+    assert response.status_code == 422
+
+    inteiro = await client.get("/orders/123", headers=headers_for("student"))
+    assert inteiro.status_code == 422
+
+
 async def test_my_orders_listing_is_paginated(client, db_session):
     aluno_id = str(uuid.uuid4())
     for _ in range(5):

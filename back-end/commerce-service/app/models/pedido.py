@@ -12,6 +12,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.database import Base
+from app.ids import new_uuid
 
 
 class Order(Base):
@@ -48,7 +49,16 @@ class Order(Base):
 
     __tablename__ = "orders"
 
-    id = Column(Integer, primary_key=True)
+    # `default=new_uuid` é client-side (UUIDv7, ver app/ids.py);
+    # `server_default` é o par server-side para qualquer insert que não passe
+    # pelo ORM. `gen_random_uuid()` é nativo do PostgreSQL 17.4, sem precisar
+    # da extensão `pgcrypto` — mesma medição da task B4.
+    id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=new_uuid,
+        server_default=text("gen_random_uuid()"),
+    )
     user_id = Column(UUID(as_uuid=True), nullable=False, index=True)
     # `default=` covers ORM inserts; `server_default` matches schema.sql's
     # `DEFAULT 'CRIADO'` for any insert bypassing the ORM — fix round 1,
@@ -69,8 +79,13 @@ class Order(Base):
 class OrderItem(Base):
     __tablename__ = "order_items"
 
-    id = Column(Integer, primary_key=True)
-    order_id = Column(Integer, ForeignKey("orders.id"))
+    id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=new_uuid,
+        server_default=text("gen_random_uuid()"),
+    )
+    order_id = Column(UUID(as_uuid=True), ForeignKey("orders.id"))
     product_id = Column(UUID(as_uuid=True), ForeignKey("products.id"))
     # `nullable=True` explícito, não uma mudança: a coluna já nascia nullable
     # (o model não declarava `nullable=`, e o default do SQLAlchemy é
@@ -93,7 +108,9 @@ class PedidoStatusHistorico(Base):
     __tablename__ = "pedido_status_historico"
 
     id = Column(Integer, primary_key=True)
-    order_id = Column(Integer, ForeignKey("orders.id"))
+    # Só o TIPO acompanha `orders.id` (task C3). O `id` desta tabela continua
+    # inteiro: ela não tem cliente e ninguém a endereça por id.
+    order_id = Column(UUID(as_uuid=True), ForeignKey("orders.id"))
     status = Column(String(30), nullable=False)
     user_id = Column(UUID(as_uuid=True), nullable=True)  # quem fez a transição
     observacao = Column(Text, nullable=True)

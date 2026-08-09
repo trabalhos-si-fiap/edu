@@ -33,7 +33,7 @@ class PedidoOut(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    id: UUID
     user_id: UUID
     status: str
     endereco_entrega: str

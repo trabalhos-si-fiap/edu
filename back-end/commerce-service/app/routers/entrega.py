@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -55,7 +56,7 @@ async def minhas_entregas(
 
 @router.patch("/{pedido_id}/collect", response_model=PedidoStaffOut)
 async def confirmar_coleta(
-    pedido_id: int,
+    pedido_id: uuid.UUID,
     user: dict = Depends(requer_papel("entregador")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -128,7 +129,7 @@ async def confirmar_coleta(
 
 @router.patch("/{pedido_id}/deliver", response_model=PedidoStaffOut)
 async def confirmar_entrega(
-    pedido_id: int,
+    pedido_id: uuid.UUID,
     user: dict = Depends(requer_papel("entregador")),
     db: AsyncSession = Depends(get_db),
 ):

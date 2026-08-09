@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -86,7 +87,7 @@ async def meus_pedidos(
 
 @router.get("/{pedido_id}", response_model=PedidoOut)
 async def detalhe_pedido(
-    pedido_id: int,
+    pedido_id: uuid.UUID,
     aluno_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
@@ -99,7 +100,7 @@ async def detalhe_pedido(
 
 @router.get("/{pedido_id}/tracking", response_model=list[PedidoStatusHistoricoOut])
 async def rastreio_pedido(
-    pedido_id: int,
+    pedido_id: uuid.UUID,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     aluno_id: str = Depends(get_current_user_id),
@@ -122,7 +123,7 @@ async def rastreio_pedido(
 
 @router.get("/{pedido_id}/delivery-estimate", response_model=PrevisaoEntregaOut)
 async def previsao_entrega_pedido(
-    pedido_id: int,
+    pedido_id: uuid.UUID,
     aluno_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):

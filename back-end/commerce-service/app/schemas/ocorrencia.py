@@ -6,13 +6,13 @@ from pydantic import BaseModel, ConfigDict
 
 
 class FaltaEstoqueIn(BaseModel):
-    pedido_id: int
+    pedido_id: uuid.UUID
     produto_id: uuid.UUID
     motivo: str
 
 
 class AtrasoEntregaIn(BaseModel):
-    pedido_id: int
+    pedido_id: uuid.UUID
     motivo: str
     nova_data_sugerida: datetime
 
@@ -35,8 +35,10 @@ class ProdutoSugeridoOut(BaseModel):
 class OcorrenciaOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
+    # `id` da ocorrência continua inteiro — só `pedido_id` acompanha
+    # `orders.id` virando uuid (task C3).
     id: int
-    pedido_id: int
+    pedido_id: uuid.UUID
     tipo: str
     status: str
     produto_id: uuid.UUID | None

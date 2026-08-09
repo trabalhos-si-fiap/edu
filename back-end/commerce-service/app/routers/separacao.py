@@ -1,3 +1,5 @@
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,7 +33,7 @@ CANDIDATOS_FILA_MAXIMO = 500
 
 async def transicionar_pedido(
     db: AsyncSession,
-    pedido_id: int,
+    pedido_id: uuid.UUID,
     novo_status: str,
     user_id: str | None,
     observacao: str | None = None,
@@ -150,7 +152,7 @@ async def fila_separacao(
 
 @router.patch("/{pedido_id}/start", response_model=PedidoStaffOut)
 async def iniciar_separacao(
-    pedido_id: int,
+    pedido_id: uuid.UUID,
     user: dict = Depends(requer_papel("separador")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -197,7 +199,7 @@ async def iniciar_separacao(
 
 @router.patch("/{pedido_id}/finish", response_model=PedidoStaffOut)
 async def finalizar_separacao(
-    pedido_id: int,
+    pedido_id: uuid.UUID,
     user: dict = Depends(requer_papel("separador")),
     db: AsyncSession = Depends(get_db),
 ):

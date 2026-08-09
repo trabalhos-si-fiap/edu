@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -152,7 +153,7 @@ async def reportar_atraso_entrega(
 
 @router.get("/order/{pedido_id}", response_model=list[OcorrenciaOut])
 async def listar_ocorrencias_pedido(
-    pedido_id: int,
+    pedido_id: uuid.UUID,
     apenas_abertas: bool = False,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),

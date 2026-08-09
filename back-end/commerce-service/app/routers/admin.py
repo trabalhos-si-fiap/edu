@@ -1,3 +1,5 @@
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,7 +34,7 @@ async def listar_pedidos(
 
 @router.patch("/orders/{pedido_id}/confirm-payment", response_model=PedidoStaffOut)
 async def confirmar_pagamento(
-    pedido_id: int,
+    pedido_id: uuid.UUID,
     user: dict = Depends(requer_papel("admin")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -48,9 +50,6 @@ async def confirmar_pagamento(
     Encadear duas transições numa rota é o padrão que `finalizar_separacao`
     (separacao.py) já usa para SEPARADO -> AGUARDANDO_COLETA. As duas geram
     linha de histórico e evento, nessa ordem.
-
-    `pedido_id` continua `int` aqui — a task C3 (não rodada ainda) é quem
-    troca para `uuid.UUID`.
     """
     await transicionar_pedido(db, pedido_id, StatusPedido.CONFIRMADO.value, user["sub"])
     return await transicionar_pedido(
@@ -60,7 +59,7 @@ async def confirmar_pagamento(
 
 @router.patch("/orders/{pedido_id}/assign-picker", response_model=PedidoStaffOut)
 async def atribuir_separador(
-    pedido_id: int,
+    pedido_id: uuid.UUID,
     separador_id: str,
     user: dict = Depends(requer_papel("admin")),
     db: AsyncSession = Depends(get_db),
@@ -77,7 +76,7 @@ async def atribuir_separador(
 
 @router.patch("/orders/{pedido_id}/assign-deliverer", response_model=PedidoStaffOut)
 async def atribuir_entregador(
-    pedido_id: int,
+    pedido_id: uuid.UUID,
     entregador_id: str,
     user: dict = Depends(requer_papel("admin")),
     db: AsyncSession = Depends(get_db),

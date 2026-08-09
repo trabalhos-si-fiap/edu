@@ -122,7 +122,7 @@ async def test_stock_shortage_requires_authentication(client, db_session):
 
     response = await client.post(
         "/occurrences/stock-shortage",
-        json={"pedido_id": pedido.id, "produto_id": str(produto.id), "motivo": "sem estoque"},
+        json={"pedido_id": str(pedido.id), "produto_id": str(produto.id), "motivo": "sem estoque"},
     )
     assert response.status_code == 403
 
@@ -133,7 +133,7 @@ async def test_stock_shortage_forbids_a_separador_who_never_claimed_the_order(cl
 
     response = await client.post(
         "/occurrences/stock-shortage",
-        json={"pedido_id": pedido.id, "produto_id": str(produto.id), "motivo": "sem estoque"},
+        json={"pedido_id": str(pedido.id), "produto_id": str(produto.id), "motivo": "sem estoque"},
         headers=headers_for("separador", sub=PICKER_B),
     )
     assert response.status_code == 403
@@ -145,7 +145,7 @@ async def test_stock_shortage_allows_the_separador_who_claimed_the_order(client,
 
     response = await client.post(
         "/occurrences/stock-shortage",
-        json={"pedido_id": pedido.id, "produto_id": str(produto.id), "motivo": "sem estoque"},
+        json={"pedido_id": str(pedido.id), "produto_id": str(produto.id), "motivo": "sem estoque"},
         headers=headers_for("separador", sub=PICKER_A),
     )
     assert response.status_code == 201
@@ -157,7 +157,7 @@ async def test_stock_shortage_allows_admin_regardless_of_ownership(client, db_se
 
     response = await client.post(
         "/occurrences/stock-shortage",
-        json={"pedido_id": pedido.id, "produto_id": str(produto.id), "motivo": "sem estoque"},
+        json={"pedido_id": str(pedido.id), "produto_id": str(produto.id), "motivo": "sem estoque"},
         headers=headers_for("admin", sub=ADMIN),
     )
     assert response.status_code == 201
@@ -175,7 +175,7 @@ async def test_delivery_delay_requires_authentication(client, db_session):
     response = await client.post(
         "/occurrences/delivery-delay",
         json={
-            "pedido_id": pedido.id,
+            "pedido_id": str(pedido.id),
             "motivo": "trânsito intenso",
             "nova_data_sugerida": "2026-01-01T12:00:00Z",
         },
@@ -191,7 +191,7 @@ async def test_delivery_delay_forbids_a_deliverer_who_never_claimed_the_order(cl
     response = await client.post(
         "/occurrences/delivery-delay",
         json={
-            "pedido_id": pedido.id,
+            "pedido_id": str(pedido.id),
             "motivo": "trânsito intenso",
             "nova_data_sugerida": "2026-01-01T12:00:00Z",
         },
@@ -208,7 +208,7 @@ async def test_delivery_delay_allows_the_deliverer_who_claimed_the_order(client,
     response = await client.post(
         "/occurrences/delivery-delay",
         json={
-            "pedido_id": pedido.id,
+            "pedido_id": str(pedido.id),
             "motivo": "trânsito intenso",
             "nova_data_sugerida": "2026-01-01T12:00:00Z",
         },
@@ -225,7 +225,7 @@ async def test_delivery_delay_allows_admin_regardless_of_ownership(client, db_se
     response = await client.post(
         "/occurrences/delivery-delay",
         json={
-            "pedido_id": pedido.id,
+            "pedido_id": str(pedido.id),
             "motivo": "trânsito intenso",
             "nova_data_sugerida": "2026-01-01T12:00:00Z",
         },
