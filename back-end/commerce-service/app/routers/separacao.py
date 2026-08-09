@@ -96,10 +96,15 @@ async def transicionar_pedido(
     await db.commit()
     await db.refresh(pedido)
 
+    # `str(pedido.id)`: `orders.id` é UUID desde a fase 2 e JSON não tem tipo
+    # UUID — o transporte (`edu_common/events.py`, `json.dumps(payload)`)
+    # estoura `TypeError` com o valor cru. As CHAVES continuam em português:
+    # renomeá-las dessincronizaria produtor e consumidor sem nenhum cliente
+    # pedindo. Só o tipo do valor muda.
     await publish_event(
         "order.status_changed",
         {
-            "pedido_id": pedido.id,
+            "pedido_id": str(pedido.id),
             "aluno_id": str(pedido.user_id),
             "status": novo_status,
         },

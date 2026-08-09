@@ -89,13 +89,20 @@ async def reportar_falta_estoque(
     await db.commit()
     await db.refresh(ocorrencia)
 
+    # `str(...)` nos dois ids: `orders.id` e `products.id` são UUID desde a
+    # fase 2 e JSON não tem tipo UUID — o transporte
+    # (`edu_common/events.py`, `json.dumps(payload)`) estoura `TypeError` com
+    # o valor cru. As CHAVES continuam em português: renomeá-las
+    # dessincronizaria produtor e consumidor sem nenhum cliente pedindo. Só o
+    # tipo do valor muda. `produtos_sugeridos` já vem como `list[str]` de
+    # `sugerir_substitutos`, e `ocorrencia_id` continua inteiro.
     await publish_event(
         "order.stock_issue",
         {
-            "pedido_id": pedido.id,
+            "pedido_id": str(pedido.id),
             "aluno_id": str(pedido.user_id),
             "ocorrencia_id": ocorrencia.id,
-            "produto_id": payload.produto_id,
+            "produto_id": str(payload.produto_id),
             "produtos_sugeridos": produtos_sugeridos_ids,
         },
     )
@@ -140,7 +147,7 @@ async def reportar_atraso_entrega(
     await publish_event(
         "order.delivery_delayed",
         {
-            "pedido_id": pedido.id,
+            "pedido_id": str(pedido.id),
             "aluno_id": str(pedido.user_id),
             "ocorrencia_id": ocorrencia.id,
             "nova_data_sugerida": payload.nova_data_sugerida.isoformat(),
@@ -339,7 +346,7 @@ async def resolver_ocorrencia(
         await publish_event(
             "order.status_changed",
             {
-                "pedido_id": pedido.id,
+                "pedido_id": str(pedido.id),
                 "aluno_id": str(pedido.user_id),
                 "status": StatusPedido.CANCELADO.value,
             },
@@ -348,7 +355,7 @@ async def resolver_ocorrencia(
     await publish_event(
         "order.occurrence_resolved",
         {
-            "pedido_id": pedido.id,
+            "pedido_id": str(pedido.id),
             "aluno_id": str(pedido.user_id),
             "ocorrencia_id": ocorrencia.id,
             "resolucao": resolucao,

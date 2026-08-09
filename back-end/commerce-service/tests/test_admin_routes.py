@@ -146,7 +146,11 @@ async def test_confirm_payment_is_idempotent_against_a_sequential_double_call(
         StatusPedido.CONFIRMADO.value,
         StatusPedido.AGUARDANDO_SEPARACAO.value,
     ]
-    assert all(e["pedido_id"] == pedido.id for e in status_changed_events)
+    # `str(pedido.id)`: o payload carrega o id como string, porque JSON não
+    # tem tipo UUID. Esta asserção comparava contra o `uuid.UUID` cru e
+    # passava — ou seja, travava como CORRETO um payload que o transporte
+    # real não conseguia serializar (task C3, fix round 1, finding 3).
+    assert all(e["pedido_id"] == str(pedido.id) for e in status_changed_events)
 
 
 # ── B7: o cap declarado nao provava que o `.limit()`/`.offset()` da query
