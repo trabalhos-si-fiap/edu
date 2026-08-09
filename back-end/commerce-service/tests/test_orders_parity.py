@@ -30,17 +30,52 @@ e por isso mora aqui, em `TestCheckoutAddress` abaixo.
 ficou de fora da C6 porque `POST /orders/{id}/rebuy` ainda não existia — a
 rota é escrita agora, pela task C7, que também porta esses dois testes (ver
 task-C6-report.md para o registro original da decisão de deixá-los fora).
+Usa as fixtures `seeded_products`/`filled_cart` já declaradas logo abaixo —
+a primeira rodada desta task tinha reimplementado a mesma semeadura inline
+(34 linhas): o brief só mandava não usar a fixture `filled_cart` do
+LEGACY, que é inportável (importa `app.modules.auth.*`), e não checou que
+este arquivo já tinha a sua própria versão comerciável (achado 6 do code
+review).
+
 `test_rebuy_of_another_students_order_returns_404` é cobertura nova desta
 task: o legacy só cobre o id inexistente, não o pedido de outro aluno —
 mesma regra 2 do CLAUDE.md que `test_get_enforces_ownership`
 (`test_orders_services_parity.py`) já cobre no nível de serviço, aqui
-coberta no nível de rota (precedente da task C5). E
+coberta no nível de rota (precedente da task C5); a asserção compara o
+CORPO inteiro contra o caso de id inexistente, não só o status code
+(achado 8 do code review — a propriedade de segurança é que os dois casos
+são indistinguíveis de fora).
+
 `test_rebuy_skips_a_product_that_left_the_catalog`, fora da classe
 `TestRebuy` (mesmo formato solto do brief), não existe no legacy em lugar
 nenhum — é o comportamento central da rota e não tinha cobertura na
-origem; ver task-C7-report.md para a medição que embasa como o teste
-simula "produto saiu do catálogo" sem violar a FK real de
-`order_items.product_id`.
+origem. Roda contra banco real (achado 1 do code review, que substituiu a
+primeira versão desta task, com dublê): `order_items.product_id` tem
+`ForeignKey("products.id")` (`app/models/pedido.py`), mas o MONÓLITO
+declara a mesma coluna SEM FK, de propósito — um pedido é registro
+histórico e o catálogo tem que ficar livre para mudar por baixo dele
+(medido: `back-end/legacy/app/modules/orders/models.py:84` não tem
+`ForeignKey`, só `mapped_column(UUID(as_uuid=True), nullable=False)`). O
+commerce-service ACRESCENTOU uma FK que o legacy nunca teve — dívida
+herdada da migração que torna "apagar um produto já comprado" impossível
+pelo ORM, registrada para quem for dono de migrations, não desta task. O
+teste contorna com `SET session_replication_role = 'replica'` (desliga os
+triggers de FK só para a sessão, sem DDL, restaurado em `finally`) para
+apagar o produto de verdade e rodar `buscar_pedido` sem nenhum dublê.
+`test_rebuy_skips_a_product_that_left_the_catalog_unit_fast`, logo depois,
+é a versão original com `monkeypatch` em `services.buscar_pedido` —
+mantida como checagem rápida de unidade, não como a guarda (ela não prova
+ownership nem resolução de id, porque o dublê ignora os dois).
+
+`test_rebuying_the_same_order_twice_doubles_the_cart` documenta uma
+consequência da não-atomicidade que a primeira rodada desta task só tinha
+registrado pela metade (achado 4 do code review): recompra não é
+idempotente, e apertar o botão duas vezes SOMA o pedido no carrinho duas
+vezes. `test_rebuying_an_order_item_over_the_quantity_cap_does_not_500`
+cobre outro achado (2): sem clampar a quantidade que vem do pedido contra
+o teto de `CartItemIn`, um item de carrinho que cresceu além de 999 (via
+`item.quantity +=` sem cap em `cart_services.adicionar_item`, bug herdado
+do monólito) fazia a recompra estourar `ValidationError` não tratada.
 
 O terceiro teste de "rebuy" do legacy
 (`TestRebuyRepopulatesCart.test_order_items_can_refill_cart`, em
@@ -63,7 +98,7 @@ from types import SimpleNamespace
 import pytest
 from edu_common.security import create_access_token
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -178,51 +213,57 @@ class TestListOrders:
 class TestRebuy:
     """Porte de `TestRebuy`
     (`back-end/legacy/tests/modules/orders/test_routes.py:77`) — só os dois
-    testes que existem lá. Produto semeado pelo model com `db_session`, não
-    pelo fixture `filled_cart` (a diferença deliberada desta task — ver
-    task-C7-report.md); o total abaixo foi recalculado a partir do que
-    ESTE teste semeia (1x Cálculo a 100.00 + 2x Caderno a 24.50 = 149.00),
-    não copiado do legacy.
+    testes que existem lá. Usa `seeded_products`/`filled_cart` (achado 6 do
+    code review — ver o docstring do módulo).
 
-    `test_rebuy_of_another_students_order_returns_404` não existe no
-    legacy — ver o docstring do módulo."""
+    `test_rebuy_of_another_students_order_returns_404`,
+    `test_rebuy_presigns_image_urls`,
+    `test_rebuying_the_same_order_twice_doubles_the_cart` e
+    `test_rebuying_an_order_item_over_the_quantity_cap_does_not_500` não
+    existem no legacy — ver o docstring do módulo."""
 
     async def test_rebuy_repopulates_cart(
+        self, client: AsyncClient, filled_cart: list[Product]
+    ) -> None:
+        headers = headers_for("student", sub=ALUNO)
+        order = (await client.post("/orders", headers=headers)).json()
+
+        r = await client.post(f"/orders/{order['id']}/rebuy", headers=headers)
+        assert r.status_code == 200, r.text
+        assert r.json()["total"] == "149.00"
+
+    async def test_rebuy_presigns_image_urls(
         self, client: AsyncClient, db_session: AsyncSession
     ) -> None:
-        produtos = [
-            Product(
-                name="Cálculo", type="Livro", subtype="Mat", description="", price=Decimal("100.00")
-            ),
-            Product(
-                name="Caderno",
-                type="Material",
-                subtype="Pap",
-                description="",
-                price=Decimal("24.50"),
-            ),
-        ]
-        db_session.add_all(produtos)
+        """Achado 5 do code review: nada neste arquivo provava que
+        `recomprar` presina a `image_url` dos itens que devolve — apagando
+        a chamada a `presign_cart` da rota, a suíte inteira continuava
+        verde. Mesma asserção que `TestOrderImagePresign` já usa para
+        `POST /orders`."""
+        produto = Product(
+            name="Com imagem",
+            type="Livro",
+            subtype="Mat",
+            description="",
+            price=Decimal("10.00"),
+            image_url="products/rebuy-presign.png",
+        )
+        db_session.add(produto)
         await db_session.commit()
-        for p in produtos:
-            await db_session.refresh(p)
+        await db_session.refresh(produto)
 
         headers = headers_for("student", sub=ALUNO)
         await client.post(
             "/cart/items",
-            json={"product_id": str(produtos[0].id), "quantity": 1},
-            headers=headers,
-        )
-        await client.post(
-            "/cart/items",
-            json={"product_id": str(produtos[1].id), "quantity": 2},
+            json={"product_id": str(produto.id), "quantity": 1},
             headers=headers,
         )
         order = (await client.post("/orders", headers=headers)).json()
 
         r = await client.post(f"/orders/{order['id']}/rebuy", headers=headers)
         assert r.status_code == 200, r.text
-        assert r.json()["total"] == "149.00"
+        image_url = r.json()["items"][0]["image_url"]
+        assert "X-Amz-Signature" in image_url or "X-Amz-Credential" in image_url
 
     async def test_rebuy_unknown_order_returns_404(self, client: AsyncClient) -> None:
         r = await client.post(
@@ -231,34 +272,94 @@ class TestRebuy:
         assert r.status_code == 404
 
     async def test_rebuy_of_another_students_order_returns_404(
-        self, client: AsyncClient, db_session: AsyncSession
+        self, client: AsyncClient, filled_cart: list[Product]
     ) -> None:
         """`services.buscar_pedido` filtra por `user_id` sempre (task C6) —
         o pedido de outro aluno cai no mesmo 404 de um id inexistente, de
-        propósito (regra 2 do CLAUDE.md, ownership)."""
+        propósito (regra 2 do CLAUDE.md, ownership). Achado 8 do code
+        review: compara o CORPO inteiro contra o caso de id inexistente,
+        não só o status code — a propriedade de segurança real é que os
+        dois casos são indistinguíveis de fora, e só o status code não
+        prova isso."""
+        order = (await client.post("/orders", headers=headers_for("student", sub=ALUNO))).json()
+
+        resposta_outro_aluno = await client.post(
+            f"/orders/{order['id']}/rebuy",
+            headers=headers_for("student", sub=str(uuid.uuid4())),
+        )
+        resposta_id_inexistente = await client.post(
+            f"/orders/{uuid.uuid4()}/rebuy", headers=headers_for("student", sub=ALUNO)
+        )
+        assert resposta_outro_aluno.status_code == 404
+        assert resposta_outro_aluno.json() == resposta_id_inexistente.json()
+
+    async def test_rebuying_the_same_order_twice_doubles_the_cart(
+        self, client: AsyncClient, filled_cart: list[Product]
+    ) -> None:
+        """Achado 4 do code review: a recompra não é atômica nem
+        idempotente (ver docstring de `recomprar`) — apertar o botão duas
+        vezes seguidas soma o pedido no carrinho DUAS vezes, porque
+        `cart_services.adicionar_item` incrementa (`item.quantity +=`) em
+        vez de substituir. Medido: pedido de 149.00, duas recompras
+        seguidas, carrinho fecha em 298.00. Comportamento MANTIDO de
+        propósito (mesma composição do legacy) — este teste documenta a
+        consequência, não a impede."""
+        headers = headers_for("student", sub=ALUNO)
+        order = (await client.post("/orders", headers=headers)).json()
+
+        primeira = await client.post(f"/orders/{order['id']}/rebuy", headers=headers)
+        segunda = await client.post(f"/orders/{order['id']}/rebuy", headers=headers)
+
+        assert primeira.status_code == 200, primeira.text
+        assert segunda.status_code == 200, segunda.text
+        assert primeira.json()["total"] == "149.00"
+        assert segunda.json()["total"] == "298.00"
+
+    async def test_rebuying_an_order_item_over_the_quantity_cap_does_not_500(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        """Achado 2 do code review: `CartItemIn.quantity` tem
+        `le=QUANTIDADE_MAXIMA` (999, `app/schemas/carrinho.py`), mas
+        `cart_services.adicionar_item` faz `item.quantity +=` sem clampar
+        (`app/services/carrinho.py`) — bug herdado do monólito, de quem
+        possui a paridade do carrinho, não desta task. Duas chamadas de
+        999 produzem um item de carrinho com 1998; o checkout snapshota
+        1998 no pedido; a recompra, sem clamp, construía
+        `CartItemIn(quantity=1998)` e estourava `ValidationError` não
+        tratada (500), deixando os itens já processados pela metade no
+        carrinho."""
         produto = Product(
-            name="Caderno", type="Material", subtype="Pap", description="", price=Decimal("24.50")
+            name="Caderno", type="Material", subtype="Pap", description="", price=Decimal("1.00")
         )
         db_session.add(produto)
         await db_session.commit()
         await db_session.refresh(produto)
 
-        dono = ALUNO
-        outro_aluno = str(uuid.uuid4())
+        headers = headers_for("student", sub=ALUNO)
         await client.post(
             "/cart/items",
-            json={"product_id": str(produto.id), "quantity": 1},
-            headers=headers_for("student", sub=dono),
+            json={"product_id": str(produto.id), "quantity": 999},
+            headers=headers,
         )
-        order = (await client.post("/orders", headers=headers_for("student", sub=dono))).json()
-
-        r = await client.post(
-            f"/orders/{order['id']}/rebuy", headers=headers_for("student", sub=outro_aluno)
+        await client.post(
+            "/cart/items",
+            json={"product_id": str(produto.id), "quantity": 999},
+            headers=headers,
         )
-        assert r.status_code == 404
+        order = (await client.post("/orders", headers=headers)).json()
+        assert order["items"][0]["quantity"] == 1998
+
+        r = await client.post(f"/orders/{order['id']}/rebuy", headers=headers)
+        assert r.status_code == 200, r.text
+        # 999 == QUANTIDADE_MAXIMA em app/schemas/carrinho.py — literal
+        # aqui de propósito, não importado, para este teste não depender da
+        # ordem de commits (ver task-C7-report.md, seção do fix round).
+        assert r.json()["items"][0]["quantity"] == 999
 
 
-async def test_rebuy_skips_a_product_that_left_the_catalog(client, db_session, monkeypatch):
+async def test_rebuy_skips_a_product_that_left_the_catalog(
+    client: AsyncClient, db_session: AsyncSession, filled_cart: list[Product]
+) -> None:
     """Pular, não falhar: um pedido antigo com um produto descontinuado ainda
     tem que conseguir repor o resto no carrinho.
 
@@ -267,23 +368,60 @@ async def test_rebuy_skips_a_product_that_left_the_catalog(client, db_session, m
     testes portados acima) — é o comportamento central da rota, escrito
     aqui pela primeira vez.
 
-    `order_items.product_id` tem `ForeignKey("products.id")` SEM
-    `ondelete` (`app/models/pedido.py`), e a suíte roda contra Postgres
-    real — medido isolando um teste descartável: apagar um `Product`
-    referenciado por um `OrderItem` estoura
-    `sqlalchemy.exc.IntegrityError` /
-    `asyncpg.exceptions.ForeignKeyViolationError` ("update or delete on
-    table products violates foreign key constraint
-    order_items_product_id_fkey"). Ou seja, não existe jeito de, pelo ORM,
-    montar um pedido de verdade cujo item aponte para um produto que "não
-    existe mais" — uma vez comprado, o produto nunca pode ser apagado do
-    catálogo enquanto aquele pedido existir. Este teste substitui
-    `services.buscar_pedido` por um dublê que devolve um pedido falso
-    (nunca gravado em `order_items`) com dois itens: um produto real e um
-    `uuid.uuid4()` solto que nunca foi produto nenhum. O resto do caminho —
-    a chamada real a `cart_services.adicionar_item`, que É quem levanta
-    `CartProductNotFoundError` de verdade ao não achar o produto — roda sem
-    nenhum outro dublê."""
+    VERSÃO BANCO REAL (achado 1 do code review — substitui a versão com
+    dublê que a primeira rodada desta task tinha escrito; essa versão
+    continua abaixo, renomeada, como checagem rápida de unidade).
+    `order_items.product_id` tem `ForeignKey("products.id")`
+    (`app/models/pedido.py`) — o MONÓLITO declara a mesma coluna SEM FK,
+    de propósito: um pedido é registro histórico e o catálogo tem que
+    ficar livre para mudar por baixo dele (medido:
+    `back-end/legacy/app/modules/orders/models.py:84`, só
+    `mapped_column(UUID(as_uuid=True), nullable=False)`, sem
+    `ForeignKey`). O commerce-service ACRESCENTOU uma FK que o legacy
+    nunca teve — dívida herdada da migração, registrada para quem for
+    dono de migrations, não desta task.
+
+    `SET session_replication_role = 'replica'` desliga os triggers de FK
+    (inclusive os internos de integridade referencial) só para esta
+    sessão — sem DDL, sem tocar no schema compartilhado pela suíte
+    inteira — e é restaurado no `finally` antes do commit final, para não
+    vazar para o próximo teste que reusar a conexão. Com isso, o produto
+    referenciado pelo pedido é apagado de verdade, e `POST
+    /orders/{id}/rebuy` roda inteiro sem nenhum dublê: `buscar_pedido`
+    resolve o pedido de verdade — prova ownership e resolução de id de
+    verdade, o que a versão com `monkeypatch` não podia provar — e
+    `cart_services.adicionar_item` levanta `CartProductNotFoundError` de
+    verdade ao não achar o produto apagado."""
+    order = (await client.post("/orders", headers=headers_for("student", sub=ALUNO))).json()
+
+    produto_descontinuado = filled_cart[1]
+    await db_session.execute(text("SET session_replication_role = 'replica'"))
+    try:
+        await db_session.execute(delete(Product).where(Product.id == produto_descontinuado.id))
+        await db_session.commit()
+    finally:
+        await db_session.execute(text("SET session_replication_role = 'origin'"))
+        await db_session.commit()
+
+    r = await client.post(f"/orders/{order['id']}/rebuy", headers=headers_for("student", sub=ALUNO))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert len(body["items"]) == 1
+    assert body["items"][0]["product_id"] == str(filled_cart[0].id)
+    assert body["total"] == "100.00"
+
+
+async def test_rebuy_skips_a_product_that_left_the_catalog_unit_fast(
+    client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Checagem rápida de unidade — NÃO é a guarda (essa é a versão banco
+    real acima, achado 1 do code review). Mantida como complemento porque
+    roda sem tocar o Postgres: substitui `services.buscar_pedido` por um
+    dublê que devolve um pedido falso (nunca gravado em `order_items`) com
+    dois itens — um produto real e um `uuid.uuid4()` solto que nunca foi
+    produto nenhum. Não prova ownership nem resolução de id — o dublê
+    ignora os dois —, só que o loop `cart_services.adicionar_item`/`except
+    CartProductNotFoundError` funciona, mais rápido que ir ao banco."""
     produto = Product(
         name="Cálculo", type="Livro", subtype="Mat", description="", price=Decimal("100.00")
     )
