@@ -10,6 +10,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
 
 from app.database import Base
 from app.ids import new_uuid
@@ -66,14 +67,55 @@ class Order(Base):
     status = Column(
         String(30), nullable=False, default="CRIADO", server_default=text("'CRIADO'"), index=True
     )
-    endereco_entrega = Column(Text, nullable=False)
     total = Column(Numeric(10, 2), nullable=False)
+    # Rótulo descritivo escolhido no app ("PIX", "Visa ••••1234"). Nunca um
+    # dado de cartão: o que identifica a forma de pagamento vive em
+    # `payment_methods`, mascarado.
+    payment_method = Column(String(120), nullable=False, default="", server_default=text("''"))
+
     picker_id = Column(UUID(as_uuid=True), nullable=True, index=True)
     deliverer_id = Column(UUID(as_uuid=True), nullable=True, index=True)
     carrier_name = Column(String(100), nullable=True)  # mock por enquanto
     estimated_delivery_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    # Quando o pedido mudou de status pela última vez. Alimenta os horários da
+    # timeline do rastreio; carimbado por `transicionar_pedido`
+    # (app/routers/separacao.py).
+    status_updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    # Snapshot do endereço escolhido no checkout. Um pedido é o registro
+    # histórico de PARA ONDE foi entregue, então o endereço é copiado aqui e
+    # não pode mudar se o aluno editar ou apagar o endereço de origem.
+    #
+    # Nullable: entre a task C4 e a C6, `POST /orders` cria pedido sem
+    # snapshot de endereço (`PedidoCreateIn` perdeu `endereco_entrega` e não
+    # ganhou `address_id` ainda — ver app/schemas/pedido.py). Nesse caso
+    # `GET /orders/{id}/route` responde 503 por falta de destino, que é o
+    # comportamento do legacy.
+    #
+    # Os tamanhos batem com `auth-users-service/app/models/address.py:23-30`
+    # (label 60, zip_code 9, street 160, number 20, complement 120,
+    # neighborhood 120, city 120, state 2) e com
+    # `back-end/legacy/app/modules/orders/models.py:54-62`. Um endereço que
+    # cabe lá tem que caber aqui, senão o checkout estoura no INSERT depois
+    # de já ter travado o carrinho.
+    ship_label = Column(String(60), nullable=True)
+    ship_zip_code = Column(String(9), nullable=True)
+    ship_street = Column(String(160), nullable=True)
+    ship_number = Column(String(20), nullable=True)
+    ship_complement = Column(String(120), nullable=True)
+    ship_neighborhood = Column(String(120), nullable=True)
+    ship_city = Column(String(120), nullable=True)
+    ship_state = Column(String(2), nullable=True)
+
+    items = relationship(
+        "OrderItem",
+        back_populates="order",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="OrderItem.product_name",
+    )
 
 
 class OrderItem(Base):
@@ -85,8 +127,21 @@ class OrderItem(Base):
         default=new_uuid,
         server_default=text("gen_random_uuid()"),
     )
-    order_id = Column(UUID(as_uuid=True), ForeignKey("orders.id"))
-    product_id = Column(UUID(as_uuid=True), ForeignKey("products.id"))
+    order_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("orders.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    # Snapshot do produto no momento da compra — um pedido é registro
+    # histórico e não pode mudar se o catálogo mudar preço ou nome depois.
+    product_id = Column(UUID(as_uuid=True), ForeignKey("products.id"), nullable=False)
+    product_name = Column(String(160), nullable=False)
+    unit_price = Column(Numeric(10, 2), nullable=False)
+    quantity = Column(Integer, nullable=False)
+    image_url = Column(String(512), nullable=False, default="", server_default=text("''"))
+    rating_avg = Column(Numeric(3, 2), nullable=False, default=0, server_default=text("0"))
+    rating_count = Column(Integer, nullable=False, default=0, server_default=text("0"))
     # `nullable=True` explícito, não uma mudança: a coluna já nascia nullable
     # (o model não declarava `nullable=`, e o default do SQLAlchemy é
     # nullable). Medido na cadeia de migrations aplicada a um banco
@@ -98,8 +153,8 @@ class OrderItem(Base):
     #     app/routers/pedidos.py:48:                supplier_id=item.supplier_id,
     # uma linha só; a separação não escreve nesta coluna.
     supplier_id = Column(Integer, ForeignKey("fornecedores.id"), nullable=True)
-    quantity = Column(Integer, nullable=False)
-    unit_price = Column(Numeric(10, 2), nullable=False)
+
+    order = relationship("Order", back_populates="items")
 
 
 class PedidoStatusHistorico(Base):

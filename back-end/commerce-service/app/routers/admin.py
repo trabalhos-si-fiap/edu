@@ -29,7 +29,9 @@ async def listar_pedidos(
         query = query.where(Order.status == status)
     query = query.order_by(Order.id).limit(limit).offset(offset)
     result = await db.execute(query)
-    return result.scalars().all()
+    # `de_order`, não o ORM cru: `endereco_entrega` não é mais atributo do
+    # model — precisa ser composto (ver PedidoStaffOut.de_order).
+    return [PedidoStaffOut.de_order(pedido) for pedido in result.scalars().all()]
 
 
 @router.patch("/orders/{pedido_id}/confirm-payment", response_model=PedidoStaffOut)
@@ -52,9 +54,10 @@ async def confirmar_pagamento(
     linha de histórico e evento, nessa ordem.
     """
     await transicionar_pedido(db, pedido_id, StatusPedido.CONFIRMADO.value, user["sub"])
-    return await transicionar_pedido(
+    pedido = await transicionar_pedido(
         db, pedido_id, StatusPedido.AGUARDANDO_SEPARACAO.value, user["sub"]
     )
+    return PedidoStaffOut.de_order(pedido)
 
 
 @router.patch("/orders/{pedido_id}/assign-picker", response_model=PedidoStaffOut)
@@ -71,7 +74,7 @@ async def atribuir_separador(
     pedido.picker_id = separador_id
     await db.commit()
     await db.refresh(pedido)
-    return pedido
+    return PedidoStaffOut.de_order(pedido)
 
 
 @router.patch("/orders/{pedido_id}/assign-deliverer", response_model=PedidoStaffOut)
@@ -88,7 +91,7 @@ async def atribuir_entregador(
     pedido.deliverer_id = entregador_id
     await db.commit()
     await db.refresh(pedido)
-    return pedido
+    return PedidoStaffOut.de_order(pedido)
 
 
 @router.get("/inventory", response_model=list[EstoqueOut])

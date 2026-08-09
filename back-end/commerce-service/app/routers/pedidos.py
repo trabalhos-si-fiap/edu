@@ -35,7 +35,6 @@ async def criar_pedido(
     pedido = Order(
         user_id=aluno_id,
         status=StatusPedido.CRIADO.value,
-        endereco_entrega=payload.endereco_entrega,
         total=valor_total,
     )
     db.add(pedido)
@@ -46,6 +45,7 @@ async def criar_pedido(
             OrderItem(
                 order_id=pedido.id,
                 product_id=item.product_id,
+                product_name=item.product_name,
                 supplier_id=item.supplier_id,
                 quantity=item.quantity,
                 unit_price=item.unit_price,

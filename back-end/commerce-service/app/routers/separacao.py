@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
@@ -85,6 +86,11 @@ async def transicionar_pedido(
         raise HTTPException(400, f"Transição inválida: {pedido.status} → {novo_status}")
 
     pedido.status = novo_status
+    # A timeline do rastreio mostra a hora da última mudança. Sem este
+    # carimbo ela mostraria a hora da criação para sempre. Mesmo formato do
+    # legacy: `back-end/legacy/app/modules/orders/services.py:150`,
+    # `order.status_updated_at = datetime.now(UTC)`.
+    pedido.status_updated_at = datetime.now(UTC)
     db.add(
         PedidoStatusHistorico(
             order_id=pedido.id,
@@ -150,7 +156,7 @@ async def fila_separacao(
     pagina = pedidos_pontuados[offset : offset + limit]
 
     return [
-        PedidoFilaOut(**PedidoStaffOut.model_validate(pedido).model_dump(), score_risco=score)
+        PedidoFilaOut(**PedidoStaffOut.de_order(pedido).model_dump(), score_risco=score)
         for pedido, score in pagina
     ]
 
@@ -199,7 +205,10 @@ async def iniciar_separacao(
     pedido.picker_id = user["sub"]
     await db.flush()
 
-    return await transicionar_pedido(db, pedido_id, StatusPedido.EM_SEPARACAO.value, user["sub"])
+    pedido_atualizado = await transicionar_pedido(
+        db, pedido_id, StatusPedido.EM_SEPARACAO.value, user["sub"]
+    )
+    return PedidoStaffOut.de_order(pedido_atualizado)
 
 
 @router.patch("/{pedido_id}/finish", response_model=PedidoStaffOut)
@@ -240,6 +249,7 @@ async def finalizar_separacao(
 
     await transicionar_pedido(db, pedido_id, StatusPedido.SEPARADO.value, user["sub"])
     # Encadeia automaticamente para "aguardando coleta" — pronto para o entregador
-    return await transicionar_pedido(
+    pedido_atualizado = await transicionar_pedido(
         db, pedido_id, StatusPedido.AGUARDANDO_COLETA.value, user["sub"]
     )
+    return PedidoStaffOut.de_order(pedido_atualizado)

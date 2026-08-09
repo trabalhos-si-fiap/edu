@@ -31,7 +31,9 @@ async def fila_entrega(
         .limit(limit)
         .offset(offset)
     )
-    return result.scalars().all()
+    # `de_order`, não o ORM cru: `endereco_entrega` não é mais atributo do
+    # model — precisa ser composto (ver PedidoStaffOut.de_order).
+    return [PedidoStaffOut.de_order(pedido) for pedido in result.scalars().all()]
 
 
 @router.get("/mine", response_model=list[PedidoStaffOut])
@@ -51,7 +53,7 @@ async def minhas_entregas(
         .limit(limit)
         .offset(offset)
     )
-    return result.scalars().all()
+    return [PedidoStaffOut.de_order(pedido) for pedido in result.scalars().all()]
 
 
 @router.patch("/{pedido_id}/collect", response_model=PedidoStaffOut)
@@ -124,7 +126,7 @@ async def confirmar_coleta(
             # foi concluída acima; só registra para investigação posterior.
             logger.warning("Falha ao estimar prazo de entrega para o pedido {}", pedido_id)
 
-    return pedido_atualizado
+    return PedidoStaffOut.de_order(pedido_atualizado)
 
 
 @router.patch("/{pedido_id}/deliver", response_model=PedidoStaffOut)
@@ -151,4 +153,7 @@ async def confirmar_entrega(
             403, "Apenas o entregador responsável por este pedido pode confirmar a entrega"
         )
 
-    return await transicionar_pedido(db, pedido_id, StatusPedido.ENTREGUE.value, user["sub"])
+    pedido_atualizado = await transicionar_pedido(
+        db, pedido_id, StatusPedido.ENTREGUE.value, user["sub"]
+    )
+    return PedidoStaffOut.de_order(pedido_atualizado)
