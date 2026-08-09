@@ -16,12 +16,34 @@ from app.database import Base
 
 class Order(Base):
     """Pedido. Em inglês — tabela e colunas — porque é um agregado com
-    cliente (o app Flutter, na fase 4).
+    cliente, e o cliente já chega aqui HOJE, não na fase 4: o gateway
+    roteia as rotas que leem estes models para o commerce, e o Flutter
+    aponta para o gateway em toda plataforma.
+    `sed -n '17,23p' back-end/api-gateway/app/routing.py`:
 
-    `pedido_status_historico` continua em português: sem cliente. `status`
-    guarda o estado INTERNO (nove valores, `StatusPedido`); a tradução para
-    os seis do contrato (`StatusContrato`) acontece na serialização, não
-    aqui.
+        "orders": "commerce",
+        "cart": "commerce",
+        "payment-methods": "commerce",
+        "picking": "commerce",
+        "delivery": "commerce",
+        "occurrences": "commerce",
+        "admin": "commerce",
+
+    e `api_config.dart::baseUrl` (front-end-flutter/lib/core/network/,
+    linhas 33-40) devolve `http://localhost:8100/api` ou
+    `http://10.0.2.2:8100/api` — a porta 8100 é o gateway.
+
+    `pedido_status_historico` continua em português: sem cliente.
+
+    `status` guarda o estado INTERNO (nove valores, `StatusPedido`). A
+    função que traduz para os seis do contrato (`StatusContrato`) EXISTE
+    (`app/services/status_pedido.py::status_do_contrato`) mas ainda NÃO
+    está ligada a nenhuma resposta: `grep -rn "status_do_contrato"
+    app/routers/ app/schemas/` devolve zero linhas (exit 1), e
+    `PedidoOut.status` é `str` alimentado por `from_attributes`, ou seja,
+    serializa o valor interno cru. Quem liga é a task C6, em
+    `OrderOut.de_order` (`status=status_do_contrato(order.status)`); o
+    contrato de staff continua expondo o valor interno de propósito.
     """
 
     __tablename__ = "orders"
@@ -56,10 +78,10 @@ class OrderItem(Base):
     # descartável, `\d pedido_itens`: `fornecedor_id | integer | | ` — sem
     # `not null`. `cart_items` não tem noção de fornecedor (ver
     # models/carrinho.py), então um item que nascesse do carrinho chegaria
-    # aqui sem fornecedor. Hoje quem preenche é o próprio payload de
-    # `POST /orders` (`PedidoItemIn.supplier_id`, obrigatório); nada em
-    # `separacao.py` escreve nesta coluna — `grep -rn "fornecedor_id\|
-    # supplier_id" app/` não acha um único write fora de `pedidos.py`.
+    # aqui sem fornecedor. Hoje o único write é o payload de `POST /orders`
+    # — `grep -rn "supplier_id" app/routers/`:
+    #     app/routers/pedidos.py:48:                supplier_id=item.supplier_id,
+    # uma linha só; a separação não escreve nesta coluna.
     supplier_id = Column(Integer, ForeignKey("fornecedores.id"), nullable=True)
     quantity = Column(Integer, nullable=False)
     unit_price = Column(Numeric(10, 2), nullable=False)
