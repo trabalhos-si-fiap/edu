@@ -47,8 +47,8 @@ class PedidoOut(BaseModel):
 
     NÃO inclui `endereco_entrega` nem um substituto computado: medido,
     `grep -rn "endereco_entrega" front-end-flutter/lib/` só devolve
-    `features/logistics/domain/order.dart:112` (Flutter de STAFF, alvo da
-    C4b), e o cliente do aluno
+    `features/logistics/domain/order.dart::Pedido.fromJson` (Flutter de
+    STAFF, alvo da C4b), e o cliente do aluno
     (`features/marketplace/domain/order_summary.dart::OrderSummary.fromJson`)
     lê só `id, total, status, created_at, items`. O alvo de paridade
     (`back-end/legacy/app/modules/orders/schemas.py:40::OrderOut`) também
@@ -73,13 +73,13 @@ class PedidoStaffOut(BaseModel):
     deliberada: `endereco_entrega` continua em português porque é o nome
     de chave que o Flutter de staff já lê (medido:
     `grep -rn "endereco_entrega" front-end-flutter/lib/` devolve
-    `features/logistics/domain/order.dart:112`) — o valor é computado por
-    `endereco_formatado`, não uma coluna do model. `score_risco` (de
-    `priorizacao_fila`) é a outra exceção, mas só entra em `PedidoFilaOut`
-    abaixo, não aqui. Correção de fix round 2 (code review): a versão
-    anterior deste docstring dizia "nenhum [campo] em português nesta
-    classe", contradita pela própria declaração de `endereco_entrega`
-    seis linhas abaixo.
+    `features/logistics/domain/order.dart::Pedido.fromJson`) — o valor é
+    computado por `endereco_formatado`, não uma coluna do model.
+    `score_risco` (de `priorizacao_fila`) é a outra exceção, mas só entra
+    em `PedidoFilaOut` abaixo, não aqui. Correção de fix round 2 (code
+    review): a versão anterior deste docstring dizia "nenhum [campo] em
+    português nesta classe", contradita pela própria declaração de
+    `endereco_entrega` seis linhas abaixo.
 
     Classe PLANA (não herda de `PedidoOut`) porque `endereco_entrega` não é
     mais uma coluna do model — é composta por `endereco_formatado` a partir
