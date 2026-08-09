@@ -78,8 +78,8 @@ class PedidoStaffOut(BaseModel):
     `score_risco` (de `priorizacao_fila`) é a outra exceção, mas só entra
     em `PedidoFilaOut` abaixo, não aqui. Correção de fix round 2 (code
     review): a versão anterior deste docstring dizia "nenhum [campo] em
-    português nesta classe", contradita pela própria declaração de
-    `endereco_entrega` seis linhas abaixo.
+    português nesta classe", contradita pela própria declaração do campo
+    `endereco_entrega: str` nesta classe.
 
     Classe PLANA (não herda de `PedidoOut`) porque `endereco_entrega` não é
     mais uma coluna do model — é composta por `endereco_formatado` a partir
