@@ -142,6 +142,21 @@ def test_location_falls_back_to_cd_before_dispatch() -> None:
     assert payload.location.state == "SP"
 
 
+def test_location_city_up_to_the_order_column_length_does_not_raise() -> None:
+    """Achado 5 da revisão da task C8: `TrackingLocationOut.city` tinha
+    `max_length=80` enquanto `Order.ship_city` (app/models/pedido.py) é
+    `String(120)` — uma cidade de 81 a 120 caracteres é armazenável no
+    pedido e não serializável na resposta, então rastrear esse pedido
+    estourava 500. Herdado do legacy (mesmo mismatch lá), mas aqui é bug
+    corrigido, não copiado: `TrackingLocationOut.city` passa a
+    `max_length=120`, batendo com a coluna que o alimenta."""
+    order = _order_falso(StatusPedido.EM_TRANSITO.value)
+    order.ship_city = "A" * 120  # tamanho máximo da coluna Order.ship_city
+    order.ship_state = "SP"
+    payload = build_order_tracking(order)
+    assert payload.location.city == "A" * 120
+
+
 def test_tracking_of_a_cancelled_order_does_not_raise() -> None:
     """`cancelled` não está em `FLUXO_CONTRATO`. Um `.index()` sobre ele
     levantaria `ValueError`, e o rastreio viraria 500."""
@@ -149,3 +164,25 @@ def test_tracking_of_a_cancelled_order_does_not_raise() -> None:
     tracking = build_order_tracking(order)
     assert tracking.headline == "Pedido cancelado"
     assert all(s.status == TrackingStepStatus.PENDING for s in tracking.steps)
+
+
+def test_cancelled_order_still_returns_an_estimated_arrival() -> None:
+    """Achado 6 da revisão da task C8: TRAVA o comportamento atual, não
+    muda nada — `build_order_tracking` não tem caso especial para
+    `estimated_arrival` de pedido cancelado (herdado do legacy, que também
+    não tem), então continua sendo `created_at + _DELIVERY_WINDOW`, nunca
+    `None`.
+
+    Nular pareceria mais "correto" à primeira vista, mas o Flutter
+    (`front-end-flutter/lib/features/order_tracking/domain/order_model.dart:150-151`)
+    faz `DateTime.tryParse(json['estimated_arrival'] ?? '') ??
+    DateTime.now()` — mandar `null` faria a tela dizer que o pedido está
+    chegando AGORA, pior que uma data futura obsoleta. A consequência de
+    exibição (o que a tela deveria mostrar para um pedido cancelado) é
+    pergunta do lado Flutter, não deste backend; aqui só travamos que o
+    campo continua vindo preenchido.
+    """
+    order = _order_falso(StatusPedido.CANCELADO.value)
+    tracking = build_order_tracking(order)
+    assert tracking.estimated_arrival is not None
+    assert tracking.estimated_arrival == _CREATED + timedelta(days=4)

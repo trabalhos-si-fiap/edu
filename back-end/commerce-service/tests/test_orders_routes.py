@@ -300,6 +300,31 @@ async def test_my_orders_response_does_not_leak_staff_assignee_ids(client, db_se
     assert "user_id" not in order
 
 
+async def test_order_status_history_of_another_students_order_returns_404(client, db_session):
+    """Achado 1 da revisão da task C8: a guarda de ownership de
+    `historico_status` (o try/except em torno de `services.buscar_pedido`,
+    app/routers/pedidos.py) não tinha nenhum teste — apagando o bloco
+    inteiro a suíte continuava 281 passed (medido). Mesmo padrão de
+    `test_rebuy_of_another_students_order_returns_404`
+    (test_orders_parity.py, achado 8 do code review da C7): compara o CORPO
+    inteiro contra o caso de id inexistente, não só o status code — a
+    propriedade de segurança real é que os dois casos são indistinguíveis
+    de fora, e comparar só o status code deixaria passar um vazamento de
+    informação pela string de `detail`."""
+    owner = str(uuid.uuid4())
+    stranger = str(uuid.uuid4())
+    pedido = await _seed_pedido(db_session, owner)
+
+    resposta_outro_aluno = await client.get(
+        f"/orders/{pedido.id}/status-history", headers=headers_for("student", stranger)
+    )
+    resposta_id_inexistente = await client.get(
+        f"/orders/{uuid.uuid4()}/status-history", headers=headers_for("student", owner)
+    )
+    assert resposta_outro_aluno.status_code == 404
+    assert resposta_outro_aluno.json() == resposta_id_inexistente.json()
+
+
 # ── B7: nada provava que o `.limit(limit).offset(offset)` de
 # `historico_status` (app/routers/pedidos.py) roda — apagar a clausula
 # deixava a suite verde. `PedidoStatusHistoricoOut` nao expoe `id`, entao
