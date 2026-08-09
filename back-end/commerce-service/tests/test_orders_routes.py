@@ -90,6 +90,59 @@ async def test_a_malformed_order_id_is_a_422_not_a_500(client):
     assert inteiro.status_code == 422
 
 
+async def test_creating_an_order_publishes_a_serialisable_event(
+    client, db_session, _stub_publish_event
+):
+    """Trava do publisher de `order.created`, que NÃO tinha nenhuma cobertura
+    que chegasse até ele.
+
+    Medido no fix round 1 da task C3: revertendo `str(pedido.id)` em
+    `app/routers/pedidos.py` e rodando `uv run pytest -q`, a suíte ficava
+    **204 passed** — verde. O único teste que batia em `POST /orders`
+    (`test_create_order_requires_authentication`) para no 403 e nunca alcança
+    o `publish_event`. Ou seja, o `json.dumps` do stub
+    (`conftest.py::_stub_publish_event`) travava cinco dos seis publishes do
+    serviço, mas não este — justamente o do evento mais importante.
+
+    O `str()` do payload é verificado indiretamente e de propósito: quem
+    reprova um payload impublicável é o `json.dumps` do stub, no mesmo lugar
+    onde `edu_common/events.py` falharia em runtime.
+    """
+    from app.models.produto import Fornecedor, Product
+
+    aluno_id = str(uuid.uuid4())
+
+    fornecedor = Fornecedor(nome="Papelaria Teste")
+    produto = Product(name="Caderno", price=Decimal("10.00"), type="apostila")
+    db_session.add_all([fornecedor, produto])
+    await db_session.commit()
+    await db_session.refresh(fornecedor)
+    await db_session.refresh(produto)
+
+    response = await client.post(
+        "/orders",
+        json={
+            "endereco_entrega": "Rua Teste, 123",
+            "itens": [
+                {
+                    "product_id": str(produto.id),
+                    "supplier_id": fornecedor.id,
+                    "quantity": 2,
+                    "unit_price": "10.00",
+                }
+            ],
+        },
+        headers=headers_for("student", sub=aluno_id),
+    )
+    assert response.status_code == 201
+
+    criados = [payload for chave, payload in _stub_publish_event if chave == "order.created"]
+    assert len(criados) == 1
+    # O id vai como string no payload e bate com o id devolvido na resposta.
+    assert criados[0]["pedido_id"] == response.json()["id"]
+    assert isinstance(criados[0]["pedido_id"], str)
+
+
 async def test_my_orders_listing_is_paginated(client, db_session):
     aluno_id = str(uuid.uuid4())
     for _ in range(5):

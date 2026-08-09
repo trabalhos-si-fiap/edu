@@ -1,3 +1,4 @@
+import json
 from collections.abc import AsyncIterator
 
 import pytest
@@ -80,10 +81,24 @@ def _stub_publish_event(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, dict
     mesmo teste (fixture de escopo `function`, pedida duas vezes no mesmo
     teste = uma única resolução), então a lista devolvida aqui é a mesma que
     `client` já está usando por baixo dos panos.
+
+    O `json.dumps` abaixo é o que torna este stub uma trava, e não só um
+    espião. O transporte real serializa o payload —
+    `packages/edu-common/src/edu_common/events.py:62` faz
+    `body=json.dumps(payload).encode()` — mas um stub que só faz `append`
+    nunca serializa nada. Foi exatamente esse buraco que deixou a suíte
+    inteira verde enquanto TODO publish de evento de pedido estourava
+    `TypeError: Object of type UUID is not JSON serializable` em runtime
+    (task C3, fix round 1, findings 1 e 2): `orders.id` virou UUID e os
+    payloads seguiam mandando o valor cru. Serializar aqui faz um payload
+    impublicável reprovar o teste que o produziu, no mesmo lugar onde o
+    runtime falharia.
     """
     eventos: list[tuple[str, dict]] = []
 
     async def _capturar(routing_key: str, payload: dict) -> None:
+        # Espelha o transporte real: se não serializa aqui, não publica lá.
+        json.dumps(payload)
         eventos.append((routing_key, payload))
 
     monkeypatch.setattr("app.routers.pedidos.publish_event", _capturar)
