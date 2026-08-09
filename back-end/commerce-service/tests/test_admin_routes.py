@@ -26,7 +26,6 @@ async def _seed_pedido(db_session, status: str) -> Order:
     pedido = Order(
         user_id=str(uuid.uuid4()),
         status=status,
-        endereco_entrega="Rua Teste, 123",
         total=Decimal("100.00"),
     )
     db_session.add(pedido)
@@ -48,6 +47,30 @@ async def _historico_do_pedido(db_session, pedido_id: int) -> list[PedidoStatusH
         .order_by(PedidoStatusHistorico.id)
     )
     return list(result.scalars().all())
+
+
+async def _seed_pedido_com_endereco(db_session) -> Order:
+    """Pedido com os oito campos `ship_*` preenchidos — só para o teste que
+    prova que a visão de staff compõe `endereco_entrega` a partir deles
+    (ver app/services/pedidos.py::endereco_formatado)."""
+    pedido = Order(
+        user_id=str(uuid.uuid4()),
+        status=StatusPedido.CRIADO.value,
+        total=Decimal("100.00"),
+        payment_method="PIX",
+        ship_label="Casa",
+        ship_zip_code="01310-100",
+        ship_street="Av. Paulista",
+        ship_number="1000",
+        ship_complement="ap 42",
+        ship_neighborhood="Bela Vista",
+        ship_city="São Paulo",
+        ship_state="SP",
+    )
+    db_session.add(pedido)
+    await db_session.commit()
+    await db_session.refresh(pedido)
+    return pedido
 
 
 async def _seed_estoque(db_session) -> Estoque:
@@ -89,6 +112,37 @@ async def test_inventory_response_exposes_only_declared_fields(client, db_sessio
 async def test_orders_listing_is_paginated(client):
     response = await client.get("/admin/orders?limit=5000", headers=headers_for("admin"))
     assert response.status_code == 422
+
+
+# ── C4: `ship_*`, `payment_method`, `status_updated_at` e o snapshot do
+# item — ver task-C4-brief.md. ────────────────────────────────────────────
+
+
+async def test_staff_view_composes_the_address_from_the_snapshot(client, db_session):
+    """Os schemas de staff mostravam `endereco_entrega`; a coluna morreu, mas
+    a informação não — ela passa a ser composta dos oito campos do
+    snapshot."""
+    await _seed_pedido_com_endereco(db_session)
+    response = await client.get("/admin/orders", headers=headers_for("admin"))
+    assert response.status_code == 200
+    assert response.json()[0]["endereco_entrega"] == (
+        "Av. Paulista, 1000, ap 42 - Bela Vista, São Paulo - SP, 01310-100"
+    )
+
+
+async def test_a_transition_stamps_status_updated_at(client, db_session):
+    """A timeline do rastreio mostra a hora da última mudança — sem este
+    carimbo ela mostraria a hora da criação para sempre."""
+    pedido = await _seed_pedido(db_session, status=StatusPedido.CRIADO.value)
+    antes = pedido.status_updated_at
+
+    response = await client.patch(
+        f"/admin/orders/{pedido.id}/confirm-payment", headers=headers_for("admin")
+    )
+    assert response.status_code == 200
+
+    await db_session.refresh(pedido)
+    assert pedido.status_updated_at > antes
 
 
 # ── Fix round 2, reviewer finding: transicionar_pedido's own SELECT
@@ -163,12 +217,11 @@ async def test_confirm_payment_is_idempotent_against_a_sequential_double_call(
 
 async def test_orders_listing_actually_applies_limit_and_offset(client, db_session):
     total = 55
-    for i in range(total):
+    for _i in range(total):
         db_session.add(
             Order(
                 user_id=str(uuid.uuid4()),
                 status=StatusPedido.CRIADO.value,
-                endereco_entrega=f"Rua Teste, {i}",
                 total=Decimal("100.00"),
             )
         )

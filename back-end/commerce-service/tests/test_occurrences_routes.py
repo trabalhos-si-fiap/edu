@@ -32,7 +32,6 @@ async def _seed_pedido(db_session, status: str, **overrides) -> Order:
     defaults = {
         "user_id": str(uuid.uuid4()),
         "status": status,
-        "endereco_entrega": "Rua Teste, 123",
         "total": Decimal("100.00"),
     }
     defaults.update(overrides)
@@ -328,6 +327,7 @@ async def test_concurrent_resolves_apply_the_price_delta_once(client, db_session
         OrderItem(
             order_id=pedido.id,
             product_id=original.id,
+            product_name=original.name,
             supplier_id=None,
             quantity=2,
             unit_price=Decimal("100.00"),

@@ -22,7 +22,6 @@ async def _seed_pedido(db_session, status: str, entregador_id: str | None = None
     pedido = Order(
         user_id=str(uuid.uuid4()),
         status=status,
-        endereco_entrega="Rua Teste, 123",
         total=Decimal("100.00"),
         deliverer_id=entregador_id,
     )
@@ -168,12 +167,11 @@ async def test_collect_allows_the_deliverer_admin_already_assigned(client, db_se
 
 async def test_delivery_queue_actually_applies_limit_and_offset(client, db_session):
     total = 55
-    for i in range(total):
+    for _i in range(total):
         db_session.add(
             Order(
                 user_id=str(uuid.uuid4()),
                 status=StatusPedido.AGUARDANDO_COLETA.value,
-                endereco_entrega=f"Rua Teste, {i}",
                 total=Decimal("100.00"),
             )
         )
@@ -198,12 +196,11 @@ async def test_delivery_queue_actually_applies_limit_and_offset(client, db_sessi
 
 async def test_delivery_mine_actually_applies_limit_and_offset(client, db_session):
     total = 55
-    for i in range(total):
+    for _i in range(total):
         db_session.add(
             Order(
                 user_id=str(uuid.uuid4()),
                 status=StatusPedido.EM_TRANSITO.value,
-                endereco_entrega=f"Rua Teste, {i}",
                 total=Decimal("100.00"),
                 deliverer_id=DELIVERER_A,
             )

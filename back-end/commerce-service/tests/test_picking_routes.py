@@ -52,7 +52,6 @@ async def _seed_pedido_em_separacao(db_session, separador_id: str | None) -> Ord
     pedido = Order(
         user_id=str(uuid.uuid4()),
         status=StatusPedido.EM_SEPARACAO.value,
-        endereco_entrega="Rua Teste, 123",
         total=Decimal("100.00"),
         picker_id=separador_id,
     )
@@ -66,7 +65,6 @@ async def _seed_pedido_aguardando_separacao(db_session) -> Order:
     pedido = Order(
         user_id=str(uuid.uuid4()),
         status=StatusPedido.AGUARDANDO_SEPARACAO.value,
-        endereco_entrega="Rua Teste, 123",
         total=Decimal("100.00"),
     )
     db_session.add(pedido)
@@ -159,7 +157,6 @@ async def test_picking_queue_candidate_fetch_is_capped(client, db_session):
             {
                 "user_id": str(uuid.uuid4()),
                 "status": StatusPedido.AGUARDANDO_SEPARACAO.value,
-                "endereco_entrega": "Rua Teste, 123",
                 "total": Decimal("100.00"),
             }
             for _ in range(total_semeado)

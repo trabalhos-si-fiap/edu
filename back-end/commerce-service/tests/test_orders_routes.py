@@ -4,7 +4,7 @@ from decimal import Decimal
 from edu_common.security import create_access_token
 
 from app.config import settings
-from app.models.pedido import Order
+from app.models.pedido import Order, OrderItem
 from app.services.status_pedido import StatusPedido
 
 
@@ -14,7 +14,7 @@ def headers_for(role: str, sub: str = "00000000-0000-0000-0000-000000000001") ->
 
 
 async def test_create_order_requires_authentication(client):
-    response = await client.post("/orders", json={"itens": [], "endereco_entrega": "Rua X"})
+    response = await client.post("/orders", json={"itens": []})
     assert response.status_code == 403
 
 
@@ -47,13 +47,75 @@ async def _seed_pedido(db_session, aluno_id: str) -> Order:
     pedido = Order(
         user_id=aluno_id,
         status=StatusPedido.CRIADO.value,
-        endereco_entrega="Rua Teste, 123",
         total=Decimal("100.00"),
     )
     db_session.add(pedido)
     await db_session.commit()
     await db_session.refresh(pedido)
     return pedido
+
+
+# ── C4: `ship_*`, `payment_method`, `status_updated_at` e o snapshot do
+# item — ver task-C4-brief.md e app/services/pedidos.py::endereco_formatado.
+
+
+async def test_order_carries_the_shipping_snapshot(db_session):
+    pedido = Order(
+        user_id=uuid.uuid4(),
+        status=StatusPedido.CRIADO.value,
+        total=Decimal("100.00"),
+        payment_method="PIX",
+        ship_label="Casa",
+        ship_zip_code="01310-100",
+        ship_street="Av. Paulista",
+        ship_number="1000",
+        ship_complement="ap 42",
+        ship_neighborhood="Bela Vista",
+        ship_city="São Paulo",
+        ship_state="SP",
+    )
+    db_session.add(pedido)
+    await db_session.commit()
+    await db_session.refresh(pedido)
+
+    assert pedido.ship_city == "São Paulo"
+    assert pedido.status_updated_at is not None
+
+
+async def test_order_item_snapshots_the_product(db_session):
+    """`product_id` no brief usava `uuid.uuid4()` solto — mas
+    `order_items.product_id` já tinha FK para `products` ANTES desta task
+    (`app/models/pedido.py`, medido: `ForeignKey("products.id")` já existia
+    no model), e a suíte roda contra Postgres real (não sqlite), que
+    aplica a constraint. Medido: rodar o teste como o brief escreveu
+    estoura `IntegrityError: ... violates foreign key constraint
+    "order_items_product_id_fkey"`, não o comportamento que este teste
+    quer provar. Corrigido semeando um `Product` real, sem mudar o que o
+    teste verifica."""
+    from app.models.produto import Product
+
+    aluno_id = str(uuid.uuid4())
+    pedido = await _seed_pedido(db_session, aluno_id)
+    produto = Product(name="Guia de Redação Nota 1000", price=Decimal("49.90"), type="apostila")
+    db_session.add(produto)
+    await db_session.flush()
+
+    item = OrderItem(
+        order_id=pedido.id,
+        product_id=produto.id,
+        product_name="Guia de Redação Nota 1000",
+        unit_price=Decimal("49.90"),
+        quantity=2,
+        image_url="products/seed-0.jpg",
+        rating_avg=4.5,
+        rating_count=128,
+    )
+    db_session.add(item)
+    await db_session.commit()
+    await db_session.refresh(item)
+
+    assert item.product_name == "Guia de Redação Nota 1000"
+    assert item.supplier_id is None
 
 
 async def test_order_id_is_a_uuid_string_in_the_response(client, db_session):
@@ -122,10 +184,10 @@ async def test_creating_an_order_publishes_a_serialisable_event(
     response = await client.post(
         "/orders",
         json={
-            "endereco_entrega": "Rua Teste, 123",
             "itens": [
                 {
                     "product_id": str(produto.id),
+                    "product_name": produto.name,
                     "supplier_id": fornecedor.id,
                     "quantity": 2,
                     "unit_price": "10.00",
@@ -177,7 +239,18 @@ async def test_my_orders_response_does_not_leak_staff_assignee_ids(client, db_se
     separando/entregando o pedido não é assunto do aluno. Mesma classe do
     vazamento de `descricao_ia` fechado no learning-service. `PedidoOut`
     (contrato do aluno) não deve incluí-los; `PedidoStaffOut`
-    (picking/delivery/admin) é quem os expõe."""
+    (picking/delivery/admin) é quem os expõe.
+
+    `endereco_entrega` saiu do conjunto na task C4 — não virou um computado
+    aqui. Medido: `grep -rn "endereco_entrega" front-end-flutter/lib/` só
+    devolve `features/logistics/domain/order.dart:112`, que é Flutter de
+    STAFF (alvo da C4b); o cliente do aluno
+    (`features/marketplace/domain/order_summary.dart::OrderSummary.fromJson`)
+    lê só `id, total, status, created_at, items`, sem endereço. O alvo de
+    paridade (`back-end/legacy/app/modules/orders/schemas.py:40::OrderOut`)
+    também não tem o campo, e a task C6 substitui `PedidoOut` por
+    `OrderOut` com esse mesmo conjunto — expor ao aluno um campo que
+    ninguém lê e que morre duas tasks depois não faria sentido."""
     aluno_id = str(uuid.uuid4())
     await _seed_pedido(db_session, aluno_id)
 
@@ -188,7 +261,6 @@ async def test_my_orders_response_does_not_leak_staff_assignee_ids(client, db_se
         "id",
         "user_id",
         "status",
-        "endereco_entrega",
         "total",
         "carrier_name",
         "estimated_delivery_at",
@@ -216,7 +288,6 @@ async def test_order_tracking_actually_applies_limit_and_offset(client, db_sessi
     pedido = Order(
         user_id=aluno_id,
         status=StatusPedido.CRIADO.value,
-        endereco_entrega="Rua Teste, 123",
         total=Decimal("100.00"),
     )
     db_session.add(pedido)
