@@ -290,8 +290,18 @@ async def resolver_ocorrencia(
             raise HTTPException(404, "Produto escolhido não encontrado")
 
         diferenca = (novo_produto.price - item.unit_price) * item.quantity
+        # O item passa a REPRESENTAR o produto novo — o snapshot inteiro
+        # troca junto, não só id/preço. Achado do code review: deixar
+        # `product_name` (ou `image_url`/`rating_avg`/`rating_count`) com o
+        # valor do produto ANTIGO deixaria o item internamente inconsistente
+        # (id e preço dizem um produto, o nome diz outro) a partir do
+        # primeiro caminho de escrita que toca esta coluna.
         item.product_id = novo_produto.id
+        item.product_name = novo_produto.name
         item.unit_price = novo_produto.price
+        item.image_url = novo_produto.image_url
+        item.rating_avg = novo_produto.rating_avg
+        item.rating_count = novo_produto.rating_count
         pedido.total = pedido.total + diferenca
 
         ocorrencia.produto_escolhido_id = novo_produto.id

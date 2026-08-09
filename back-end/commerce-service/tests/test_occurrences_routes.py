@@ -318,24 +318,46 @@ async def test_concurrent_resolves_apply_the_price_delta_once(client, db_session
     esperando por ela, e o teste travaria em vez de medir.
     """
     original = await _seed_produto(db_session)
-    substituto = Product(name="Substituto", price=Decimal("150.00"), type="apostila")
+    substituto = Product(
+        name="Substituto",
+        price=Decimal("150.00"),
+        type="apostila",
+        image_url="products/substituto.jpg",
+        rating_avg=Decimal("4.80"),
+        rating_count=42,
+    )
     db_session.add(substituto)
     pedido = await _seed_pedido(
         db_session, StatusPedido.EM_SEPARACAO.value, user_id=ALUNO, picker_id=PICKER_A
     )
-    db_session.add(
-        OrderItem(
-            order_id=pedido.id,
-            product_id=original.id,
-            product_name=original.name,
-            supplier_id=None,
-            quantity=2,
-            unit_price=Decimal("100.00"),
-        )
+    # `image_url`/`rating_avg`/`rating_count` do item de propósito
+    # diferentes dos do `substituto` acima — se a resolução deixasse esses
+    # campos intocados (o mesmo defeito do `product_name` stale, achado do
+    # code review), a asserção do fim do teste passaria por acidente com os
+    # dois produtos tendo os mesmos valores por coincidência de default.
+    item = OrderItem(
+        order_id=pedido.id,
+        product_id=original.id,
+        product_name=original.name,
+        supplier_id=None,
+        quantity=2,
+        unit_price=Decimal("100.00"),
+        image_url="products/original.jpg",
+        rating_avg=Decimal("3.00"),
+        rating_count=7,
     )
+    db_session.add(item)
     pedido.total = Decimal("200.00")
     await db_session.commit()
     await db_session.refresh(substituto)
+    # Capturados como valores Python simples, não como acesso a atributo do
+    # ORM: `db_session.expire_all()` mais abaixo expira TODOS os objetos da
+    # sessão, `substituto` incluído, e reler um atributo expirado fora de um
+    # contexto async levantaria `MissingGreenlet` (medido).
+    substituto_id = substituto.id
+    substituto_image_url = substituto.image_url
+    substituto_rating_avg = substituto.rating_avg
+    substituto_rating_count = substituto.rating_count
     ocorrencia = await _seed_ocorrencia_falta_estoque(db_session, pedido, original)
 
     execute_real = AsyncSession.execute
@@ -379,6 +401,17 @@ async def test_concurrent_resolves_apply_the_price_delta_once(client, db_session
     await db_session.refresh(pedido)
     # 200.00 + (150.00 - 100.00) * 2 = 300.00. Aplicada UMA vez.
     assert pedido.total == Decimal("300.00")
+
+    # O snapshot inteiro tem que virar o do produto NOVO, não só id/preço —
+    # achado do code review: `product_name` ficava com o nome do produto
+    # ANTIGO depois da substituição, e o mesmo valeria para
+    # image_url/rating_avg/rating_count se não fossem atualizados junto.
+    await db_session.refresh(item)
+    assert item.product_id == substituto_id
+    assert item.product_name == "Substituto"
+    assert item.image_url == substituto_image_url
+    assert item.rating_avg == substituto_rating_avg
+    assert item.rating_count == substituto_rating_count
 
 
 async def test_cancel_publishes_the_status_change_after_the_commit(
