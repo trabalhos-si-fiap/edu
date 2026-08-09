@@ -142,7 +142,7 @@ async def test_get_me_raises_when_auth_service_responds_with_an_error_status(mon
 def _cliente_falso(resposta=None, erro=None, capturado=None):
     """Dublê de `httpx.AsyncClient` no mesmo formato do teste de `get_me`.
 
-    Um só helper para os três testes abaixo: ou devolve `resposta`, ou
+    Um só helper para os quatro testes abaixo: ou devolve `resposta`, ou
     levanta `erro`, e registra url/headers em `capturado`.
     """
 

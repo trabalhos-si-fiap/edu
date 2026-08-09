@@ -75,6 +75,16 @@ async def get_address(raw_token: str, address_id: uuid.UUID) -> dict | None:
     `AuthServiceUnavailableError` em 503. Um único tipo de erro obrigaria o
     chamador a inspecionar mensagem para decidir o status.
 
+    QUALQUER status diferente de 404 — inclusive 401 e 403 do auth-users-service
+    — cai em `AuthServiceUnavailableError`, não vira "endereço inválido". Isso
+    é deliberado, não um esquecimento: o bearer já foi validado um hop atrás
+    (o commerce só chega aqui depois de passar pelo próprio `get_current_user`
+    do commerce), então um 401/403 aqui é a janela estreita de um token que
+    expirou ENTRE os dois hops — tratar isso como "endereço inválido" (400)
+    mentiria para o aluno sobre a causa; 503 é a leitura mais segura de um
+    upstream que não respondeu como esperado, mesmo que a causa real não seja
+    literalmente "auth fora do ar".
+
     A URL do log **não** inclui o `address_id` porque ele é um identificador
     do aluno — a mensagem genérica basta para diagnosticar. `from None` pelo
     mesmo motivo medido no `except httpx.HTTPStatusError` de `get_me` acima
