@@ -4,18 +4,24 @@ Espelham, campo a campo, o JSON que `OrderModel.fromJson` (Flutter) espera
 (`front-end-flutter/lib/features/order_tracking/domain/order_model.dart`).
 O contrato é do app, não do backend — o backend só o cumpre.
 
-Traz só o que a task C8 usa: `TrackingStepStatus`, `TrackingStepOut`,
-`TrackingLocationOut`, `KitItemOut` e `OrderTrackingOut`. Os schemas de
-rota/ETA do legacy (`RoutePoint`, `RouteOut`, `GeoPoint`, `CourierLocationIn`,
-`ETAPredictionOut`, e os enums `TrafficLevel`/`RouteStatus`) são da task C9,
-que os acrescenta neste mesmo arquivo — schema sem consumidor é código morto
-que a revisão final teria que triar.
+A C8 trouxe só o que ela usava: `TrackingStepStatus`, `TrackingStepOut`,
+`TrackingLocationOut`, `KitItemOut` e `OrderTrackingOut` — de propósito, para
+não embarcar schema sem consumidor. Os schemas de rota/ETA do legacy
+(`RoutePoint`, `RouteOut`, `GeoPoint`, `CourierLocationIn`, `ETAPredictionOut`,
+e os enums `TrafficLevel`/`RouteStatus`) são desta task (C9), que os
+acrescenta abaixo, agora com consumidor: `GET /orders/{id}/route` e
+`POST /orders/{id}/predict-eta`.
 """
 
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
+
+# Limites geográficos usados para rejeitar coordenadas impossíveis na borda
+# do sistema (regra 4 do CLAUDE.md — todo input tem limite).
+_LAT_MIN, _LAT_MAX = -90.0, 90.0
+_LNG_MIN, _LNG_MAX = -180.0, 180.0
 
 
 class TrackingStepStatus(StrEnum):
@@ -77,3 +83,95 @@ class OrderTrackingOut(BaseModel):
     kit: list[KitItemOut]
     carrier: str = Field(..., max_length=120)
     map_url: str | None = Field(default=None, max_length=512)
+
+
+# --- Rota no mapa (GET /orders/{id}/route) -----------------------------------
+
+
+class TrafficLevel(StrEnum):
+    """Congestionamento estimado na rota do entregador."""
+
+    LIGHT = "light"
+    MODERATE = "moderate"
+    HEAVY = "heavy"
+
+
+class RouteStatus(StrEnum):
+    """Onde o entregador está em relação ao destino."""
+
+    EN_ROUTE = "en_route"
+    NEARBY = "nearby"
+    ARRIVED = "arrived"
+
+
+class RoutePoint(BaseModel):
+    """Um extremo nomeado da rota de entrega (origem ou destino)."""
+
+    label: str = Field(..., max_length=120)
+    latitude: float = Field(..., ge=_LAT_MIN, le=_LAT_MAX)
+    longitude: float = Field(..., ge=_LNG_MIN, le=_LNG_MAX)
+
+
+class RouteOut(BaseModel):
+    """Rota de rua entre o centro de distribuição e o destino do pedido."""
+
+    origin: RoutePoint
+    destination: RoutePoint
+    polyline: str = Field(..., description="Google overview_polyline (codificada).")
+    distance_text: str = Field(..., max_length=40)
+    distance_km: float = Field(..., ge=0)
+    duration_text: str = Field(..., max_length=40)
+    duration_minutes: int = Field(..., ge=0)
+
+    @field_serializer("distance_km")
+    def _round_distance(self, value: float) -> float:
+        return round(value, 3)
+
+
+# --- Previsão de rota (POST /orders/{id}/predict-eta) ------------------------
+
+
+class GeoPoint(BaseModel):
+    """Uma coordenada WGS-84 isolada."""
+
+    latitude: float = Field(..., ge=_LAT_MIN, le=_LAT_MAX)
+    longitude: float = Field(..., ge=_LNG_MIN, le=_LNG_MAX)
+
+
+class CourierLocationIn(BaseModel):
+    """Posição atual do entregador, enviada pelo app para pedir a ETA."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    latitude: float = Field(
+        ...,
+        ge=_LAT_MIN,
+        le=_LAT_MAX,
+        description="Latitude atual do entregador, em graus decimais.",
+    )
+    longitude: float = Field(
+        ...,
+        ge=_LNG_MIN,
+        le=_LNG_MAX,
+        description="Longitude atual do entregador, em graus decimais.",
+    )
+
+
+class ETAPredictionOut(BaseModel):
+    """Resultado do serviço de previsão de rota para uma posição do entregador."""
+
+    eta_minutes: int = Field(..., ge=0, description="Minutos estimados até a chegada.")
+    eta_text: str = Field(..., description='ETA em texto legível, ex.: "15 min".')
+    distance_km: float = Field(..., ge=0, description="Distância estimada percorrida, em km.")
+    straight_line_distance_km: float = Field(
+        ..., ge=0, description="Distância em linha reta entregador->destino, em km."
+    )
+    average_speed_kmh: float = Field(..., gt=0)
+    traffic_level: TrafficLevel
+    route_status: RouteStatus
+    courier_location: GeoPoint
+    destination_location: GeoPoint
+
+    @field_serializer("distance_km", "straight_line_distance_km", "average_speed_kmh")
+    def _round(self, value: float) -> float:
+        return round(value, 3)

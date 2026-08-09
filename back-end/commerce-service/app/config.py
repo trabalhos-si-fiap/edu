@@ -16,6 +16,13 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     google_maps_api_key: str = ""
 
+    # Rastreio. Os três batem com `legacy/app/core/config.py:70,71,80` — a
+    # suíte portada asserta sobre eles, então mudar qualquer um aqui faz um
+    # teste de paridade falhar (que é o comportamento certo).
+    tracking_average_speed_kmh: float = 30.0
+    tracking_urban_route_factor: float = 1.4
+    tracking_route_cache_ttl_seconds: int = 21600  # 6 horas
+
     # Redis — memoização da URL presignada (ver app/services/media.py, criado
     # na B2). O serviço não tinha nenhuma dependência de runtime além de
     # Postgres e RabbitMQ; esta é a primeira das duas que a fase 2 acrescenta.

@@ -59,3 +59,17 @@ class OrderNotFoundError(Exception):
     Nome com sufixo `Error`, mesma razão de `ProductNotFoundError` acima
     (`ruff` N818) — o rascunho do brief da task C6 chamava `OrderNotFound`.
     """
+
+
+class RouteUnavailableError(Exception):
+    """O provedor de rotas (Google Directions) não devolveu uma rota
+    utilizável — chave não configurada, pedido sem snapshot de endereço,
+    erro de transporte, status não-OK ou resposta sem `end_location`. O
+    router traduz em 503 "Rota indisponível no momento", **nunca**
+    ecoando `str(exc)`: o detalhe interno pode carregar a chave da API ou
+    o endereço completo do pedido (task C9, constraint de segurança #5).
+
+    Nome com sufixo `Error`, mesma razão de `ProductNotFoundError` acima
+    (`ruff` N818) — o legacy (`app/modules/tracking/exceptions.py`) chama
+    `RouteUnavailable`.
+    """
