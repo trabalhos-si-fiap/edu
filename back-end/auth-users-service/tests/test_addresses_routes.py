@@ -101,6 +101,16 @@ async def test_get_address_hides_another_users_address_behind_404(client):
     assert response.status_code == 404
 
 
+async def test_get_address_returns_404_for_a_missing_id(client):
+    """A mensagem de commit de `8c99d47` afirma que um endereço de outro
+    dono devolve o MESMO 404 de um id inexistente. O teste acima só prova a
+    metade "outro dono" (com um segundo usuário real); esta prova a metade
+    "id nunca existiu", com um `uuid.uuid4()` que nenhum `POST` criou."""
+    headers = await _register(client, REGISTER)
+    response = await client.get(f"/auth/addresses/{uuid.uuid4()}", headers=headers)
+    assert response.status_code == 404
+
+
 async def test_get_address_requires_authentication(client):
     response = await client.get(f"/auth/addresses/{uuid.uuid4()}")
     assert response.status_code == 403
