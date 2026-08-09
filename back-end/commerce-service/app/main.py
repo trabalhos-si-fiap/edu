@@ -11,6 +11,7 @@ from app.routers import (
     pagamento,
     pedidos,
     produtos,
+    rastreio,
     separacao,
 )
 
@@ -28,6 +29,7 @@ app.include_router(produtos.router)
 app.include_router(carrinho.router)
 app.include_router(pagamento.router)
 app.include_router(pedidos.router)
+app.include_router(rastreio.router)
 app.include_router(separacao.router)
 app.include_router(entrega.router)
 app.include_router(admin.router)

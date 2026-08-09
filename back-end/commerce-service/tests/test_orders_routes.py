@@ -44,6 +44,13 @@ async def test_order_tracking_requires_authentication(client):
     assert (await client.get("/orders/1/tracking")).status_code == 403
 
 
+async def test_order_status_history_requires_authentication(client):
+    """Cobertura nova da task C8: `/status-history` é o path novo que herdou
+    o histórico de `/tracking` — precisa da mesma trava de auth explícita
+    que todo outro endpoint de pedido tem (regra 2 do CLAUDE.md)."""
+    assert (await client.get("/orders/1/status-history")).status_code == 403
+
+
 async def test_delivery_estimate_requires_authentication(client):
     assert (await client.get("/orders/1/delivery-estimate")).status_code == 403
 
@@ -294,15 +301,20 @@ async def test_my_orders_response_does_not_leak_staff_assignee_ids(client, db_se
 
 
 # ── B7: nada provava que o `.limit(limit).offset(offset)` de
-# `rastreio_pedido` (app/routers/pedidos.py) roda — apagar a clausula
+# `historico_status` (app/routers/pedidos.py) roda — apagar a clausula
 # deixava a suite verde. `PedidoStatusHistoricoOut` nao expoe `id`, entao
 # a fronteira entre paginas e conferida por `observacao`, que vai unica
 # por linha. `criado_em` vai explicito e crescente porque a rota ordena
 # por `criado_em.asc()`: com o `server_default=func.now()` as 55 linhas
 # empatariam no mesmo timestamp e a paginacao ficaria nao-deterministica.
+#
+# Migrado de `/tracking` para `/status-history` na task C8: o path antigo
+# passou a devolver o objeto de rastreio (`OrderTrackingOut`), nao mais o
+# historico — a propriedade que este teste protege (paginacao real, nao so
+# aceita) continua valendo, so mudou de endereco.
 
 
-async def test_order_tracking_actually_applies_limit_and_offset(client, db_session):
+async def test_order_status_history_actually_applies_limit_and_offset(client, db_session):
     from datetime import UTC, datetime, timedelta
 
     from app.models.pedido import PedidoStatusHistorico
@@ -332,14 +344,14 @@ async def test_order_tracking_actually_applies_limit_and_offset(client, db_sessi
 
     headers = headers_for("student", aluno_id)
 
-    first_page = await client.get(f"/orders/{pedido.id}/tracking?limit=10", headers=headers)
+    first_page = await client.get(f"/orders/{pedido.id}/status-history?limit=10", headers=headers)
     assert first_page.status_code == 200
     first_body = first_page.json()
     assert len(first_body) == 10
     assert first_body[0]["observacao"] == "evento-0"
 
     last_page = await client.get(
-        f"/orders/{pedido.id}/tracking?limit=10&offset=50", headers=headers
+        f"/orders/{pedido.id}/status-history?limit=10&offset=50", headers=headers
     )
     assert last_page.status_code == 200
     last_body = last_page.json()

@@ -129,27 +129,28 @@ async def detalhe_pedido(
     return await _order_out(order, storage=storage, redis=redis)
 
 
-@router.get("/{order_id}/tracking", response_model=list[PedidoStatusHistoricoOut])
-async def rastreio_pedido(
+@router.get("/{order_id}/status-history", response_model=list[PedidoStatusHistoricoOut])
+async def historico_status(
     order_id: uuid.UUID,
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ):
-    """Histórico de status do pedido — tabela sem cliente
+    """Histórico completo dos NOVE estados internos — tabela sem cliente
     (`pedido_status_historico`), fica em português (ver
     `PedidoStatusHistoricoOut`).
 
-    Esta rota não está no plano da task C6 (nem no legacy, que não tem
-    conceito de histórico granulado assim) — é mantida sem mudança de
-    contrato porque o Flutter de rastreio já a consome
-    (`front-end-flutter/lib/features/order_tracking/data/order_service.dart:49`,
-    `GET /orders/{id}/tracking`). Apagá-la quebraria a tela de rastreio sem
-    nenhum pedido do brief para isso. O ownership passou a usar
-    `services.buscar_pedido` — mesma técnica usada em `detalhe_pedido` e em
-    `previsao_entrega_pedido` abaixo — em vez do `where` inline que a rota
-    tinha antes desta task.
+    Morava em `GET /orders/{id}/tracking` (task C6, que a manteve sem
+    mudança de contrato porque o Flutter de rastreio já a consumia dali).
+    A task C8 muda o que `/tracking` devolve — o objeto que a tela de
+    rastreio realmente renderiza (`rastreio_pedido`, em
+    `app/routers/rastreio.py`) — e move este histórico para cá. Aqui o
+    aluno vê a trilha real da operação: é a única superfície onde
+    `CONFIRMADO` é observável, já que `PATCH
+    /admin/orders/{id}/confirm-payment` (app/routers/admin.py) encadeia as
+    duas transições até `AGUARDANDO_SEPARACAO` sem parar em `CONFIRMADO`
+    (não há simulador de avanço de status na fase 2).
 
     Sem anotação de retorno de propósito (achado 7 da revisão da task C6):
     a função devolve `Sequence[PedidoStatusHistorico]` (linhas do ORM), não
@@ -158,6 +159,7 @@ async def rastreio_pedido(
     anotação) de `previsao_entrega_pedido` logo abaixo, que também devolve
     um tipo diferente do que constrói inline.
     """
+    # Garante que o pedido é do aluno antes de expor o histórico.
     try:
         await services.buscar_pedido(db, uuid.UUID(user["sub"]), order_id)
     except OrderNotFoundError as exc:
