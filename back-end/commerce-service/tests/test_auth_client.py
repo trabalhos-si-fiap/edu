@@ -11,10 +11,12 @@ upstream — QUALQUER status de erro ou falha de conexão vira o mesmo
 questão" aqui, só "consegui falar com o auth-users-service" ou não.
 """
 
+import uuid
+
 import httpx
 import pytest
 
-from app.services.auth_client import AuthServiceUnavailableError, get_me
+from app.services.auth_client import AuthServiceUnavailableError, get_address, get_me
 
 
 async def test_get_me_forwards_the_students_bearer(monkeypatch):
@@ -127,3 +129,110 @@ async def test_get_me_raises_when_auth_service_responds_with_an_error_status(mon
 
     assert "outro-segredo-nao-pode-vazar" not in str(exc.value)
     assert exc.value.__cause__ is None
+
+
+# Os testes de `get_address` abaixo usam um dublê genérico (`_cliente_falso` /
+# `_Resposta`) em vez do dublê próprio de cada teste de `get_me` acima. Não é
+# inconsistência para "limpar": o dublê do ramo `HTTPStatusError` de `get_me`
+# constrói `httpx.Request`/`httpx.Response` reais de propósito (garante que o
+# código sob teste funciona contra objetos httpx de verdade), enquanto
+# `_Resposta` aqui passa `request=None` — mais simples, mas não trocável pelo
+# dublê de `get_me` sem perder o que aquele garante. Duas formas no mesmo
+# arquivo, cada uma pagando por algo diferente.
+def _cliente_falso(resposta=None, erro=None, capturado=None):
+    """Dublê de `httpx.AsyncClient` no mesmo formato do teste de `get_me`.
+
+    Um só helper para os três testes abaixo: ou devolve `resposta`, ou
+    levanta `erro`, e registra url/headers em `capturado`.
+    """
+
+    class _Cliente:
+        def __init__(self, **kwargs):
+            if capturado is not None:
+                capturado["timeout"] = kwargs.get("timeout")
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def get(self, url, headers=None):
+            if capturado is not None:
+                capturado["url"] = url
+                capturado["headers"] = headers
+            if erro is not None:
+                raise erro
+            return resposta
+
+    return _Cliente
+
+
+class _Resposta:
+    def __init__(self, status_code, corpo=None):
+        self.status_code = status_code
+        self._corpo = corpo or {}
+
+    def json(self):
+        return self._corpo
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise httpx.HTTPStatusError(str(self.status_code), request=None, response=self)
+
+
+async def test_get_address_returns_none_on_404(monkeypatch):
+    """404 é "endereço inválido" (400 no checkout), não "auth fora do ar"."""
+    monkeypatch.setattr(
+        "app.services.auth_client.httpx.AsyncClient",
+        _cliente_falso(resposta=_Resposta(404, {"detail": "Endereço não encontrado"})),
+    )
+    assert await get_address("token", uuid.uuid4()) is None
+
+
+async def test_get_address_raises_when_auth_is_down(monkeypatch):
+    """Cobre o `except httpx.HTTPError` de `get_address` — mesmo caminho de
+    `test_get_me_never_puts_the_raw_token_in_the_error`, `__cause__ is None`
+    é o que de fato trava o `from None`, já que a mensagem da exceção é uma
+    string estática e passaria mesmo com `from exc`."""
+    monkeypatch.setattr(
+        "app.services.auth_client.httpx.AsyncClient",
+        _cliente_falso(erro=httpx.ConnectError("recusado")),
+    )
+    with pytest.raises(AuthServiceUnavailableError) as exc:
+        await get_address("token", uuid.uuid4())
+    assert exc.value.__cause__ is None
+
+
+async def test_get_address_raises_on_a_server_error(monkeypatch):
+    """5xx do auth não pode virar "endereço inválido" — o endereço pode
+    existir perfeitamente.
+
+    Cobre o `except httpx.HTTPStatusError` de `get_address`, caminho distinto
+    do teste acima — `__cause__ is None` trava o `from None` deste ramo
+    especificamente."""
+    monkeypatch.setattr(
+        "app.services.auth_client.httpx.AsyncClient", _cliente_falso(resposta=_Resposta(500))
+    )
+    with pytest.raises(AuthServiceUnavailableError) as exc:
+        await get_address("token", uuid.uuid4())
+    assert exc.value.__cause__ is None
+
+
+async def test_get_address_forwards_the_bearer(monkeypatch):
+    capturado: dict = {}
+    address_id = uuid.uuid4()
+    monkeypatch.setattr(
+        "app.services.auth_client.httpx.AsyncClient",
+        _cliente_falso(
+            resposta=_Resposta(200, {"street": "Av. Paulista", "city": "São Paulo"}),
+            capturado=capturado,
+        ),
+    )
+
+    resultado = await get_address("token-do-aluno", address_id)
+
+    assert resultado["street"] == "Av. Paulista"
+    assert capturado["headers"]["Authorization"] == "Bearer token-do-aluno"
+    assert capturado["url"].endswith(f"/auth/addresses/{address_id}")
+    assert capturado["timeout"] == 10.0

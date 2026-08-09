@@ -9,6 +9,8 @@ O `raw_token` NUNCA vai para log nem para corpo de erro — ele é a credencial
 viva de quem chamou.
 """
 
+import uuid
+
 import httpx
 from loguru import logger
 
@@ -61,4 +63,34 @@ async def get_me(raw_token: str) -> dict:
         raise AuthServiceUnavailableError("auth-users-service indisponível") from None
     except httpx.HTTPError:
         logger.warning("auth_client: /auth/me inalcançável em {}", url)
+        raise AuthServiceUnavailableError("auth-users-service indisponível") from None
+
+
+async def get_address(raw_token: str, address_id: uuid.UUID) -> dict | None:
+    """`GET /auth/addresses/{id}` — devolve o endereço, ou `None` se ele não
+    existe / não é do aluno.
+
+    A distinção importa: o checkout traduz `None` em 400 "Invalid delivery
+    address" (é assim que o legacy trata id obsoleto, não 404) e
+    `AuthServiceUnavailableError` em 503. Um único tipo de erro obrigaria o
+    chamador a inspecionar mensagem para decidir o status.
+
+    A URL do log **não** inclui o `address_id` porque ele é um identificador
+    do aluno — a mensagem genérica basta para diagnosticar. `from None` pelo
+    mesmo motivo medido no `except httpx.HTTPStatusError` de `get_me` acima
+    (não repetido aqui para não envelhecer em duas cópias).
+    """
+    url = f"{settings.auth_service_url}/auth/addresses/{address_id}"
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
+            response = await client.get(url, headers={"Authorization": f"Bearer {raw_token}"})
+            if response.status_code == 404:
+                return None
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPStatusError as exc:
+        logger.warning("auth_client: /auth/addresses respondeu {}", exc.response.status_code)
+        raise AuthServiceUnavailableError("auth-users-service indisponível") from None
+    except httpx.HTTPError:
+        logger.warning("auth_client: /auth/addresses inalcançável")
         raise AuthServiceUnavailableError("auth-users-service indisponível") from None
