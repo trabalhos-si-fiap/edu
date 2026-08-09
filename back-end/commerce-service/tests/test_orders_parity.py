@@ -45,6 +45,7 @@ não há simulador de avanço de status na fase 2
 (`advance_order_status_task.delay` não é portado).
 """
 
+import asyncio
 import uuid
 from decimal import Decimal
 
@@ -284,6 +285,50 @@ class TestCheckoutAddress:
         )
         assert r.status_code == 503
 
+    async def test_checkout_forwards_the_callers_own_bearer_to_get_address(
+        self,
+        client: AsyncClient,
+        filled_cart: list[Product],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Achado 3 da revisão da task C6: nenhum teste provava que
+        `get_address` recebia o BEARER DO CHAMADOR (`user["raw_token"]`) —
+        os três dublês acima (`_get_address_falso`,
+        `_get_address_ausente`, `_get_address_indisponivel`) ignoram o
+        argumento que recebem. Repassar o token de quem chamou (em vez de
+        uma credencial própria do commerce) é todo o design de segurança
+        de `get_address`: mantém a autorização no serviço DONO do dado
+        (ver docstring de `app/services/auth_client.py`). Um espião que
+        captura o argumento e o compara com o token real que a requisição
+        carregou fecha essa lacuna."""
+        tokens_recebidos: list[str] = []
+
+        async def _get_address_espiao(raw_token: str, address_id: uuid.UUID) -> dict:
+            tokens_recebidos.append(raw_token)
+            return {
+                "label": "Casa",
+                "zip_code": "13201-005",
+                "street": "Rua das Flores",
+                "number": "42",
+                "complement": "Apto 3",
+                "neighborhood": "Centro",
+                "city": "Jundiaí",
+                "state": "SP",
+            }
+
+        monkeypatch.setattr("app.routers.pedidos.get_address", _get_address_espiao)
+
+        headers = headers_for("student", sub=ALUNO)
+        r = await client.post(
+            "/orders",
+            json={"payment_method": "PIX", "address_id": str(uuid.uuid4())},
+            headers=headers,
+        )
+        assert r.status_code == 201, r.text
+
+        token_da_requisicao = headers["Authorization"].removeprefix("Bearer ")
+        assert tokens_recebidos == [token_da_requisicao]
+
 
 async def test_the_total_comes_from_the_catalog_not_from_the_request(
     client: AsyncClient, db_session: AsyncSession
@@ -310,3 +355,122 @@ async def test_the_total_comes_from_the_catalog_not_from_the_request(
 
     assert response.status_code == 201
     assert response.json()["total"] == "99.80"
+
+
+def _e_select_lock_cart_checkout(stmt: object) -> bool:
+    """Identifica, pela FORMA da query, o `select(Cart).where(Cart.user_id
+    == user_id).with_for_update()` de `criar_pedido_do_carrinho`
+    (`app/services/pedidos.py`). Medido com `str(stmt)`:
+
+        'SELECT carts.id, carts.user_id, carts.created_at, carts.updated_at
+        \\nFROM carts \\nWHERE carts.user_id = :user_id_1 FOR UPDATE'
+
+    De propósito NÃO exige `FOR UPDATE` no texto — mesma razão de
+    `_e_select_lock_carrinho` em `test_cart_parity.py`: a prova de mutação
+    (Step 5 do achado 1 da revisão) remove só a cláusula
+    `.with_for_update()`, e o detector precisa continuar reconhecendo a
+    MESMA instrução sob mutação, senão o teste trava esperando um evento
+    que nunca dispara em vez de ir vermelho pelo motivo certo.
+
+    `get_or_create_cart` (`app/services/carrinho.py`) compila para o MESMO
+    texto sem o `FOR UPDATE` final — mas só é chamado pelas rotas de
+    `/cart`, nunca por `POST /orders`, e o teste abaixo só exercita
+    `/orders` concorrentemente, então a ambiguidade não se materializa
+    aqui (mesma ressalva que o docstring de `_e_select_lock_carrinho` faz
+    para o próprio arquivo)."""
+    texto = str(stmt)
+    return texto.startswith(
+        "SELECT carts.id, carts.user_id, carts.created_at, carts.updated_at \nFROM carts"
+    )
+
+
+class TestCheckoutLockConcurrency:
+    """Prova o `.with_for_update()` de `criar_pedido_do_carrinho`
+    (`app/services/pedidos.py`) — achado 1 da revisão da task C6, regra 3
+    do CLAUDE.md (leitura->escrita sobre recurso compartilhado precisa ser
+    atômica).
+
+    Medido pela revisão: removendo só o `.with_for_update()` da linha, a
+    suíte inteira continuava "243 passed" — nenhum teste existente pegava
+    a ausência do lock. E medido que duas requisições `POST /orders`
+    concorrentes contra o MESMO carrinho, SEM o lock, produzem DOIS
+    pedidos (o "duplo toque" que o docstring de `criar_pedido_do_carrinho`
+    promete impedir); COM o lock, uma vira 201 e a outra 400 "Cart is
+    empty" — a segunda encontra o carrinho já esvaziado pela primeira.
+
+    `test_second_checkout_on_emptied_cart_raises` (portado do legacy, em
+    `test_orders_services_parity.py`) prova checkout duplicado
+    SEQUENCIAL — não uma corrida real. Nem o legacy nem esta task tinham
+    um teste de concorrência para este lock antes desta rodada. Mesmo
+    padrão de `test_cart_parity.py::TestCartLockConcurrency` (task B8), que
+    prova o lock equivalente do carrinho.
+
+    Limitação declarada (mesma de `test_cart_parity.py`): um teste destes,
+    num único processo/event loop, prova a ORDEM LÓGICA das operações e
+    exercita um lock de linha real do Postgres entre duas conexões
+    distintas (duas `AsyncSession`) — não prova contenção entre processos
+    ou réplicas distintas do serviço.
+    """
+
+    async def test_concurrent_checkout_does_not_create_two_orders(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        produto = Product(
+            name="Caderno", type="Material", subtype="Pap", description="", price=Decimal("24.50")
+        )
+        db_session.add(produto)
+        await db_session.commit()
+        await db_session.refresh(produto)
+
+        headers = headers_for("student", sub=ALUNO)
+        await client.post(
+            "/cart/items",
+            json={"product_id": str(produto.id), "quantity": 1},
+            headers=headers,
+        )
+
+        segundo_lock_disparado = asyncio.Event()
+        estado = {"locks_cart": 0, "commits": 0}
+
+        execute_real = AsyncSession.execute
+        commit_real = AsyncSession.commit
+
+        async def _execute_que_avisa(self: AsyncSession, *args: object, **kwargs: object):
+            if args and _e_select_lock_cart_checkout(args[0]):
+                estado["locks_cart"] += 1
+                if estado["locks_cart"] == 2:
+                    segundo_lock_disparado.set()
+            return await execute_real(self, *args, **kwargs)
+
+        async def _commit_que_espera(self: AsyncSession, *args: object, **kwargs: object):
+            estado["commits"] += 1
+            if estado["commits"] == 1:
+                await asyncio.wait_for(segundo_lock_disparado.wait(), timeout=5)
+                await asyncio.sleep(0.01)
+            return await commit_real(self, *args, **kwargs)
+
+        monkeypatch.setattr(AsyncSession, "execute", _execute_que_avisa)
+        monkeypatch.setattr(AsyncSession, "commit", _commit_que_espera)
+
+        body = {"payment_method": "PIX"}
+        r1, r2 = await asyncio.gather(
+            client.post("/orders", json=body, headers=headers),
+            client.post("/orders", json=body, headers=headers),
+        )
+
+        status_codes = sorted([r1.status_code, r2.status_code])
+        assert status_codes == [201, 400], (
+            f"esperava [201, 400] (uma cria o pedido, a outra encontra o "
+            f"carrinho já esvaziado), achou {status_codes}: "
+            f"r1={r1.status_code} {r1.text!r} / r2={r2.status_code} {r2.text!r}"
+        )
+
+        pedidos = await client.get("/orders", headers=headers)
+        assert pedidos.status_code == 200
+        assert len(pedidos.json()) == 1, (
+            f"esperava exatamente 1 pedido, achou {len(pedidos.json())} — "
+            "o lock deveria ter impedido um segundo pedido do mesmo carrinho"
+        )

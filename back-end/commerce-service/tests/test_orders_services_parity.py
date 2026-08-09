@@ -48,10 +48,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.exceptions import EmptyCartError, OrderNotFoundError
 from app.models.carrinho import CartItem
+from app.models.pedido import PedidoStatusHistorico
 from app.models.produto import Product
 from app.schemas.carrinho import CartItemIn
 from app.services import carrinho as carrinho_services
 from app.services import pedidos as services
+from app.services.status_pedido import StatusPedido
 
 
 @pytest.fixture
@@ -107,6 +109,29 @@ class TestCreateOrderFromCart:
             await db_session.execute(select(func.count()).select_from(CartItem))
         ).scalar_one()
         assert remaining == 0
+
+        # Guarda de regressão (achado 2 da revisão da task C6): `Order.id` é
+        # um default Python (`new_uuid`), avaliado só no FLUSH. Sem o
+        # `await db.flush()` entre `db.add(order)` e a construção de
+        # `PedidoStatusHistorico(order_id=order.id, ...)`
+        # (app/services/pedidos.py::criar_pedido_do_carrinho), a linha de
+        # histórico nasce com `order_id = NULL` — silenciosamente, porque a
+        # coluna não é `NOT NULL` (medido no Red desta task, ver
+        # task-C6-report.md). O bug foi medido e corrigido, mas até esta
+        # rodada nenhuma asserção travava a regressão.
+        historico = (
+            (
+                await db_session.execute(
+                    select(PedidoStatusHistorico).where(
+                        PedidoStatusHistorico.status == StatusPedido.CRIADO.value
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(historico) == 1
+        assert historico[0].order_id == order.id
 
     async def test_snapshots_unit_price(
         self, db_session: AsyncSession, user_id: uuid.UUID, filled_cart: list[Product]
