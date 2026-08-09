@@ -27,7 +27,7 @@ class NavBar extends StatelessWidget {
     NavBarMode.main: [
       (icon: Icons.home_rounded, label: 'Home', route: '/home'),
       (icon: Icons.quiz_outlined, label: 'Quiz', route: '/quiz'),
-      (icon: Icons.assignment_turned_in_outlined, label: 'Revisão', route: null),
+      (icon: Icons.assignment_turned_in_outlined, label: 'Revisão', route: '/review'),
       (icon: Icons.menu_book_outlined, label: 'Estudo', route: null),
       (
         icon: Icons.store_mall_directory_outlined,
