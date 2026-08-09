@@ -11,10 +11,15 @@ from decimal import Decimal
 
 from pydantic import BaseModel, Field, field_serializer
 
+# Nomeado, não um 999 solto em dois arquivos: `app/routers/pedidos.py::recomprar`
+# clampa nele antes de repassar para `CartItemIn` (achado 2 do code review da
+# task C7 — ver o docstring de `recomprar`).
+QUANTIDADE_MAXIMA = 999
+
 
 class CartItemIn(BaseModel):
     product_id: uuid.UUID
-    quantity: int = Field(default=1, ge=1, le=999)
+    quantity: int = Field(default=1, ge=1, le=QUANTIDADE_MAXIMA)
 
 
 class CartItemOut(BaseModel):

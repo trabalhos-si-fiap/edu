@@ -12,7 +12,7 @@ from app.events.publisher import publish_event
 from app.exceptions import CartProductNotFoundError, EmptyCartError, OrderNotFoundError
 from app.models.pedido import Order, PedidoStatusHistorico
 from app.redis_client import get_redis
-from app.schemas.carrinho import CartItemIn, CartOut
+from app.schemas.carrinho import QUANTIDADE_MAXIMA, CartItemIn, CartOut
 from app.schemas.pedido import (
     OrderCreateIn,
     OrderOut,
@@ -235,6 +235,30 @@ async def recomprar(
     `CartProductNotFoundError` ANTES de qualquer escrita — o `select` do
     produto é a primeira coisa que ela faz —, então o `continue` abaixo não
     deixa a sessão em estado sujo.
+
+    NÃO É IDEMPOTENTE (achado 4 do code review): chamar esta rota duas
+    vezes para o MESMO pedido soma os itens duas vezes, não reconhece que
+    já rodou — `adicionar_item` INCREMENTA a quantidade existente do item
+    do carrinho (`item.quantity +=`), então duas recompras seguidas de um
+    pedido de 149.00 fecham o carrinho em 298.00, não 149.00. É exatamente
+    a resposta natural a uma recompra que falhou no meio (apertar de
+    novo): em vez de completar o que faltou, DOBRA o que já tinha sido
+    reposto. Mantido de propósito — mesma composição do legacy;
+    idempotência aqui seria mudança de design, não porte. `POST /orders`
+    se protege do duplo toque com o lock de linha do carrinho e esvaziando
+    o carrinho ao final do checkout; esta rota não tem equivalente.
+
+    Quantidade CLAMPADA em `QUANTIDADE_MAXIMA` antes de repassar ao
+    carrinho (achado 2 do code review): `cart_services.adicionar_item` faz
+    `item.quantity +=` sem clampar contra o teto de `CartItemIn` — bug
+    herdado do monólito (raiz em `app/services/carrinho.py`, de quem
+    possui a paridade do carrinho, não desta rota), que deixa um item de
+    carrinho crescer além do que `CartItemIn` aceitaria numa chamada só
+    (ex.: duas chamadas de `POST /cart/items` com quantidade 999 cada
+    somam 1998). Sem o clamp abaixo, um pedido com item de quantidade
+    acima do teto estourava `ValidationError` não tratada ao montar
+    `CartItemIn`, com os itens já processados ficando pela metade no
+    carrinho.
     """
     user_id = uuid.UUID(user["sub"])
     try:
@@ -244,9 +268,10 @@ async def recomprar(
 
     cart: CartOut | None = None
     for item in order.items:
+        quantidade = min(item.quantity, QUANTIDADE_MAXIMA)
         try:
             cart = await cart_services.adicionar_item(
-                db, user_id, CartItemIn(product_id=item.product_id, quantity=item.quantity)
+                db, user_id, CartItemIn(product_id=item.product_id, quantity=quantidade)
             )
         except CartProductNotFoundError:
             continue
