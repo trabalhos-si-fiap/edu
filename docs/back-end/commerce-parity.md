@@ -1,9 +1,13 @@
-# Paridade commerce-service × legacy — portão do bloco B
+# Paridade commerce-service × legacy — portões dos blocos B e C
 
 Documento do **portão** da fase 2b: mede se o `commerce-service` é réplica do
 monolito (`back-end/legacy/`) nas rotas de catálogo, reviews, carrinho e formas
 de pagamento, para que a fase 4 seja uma troca de `API_BASE_URL` no app
 Flutter.
+
+As seções 1 a 8 são o portão do **bloco B**. A **§9 é o portão do bloco C**
+(pedido, checkout, rastreio e rota): divergências deliberadas nº 6 a nº 11,
+asserções adaptadas daquele bloco e carve-outs de fase 3.
 
 - Branch medida: `feat/microservices-phase-2b`, HEAD `9ea4398` (portão, task
   B11). O **buraco de porte** que o portão encontrou (§4) foi fechado depois,
@@ -394,3 +398,103 @@ Os cinco arquivos gerados foram apagados e os cinco bancos descartados
 
 `grep -l compare_server_default */alembic/env.py | wc -l` = **5**, como o plano
 previa.
+
+---
+
+## 9. Bloco C — portão da fase 2c (pedido, checkout, rastreio e rota)
+
+- Branch medida: `feat/microservices-phase-2c`, HEAD `7ddb6a9` (portão, task
+  C12). Data da medição: 2026-08-10.
+- Registro cru, com a saída literal de cada comando:
+  `.superpowers/sdd/2026-08-05-phase-2c-order-and-tracking/task-C12-report.md`
+  (diretório temporário do SDD — este documento é o que sobrevive).
+- Prova **em processo**, como no bloco B: `httpx.AsyncClient` + `ASGITransport`
+  contra o app importado da branch, banco Postgres descartável criado e
+  apagado, `fakeredis`, publisher de eventos stubado. Do lado do legacy houve
+  só importação das classes Pydantic e comparação de
+  `model_json_schema(mode="serialization")` — a suíte do monólito **não** foi
+  executada (o conftest dela dá `flushdb` no Redis vivo). O que isso não prova
+  é o mesmo da §3: rede, granian, Dockerfile, api-gateway e stack real.
+
+### 9.1 Reconciliação de chaves
+
+Doze classes comparadas por forma de schema; as chaves da resposta **real** do
+commerce medidas em processo e conferidas contra elas. **Uma única diferença em
+tudo**: `status` no payload de rastreio (divergência nº 7). `GET /orders`,
+`items[0]`, `GET /payment-methods`, `steps[0]`, `location` e `kit[0]` batem
+chave a chave com o legacy.
+
+### 9.2 As seis divergências deliberadas do bloco C
+
+A numeração 8 a 11 foi atribuída por este portão: os relatórios do bloco C
+nomeiam só a nº 6 e a nº 7; as outras quatro existiam em docstring de teste, em
+handover, ou em lugar nenhum (nº 10 e nº 11 apareceram medindo o schema).
+
+| # | Divergência | Onde | Razão | Quem decidiu |
+|---|---|---|---|---|
+| 6 | **Ownership em `predict-eta`** — o legacy (`legacy/app/modules/tracking/services.py:78`) nunca carrega o pedido, então qualquer aluno autenticado pedia a ETA de qualquer `order_id`; o commerce carrega e devolve **404** para pedido alheio ou inexistente | `commerce-service/app/services/rastreio.py`, `app/routers/rastreio.py` | Entre a réplica exata e a regra 2 do `CLAUDE.md` (controle de acesso explícito em todo endpoint), o `CLAUDE.md` governa | **Usuário, 2026-08-08** (task C9) |
+| 7 | **`status` no payload de rastreio** — `OrderTrackingOut` do legacy tem 9 chaves; o do commerce tem 10 | `commerce-service/app/schemas/rastreio.py` | A tela precisa distinguir pedido cancelado. Aditivo: o Flutter lê chave a chave | Task C11 |
+| 8 | **422 em vez de 404 para id malformado em `GET /orders/{id}/tracking`** | `commerce-service/app/routers/rastreio.py` | No legacy o serviço recebia `order_id: str` e devolvia 404 de dentro; aqui o path param é `uuid.UUID` e o FastAPI rejeita antes de qualquer código nosso rodar | Task C8 |
+| 9 | **422 em vez de 404 para id malformado em `GET /orders/{id}/route`** | idem | idem | Task C9 |
+| 10 | **O enum público do status tem 6 valores; o do legacy tem 5** — `StatusContrato` acrescenta `cancelled`, e `GET /orders` pode devolvê-lo | `commerce-service/app/services/status_pedido.py` | Cancelamento por ocorrência é funcionalidade do bloco C; o enum de seis valores foi mandado pelo plano (task C1) | Plano (task C1) |
+| 11 | **`TrackingLocationOut.city` de 80 → 120 caracteres** | `commerce-service/app/schemas/rastreio.py` | Copiar o `maxLength=80` do legacy era copiar um bug: a coluna do pedido aceita mais, e cidade longa estourava a serialização do rastreio | Controlador do bloco C (task C8) |
+
+A **divergência nº 1 (403 vs 401)** vale igual no bloco C. Re-medida no portão
+da C12: `git grep -c "== 403" HEAD -- "back-end/*.py" ":!back-end/legacy"` dá
+**65 ocorrências em 22 arquivos**, das quais 1 é código de produção
+(`chatbot-service/app/services/diagnostico_client.py`) — 64 asserções em 21
+arquivos de teste. Atenção ao ler esse número: boa parte das que o bloco C
+acrescentou são 403 de **papel** (separador, entregador, admin), que nada têm a
+ver com header ausente. As que existem por causa da divergência nº 1 no bloco C
+são cinco, listadas em §9.3.
+
+### 9.3 Asserções adaptadas do bloco C
+
+| Arquivo:linha (`back-end/commerce-service/`) | Asserção original (legacy) | Asserção atual | Razão |
+|---|---|---|---|
+| `tests/test_orders_parity.py:161` | `assert r.status_code == 401` (`test_list_requires_auth`) | `== 403` | divergência 1 |
+| `tests/test_orders_parity.py:165` | `== 401` (`test_create_requires_auth`) | `== 403` | divergência 1 |
+| `tests/test_tracking_routes.py:135` | `== 401` (`test_get_order_tracking_requires_auth`) | `== 403` | divergência 1 |
+| `tests/test_tracking_routes.py:259` | `== 401` (`test_predict_eta_requires_auth`) | `== 403` | divergência 1 |
+| `tests/test_tracking_routes.py:358` | `== 401` (`test_get_order_route_requires_auth`) | `== 403` | divergência 1 |
+| `tests/test_tracking_routes.py:215` | `== 404` (`test_get_order_tracking_malformed_id_returns_404`) | `== 422`, e o nome do teste mudou junto | divergência 8 |
+| `tests/test_tracking_services.py:179` | `pytest.raises(OrderNotFound)` chamando o serviço direto | `assert resp.status_code == 422` no limite HTTP | divergência 9 |
+| `tests/test_tracking_services.py:145,155` | `pytest.raises(OrderNotFound)` | `pytest.raises(OrderNotFoundError)` | sufixo `Error` (ruff N818) |
+| `tests/test_tracking_services.py:187,198` | `pytest.raises(RouteUnavailable)` | `pytest.raises(RouteUnavailableError)` | idem |
+| `tests/test_tracking_directions.py:71,78,95,104` | `pytest.raises(RouteUnavailable)` | `pytest.raises(RouteUnavailableError)` | idem |
+| `tests/test_orders_services_parity.py:144,151` | `pytest.raises(EmptyCart)` | `pytest.raises(EmptyCartError)` | idem |
+| `tests/test_orders_services_parity.py:165,173` | `pytest.raises(OrderNotFound)` | `pytest.raises(OrderNotFoundError)` | idem |
+| `tests/test_orders_services_parity.py:103` | `assert order.total == 100 * 1 + 24.50 * 2` | `assert order.total == Decimal("149.00")` | mesmo valor, sem comparar `Decimal` com float |
+| `tests/test_orders_services_parity.py` (7 assinaturas) | fixture `created_user: User` | fixture `user_id: uuid.UUID` | não há tabela de usuários no commerce; `user_id` é FK **lógica** para o auth-users-service |
+| `tests/test_tracking_builders.py:108-109` | `@parametrize("status", list(OrderStatus))` (5 casos), `test_exactly_one_current_step_unless_delivered` | `list(StatusPedido)` (**9 casos**), `…_unless_delivered_or_cancelled` | parametriza sobre os nove estados internos, não sobre os cinco do contrato — estritamente mais forte |
+
+Um teste do legacy foi **redistribuído, não apagado**:
+`orders/test_services.py::test_rejects_address_of_another_user`. A metade de
+ownership do endereço passou a ser do `auth-users-service` (com teste lá) e a
+metade de tradução virou
+`test_orders_parity.py::TestCheckoutAddress::test_checkout_with_an_invalid_address_id_returns_400`.
+
+### 9.4 Carve-outs de fase 3
+
+1. **Upload de imagem de produto** — `legacy/tests/modules/products/test_image_upload.py`
+   (5 testes) e os cinco `test_validate_*` de `legacy/tests/core/test_media.py`
+   (os mesmos da §2).
+2. **Ciclo de vida automático do pedido** — `legacy/tests/modules/orders/test_lifecycle.py`
+   (8 testes).
+3. **Pipeline de status por Celery** — `legacy/tests/modules/orders/test_status_pipeline.py`
+   (9 testes) e `advance_order_status_task.delay(...)`, não portado.
+
+Os três arquivos foram conferidos ausentes do commerce **nome a nome**: os 21
+testes deles não existem lá sob nenhum nome. Consequência operacional: sem
+simulador, um pedido só avança se alguém trabalhar a fila de separação.
+
+### 9.5 Correção à dívida do seed registrada na §7.2
+
+Circula no bloco C a afirmação de que "a imagem publicada do commerce **não
+contém** `app/seeds/`". **Ela não tem medição que a sustente** — o registro do
+bloco B diz "unproven", que é o que a §7.2 acima afirma. Medido no portão da
+C12, nesta branch: `commerce-service/Dockerfile:15` faz
+`COPY commerce-service/ ./`, o serviço não tem `.dockerignore`, e
+`app/seeds/{__init__,products}.py` existem — um **rebuild** embarca o pacote. O
+que continua verdadeiro é que **`make services-seed` nunca foi executado** e que
+a imagem no ar foi construída do checkout principal, que não foi inspecionado.
