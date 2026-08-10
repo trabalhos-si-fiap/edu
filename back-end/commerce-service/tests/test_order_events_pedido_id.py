@@ -8,6 +8,18 @@ PROPRIEDADE do payload, não a implementação: se algum publish futuro
 regredir para o valor cru, este teste pega, sem precisar saber qual dos
 seis call sites (`ocorrencias.py` tem quatro) foi o culpado.
 
+Os SEIS sites, não cinco — `order.status_changed` tem DOIS produtores:
+`separacao.py:113` (via `transicionar_pedido`, alcançado abaixo pelo
+braço `order.status_changed` do despachante, que passa por
+`confirm-payment`) e `ocorrencias.py:366` (dentro de
+`resolver_ocorrencia`, só alcançável com `resolucao="cancelar_pedido"`).
+Achado da revisão (fix round 1, Important #1): o parametrize sozinho NÃO
+mordia o segundo site — removendo o `str(...)` só dali, os cinco casos
+parametrizados continuavam verdes.
+`test_order_status_changed_via_occurrence_cancellation_carries_pedido_id_as_a_uuid_string`
+(fora do parametrize) cobre esse call site especificamente; com ela, os
+seis sites estão cobertos, um por um.
+
 As CHAVES ficam em português — renomeá-las dessincronizaria produtor e
 consumidor sem nenhum cliente pedindo. Só o tipo muda.
 """
@@ -96,28 +108,37 @@ async def _exercitar_o_produtor_de(routing_key: str, client, db_session) -> None
     Um despachante em vez de cinco testes quase iguais: o que está sendo
     travado é uma propriedade do PAYLOAD, idêntica nos cinco, e o que muda é
     só como se chega lá.
+
+    Cada chamada HTTP confere o status 2xx antes de seguir — achado da
+    revisão (fix round 1, Minor #6): sem isso, um schema que mudasse e
+    fizesse um `POST` virar 422 apareceria como "nada publicou <key>" no
+    assert de fora, a mesma mensagem enganosa que o brief original já tinha
+    avisado para o caso de `FaltaEstoqueIn`/`AtrasoEntregaIn` mudarem.
     """
     if routing_key == "order.created":
         produto = await _seed_produto(db_session)
-        await client.post(
+        add_item = await client.post(
             "/cart/items",
             json={"product_id": str(produto.id), "quantity": 1},
             headers=headers_for("student", sub=ALUNO),
         )
-        await client.post("/orders", json={}, headers=headers_for("student", sub=ALUNO))
+        assert add_item.status_code == 201, f"POST /cart/items: {add_item.text}"
+        criar = await client.post("/orders", json={}, headers=headers_for("student", sub=ALUNO))
+        assert criar.status_code == 201, f"POST /orders: {criar.text}"
 
     elif routing_key == "order.status_changed":
         pedido = await _seed_pedido_com_endereco(db_session)
-        await client.patch(
+        confirmar = await client.patch(
             f"/admin/orders/{pedido.id}/confirm-payment", headers=headers_for("admin", sub=ADMIN)
         )
+        assert confirmar.status_code == 200, f"PATCH .../confirm-payment: {confirmar.text}"
 
     elif routing_key == "order.stock_issue":
         produto = await _seed_produto(db_session)
         pedido = await _seed_pedido_com_endereco(
             db_session, status=StatusPedido.EM_SEPARACAO.value, picker_id=PICKER_A
         )
-        await client.post(
+        reportar = await client.post(
             "/occurrences/stock-shortage",
             json={
                 "pedido_id": str(pedido.id),
@@ -126,12 +147,13 @@ async def _exercitar_o_produtor_de(routing_key: str, client, db_session) -> None
             },
             headers=headers_for("separador", sub=PICKER_A),
         )
+        assert reportar.status_code == 201, f"POST /occurrences/stock-shortage: {reportar.text}"
 
     elif routing_key == "order.delivery_delayed":
         pedido = await _seed_pedido_com_endereco(
             db_session, status=StatusPedido.EM_TRANSITO.value, deliverer_id=DELIVERER_A
         )
-        await client.post(
+        reportar = await client.post(
             "/occurrences/delivery-delay",
             json={
                 "pedido_id": str(pedido.id),
@@ -140,6 +162,7 @@ async def _exercitar_o_produtor_de(routing_key: str, client, db_session) -> None
             },
             headers=headers_for("entregador", sub=DELIVERER_A),
         )
+        assert reportar.status_code == 201, f"POST /occurrences/delivery-delay: {reportar.text}"
 
     elif routing_key == "order.occurrence_resolved":
         pedido = await _seed_pedido_com_endereco(
@@ -154,11 +177,13 @@ async def _exercitar_o_produtor_de(routing_key: str, client, db_session) -> None
             },
             headers=headers_for("entregador", sub=DELIVERER_A),
         )
-        await client.post(
+        assert criar.status_code == 201, f"POST /occurrences/delivery-delay: {criar.text}"
+        resolver = await client.post(
             f"/occurrences/{criar.json()['id']}/resolve",
             json={"resolucao": "aceitar_nova_data"},
             headers=headers_for("student", sub=ALUNO),
         )
+        assert resolver.status_code == 200, f"POST /occurrences/{{id}}/resolve: {resolver.text}"
 
     else:
         raise AssertionError(f"routing key sem produtor mapeado: {routing_key}")
@@ -183,6 +208,49 @@ async def test_every_order_event_carries_pedido_id_as_a_uuid_string(
 
     payloads = [p for key, p in _stub_publish_event if key == routing_key]
     assert payloads, f"nada publicou {routing_key}"
+    for payload in payloads:
+        assert isinstance(payload["pedido_id"], str)
+        uuid.UUID(payload["pedido_id"])
+
+
+async def test_order_status_changed_via_occurrence_cancellation_carries_pedido_id_as_a_uuid_string(
+    client, db_session, _stub_publish_event
+):
+    """`order.status_changed` tem DOIS produtores, não um só:
+    `separacao.py:113` (via `transicionar_pedido`, coberto acima pelo braço
+    `order.status_changed` do despachante, que passa por
+    `confirm-payment`) e `ocorrencias.py:366` (dentro de
+    `resolver_ocorrencia`, só alcançável com `resolucao="cancelar_pedido"`
+    — `cancelou` só vira `True` nesse ramo).
+
+    Achado da revisão (fix round 1, Important #1): removendo o `str(...)`
+    só do segundo site e rodando o parametrize acima, os cinco casos
+    continuavam verdes — nenhum deles alcança este call site. Este teste
+    cobre especificamente ele, fora do parametrize porque não é uma NOVA
+    routing key, é um segundo CAMINHO até a mesma."""
+    pedido = await _seed_pedido_com_endereco(
+        db_session, status=StatusPedido.EM_TRANSITO.value, deliverer_id=DELIVERER_A
+    )
+    criar = await client.post(
+        "/occurrences/delivery-delay",
+        json={
+            "pedido_id": str(pedido.id),
+            "nova_data_sugerida": "2026-08-20T12:00:00+00:00",
+            "motivo": "chuva",
+        },
+        headers=headers_for("entregador", sub=DELIVERER_A),
+    )
+    assert criar.status_code == 201, f"POST /occurrences/delivery-delay: {criar.text}"
+
+    resolver = await client.post(
+        f"/occurrences/{criar.json()['id']}/resolve",
+        json={"resolucao": "cancelar_pedido"},
+        headers=headers_for("student", sub=ALUNO),
+    )
+    assert resolver.status_code == 200, f"POST /occurrences/{{id}}/resolve: {resolver.text}"
+
+    payloads = [p for key, p in _stub_publish_event if key == "order.status_changed"]
+    assert payloads, "nada publicou order.status_changed"
     for payload in payloads:
         assert isinstance(payload["pedido_id"], str)
         uuid.UUID(payload["pedido_id"])
