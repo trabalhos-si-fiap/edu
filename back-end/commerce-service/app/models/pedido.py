@@ -134,7 +134,14 @@ class OrderItem(Base):
     )
     # Snapshot do produto no momento da compra — um pedido é registro
     # histórico e não pode mudar se o catálogo mudar preço ou nome depois.
-    product_id = Column(UUID(as_uuid=True), ForeignKey("products.id"), nullable=False)
+    # Por isso SEM `ForeignKey`, decisão do usuário (2026-08-09, task C10):
+    # com FK, apagar um produto que qualquer pedido referencia levanta
+    # `IntegrityError`/`ForeignKeyViolationError`, e o caminho "produto saiu
+    # do catálogo é pulado" da recompra (C7) fica inalcançável em produção.
+    # O legacy nunca teve essa FK, de propósito, pelo mesmo motivo:
+    # `back-end/legacy/app/modules/orders/models.py:84`. A coluna continua
+    # `nullable=False` e continua sendo snapshot — só o `ForeignKey` sai.
+    product_id = Column(UUID(as_uuid=True), nullable=False)
     product_name = Column(String(160), nullable=False)
     unit_price = Column(Numeric(10, 2), nullable=False)
     quantity = Column(Integer, nullable=False)

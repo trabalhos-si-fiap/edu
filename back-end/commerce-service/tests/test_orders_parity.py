@@ -50,22 +50,22 @@ são indistinguíveis de fora).
 `TestRebuy` (mesmo formato solto do brief), não existe no legacy em lugar
 nenhum — é o comportamento central da rota e não tinha cobertura na
 origem. Roda contra banco real (achado 1 do code review, que substituiu a
-primeira versão desta task, com dublê): `order_items.product_id` tem
-`ForeignKey("products.id")` (`app/models/pedido.py`), mas o MONÓLITO
-declara a mesma coluna SEM FK, de propósito — um pedido é registro
-histórico e o catálogo tem que ficar livre para mudar por baixo dele
-(medido: `back-end/legacy/app/modules/orders/models.py:84` não tem
-`ForeignKey`, só `mapped_column(UUID(as_uuid=True), nullable=False)`). O
-commerce-service ACRESCENTOU uma FK que o legacy nunca teve — dívida
-herdada da migração que torna "apagar um produto já comprado" impossível
-pelo ORM, registrada para quem for dono de migrations, não desta task. O
-teste contorna com `SET session_replication_role = 'replica'` (desliga os
-triggers de FK só para a sessão, sem DDL, restaurado em `finally`) para
-apagar o produto de verdade e rodar `buscar_pedido` sem nenhum dublê.
-`test_rebuy_skips_a_product_that_left_the_catalog_unit_fast`, logo depois,
-é a versão original com `monkeypatch` em `services.buscar_pedido` —
-mantida como checagem rápida de unidade, não como a guarda (ela não prova
-ownership nem resolução de id, porque o dublê ignora os dois).
+primeira versão desta task, com dublê). Até a task C10, `order_items.product_id`
+tinha `ForeignKey("products.id")` (`app/models/pedido.py`) enquanto o
+MONÓLITO declarava a mesma coluna SEM FK, de propósito — um pedido é
+registro histórico e o catálogo tem que ficar livre para mudar por baixo
+dele (medido: `back-end/legacy/app/modules/orders/models.py:84` não tem
+`ForeignKey`, só `mapped_column(UUID(as_uuid=True), nullable=False)`). Essa
+era uma dívida herdada da migração, registrada aqui para "quem for dono de
+migrations" — a task C10 (decisão do usuário, 2026-08-09) pagou a dívida:
+`alembic/versions/73f26f88d679_drop_order_items_product_fk.py` derruba a
+FK, e este teste não precisa mais do contorno `SET session_replication_role
+= 'replica'` que existia só para apagar o produto apesar dela — o `DELETE`
+agora é direto. `test_rebuy_skips_a_product_that_left_the_catalog_unit_fast`,
+logo depois, é a versão original com `monkeypatch` em
+`services.buscar_pedido` — mantida como checagem rápida de unidade, não
+como a guarda (ela não prova ownership nem resolução de id, porque o dublê
+ignora os dois).
 
 `test_rebuying_the_same_order_twice_doubles_the_cart` documenta uma
 consequência da não-atomicidade que a primeira rodada desta task só tinha
@@ -98,7 +98,7 @@ from types import SimpleNamespace
 import pytest
 from edu_common.security import create_access_token
 from httpx import AsyncClient
-from sqlalchemy import delete, select, text
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -371,37 +371,27 @@ async def test_rebuy_skips_a_product_that_left_the_catalog(
     VERSÃO BANCO REAL (achado 1 do code review — substitui a versão com
     dublê que a primeira rodada desta task tinha escrito; essa versão
     continua abaixo, renomeada, como checagem rápida de unidade).
-    `order_items.product_id` tem `ForeignKey("products.id")`
-    (`app/models/pedido.py`) — o MONÓLITO declara a mesma coluna SEM FK,
-    de propósito: um pedido é registro histórico e o catálogo tem que
+
+    Até a task C10, `order_items.product_id` tinha `ForeignKey("products.id")`
+    (`app/models/pedido.py`) enquanto o MONÓLITO declarava a mesma coluna SEM
+    FK, de propósito: um pedido é registro histórico e o catálogo tem que
     ficar livre para mudar por baixo dele (medido:
     `back-end/legacy/app/modules/orders/models.py:84`, só
-    `mapped_column(UUID(as_uuid=True), nullable=False)`, sem
-    `ForeignKey`). O commerce-service ACRESCENTOU uma FK que o legacy
-    nunca teve — dívida herdada da migração, registrada para quem for
-    dono de migrations, não desta task.
-
-    `SET session_replication_role = 'replica'` desliga os triggers de FK
-    (inclusive os internos de integridade referencial) só para esta
-    sessão — sem DDL, sem tocar no schema compartilhado pela suíte
-    inteira — e é restaurado no `finally` antes do commit final, para não
-    vazar para o próximo teste que reusar a conexão. Com isso, o produto
-    referenciado pelo pedido é apagado de verdade, e `POST
-    /orders/{id}/rebuy` roda inteiro sem nenhum dublê: `buscar_pedido`
-    resolve o pedido de verdade — prova ownership e resolução de id de
-    verdade, o que a versão com `monkeypatch` não podia provar — e
-    `cart_services.adicionar_item` levanta `CartProductNotFoundError` de
-    verdade ao não achar o produto apagado."""
+    `mapped_column(UUID(as_uuid=True), nullable=False)`, sem `ForeignKey`).
+    A task C10 (decisão do usuário, 2026-08-09) derrubou a FK
+    (`alembic/versions/73f26f88d679_drop_order_items_product_fk.py`) — o
+    `DELETE` abaixo já não precisa mais do contorno
+    `SET session_replication_role = 'replica'` que existia só para apagar o
+    produto apesar da FK. `POST /orders/{id}/rebuy` roda inteiro sem nenhum
+    dublê: `buscar_pedido` resolve o pedido de verdade — prova ownership e
+    resolução de id de verdade, o que a versão com `monkeypatch` não podia
+    provar — e `cart_services.adicionar_item` levanta
+    `CartProductNotFoundError` de verdade ao não achar o produto apagado."""
     order = (await client.post("/orders", headers=headers_for("student", sub=ALUNO))).json()
 
     produto_descontinuado = filled_cart[1]
-    await db_session.execute(text("SET session_replication_role = 'replica'"))
-    try:
-        await db_session.execute(delete(Product).where(Product.id == produto_descontinuado.id))
-        await db_session.commit()
-    finally:
-        await db_session.execute(text("SET session_replication_role = 'origin'"))
-        await db_session.commit()
+    await db_session.execute(delete(Product).where(Product.id == produto_descontinuado.id))
+    await db_session.commit()
 
     r = await client.post(f"/orders/{order['id']}/rebuy", headers=headers_for("student", sub=ALUNO))
     assert r.status_code == 200, r.text
