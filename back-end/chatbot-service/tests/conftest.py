@@ -32,10 +32,7 @@ from app.main import app
 
 @pytest.fixture(scope="session")
 async def test_engine() -> AsyncIterator[AsyncEngine]:
-    # Nenhum model existe ainda neste ponto da migração (fase 2, bloco D) — o
-    # módulo `support` (app/models/suporte.py) chega na Task D3, que deve
-    # acrescentar aqui:
-    #     from app.models import suporte as suporte_models
+    from app.models import suporte as suporte_models  # noqa: F401 -- registra em Base.metadata
 
     engine = create_async_engine(settings.database_url_test, echo=False, future=True)
     async with engine.begin() as conn:

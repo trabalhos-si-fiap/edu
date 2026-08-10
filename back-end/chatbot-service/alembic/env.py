@@ -10,10 +10,7 @@ from app.config import settings
 from app.database import Base
 
 # Importa os models para que registrem em Base.metadata antes do autogenerate.
-# Nenhum model existe ainda neste ponto da migração (fase 2, bloco D) — o
-# módulo `support` (app/models/suporte.py) chega na Task D3, que deve
-# acrescentar aqui:
-#     from app.models import suporte as suporte_models
+from app.models import suporte as suporte_models  # noqa: F401 -- registra em Base.metadata
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)
