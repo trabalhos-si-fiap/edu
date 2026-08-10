@@ -111,7 +111,11 @@ class OrderSummary {
       case OrderSummaryStatus.delivered:
       // Um pedido cancelado não está no stepper. Devolve o último índice
       // para o widget não renderizar barra de progresso pela metade; quem
-      // decide não mostrar o stepper é a tela, via `isFinished`.
+      // tira um pedido cancelado do caminho do stepper é
+      // `OrdersProvider.activeOrders` (orders_provider.dart), que filtra por
+      // `isFinished` antes de a tela receber a lista — a tela em si nunca lê
+      // `isFinished` (medido: `grep -rn "isDelivered\|isFinished\|isCancelled"
+      // front-end-flutter/lib/`, rodada de correção 1, Minor 3).
       case OrderSummaryStatus.cancelled:
         return 2;
     }
