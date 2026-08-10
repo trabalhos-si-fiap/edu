@@ -22,7 +22,7 @@ import pytest
 from app.models.pedido import Order, OrderItem
 from app.schemas.rastreio import TrackingStepStatus
 from app.services.rastreio_builder import build_order_tracking
-from app.services.status_pedido import StatusPedido
+from app.services.status_pedido import StatusContrato, StatusPedido, status_do_contrato
 
 _CREATED = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
 _UPDATED = _CREATED + timedelta(minutes=2)
@@ -164,6 +164,21 @@ def test_tracking_of_a_cancelled_order_does_not_raise() -> None:
     tracking = build_order_tracking(order)
     assert tracking.headline == "Pedido cancelado"
     assert all(s.status == TrackingStepStatus.PENDING for s in tracking.steps)
+
+
+@pytest.mark.parametrize("status", list(StatusPedido))
+def test_payload_status_mirrors_the_contract_status(status: StatusPedido) -> None:
+    """`OrderTrackingOut.status` (divergência deliberada nº 7 — o legacy não
+    tem esse campo) espelha o valor público de `status_do_contrato`, para
+    todos os nove estados internos, não só `cancelled`."""
+    payload = build_order_tracking(_order_falso(status.value))
+    assert payload.status == status_do_contrato(status.value)
+
+
+def test_cancelled_order_tracking_status_is_cancelled() -> None:
+    order = _order_falso(StatusPedido.CANCELADO.value)
+    payload = build_order_tracking(order)
+    assert payload.status == StatusContrato.CANCELLED
 
 
 def test_cancelled_order_still_returns_an_estimated_arrival() -> None:

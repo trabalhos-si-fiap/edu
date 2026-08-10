@@ -53,7 +53,9 @@ def headers_for(role: str, sub: str) -> dict[str, str]:
 ALUNO = str(uuid.uuid4())
 
 
-async def _tracked_order(db_session, aluno_id: str) -> Order:
+async def _tracked_order(
+    db_session, aluno_id: str, status: str = StatusPedido.EM_SEPARACAO.value
+) -> Order:
     """Pedido persistido, em andamento, de propriedade de `aluno_id`.
 
     `order_items.product_id` tem FK para `products` (medido rodando o Red
@@ -61,6 +63,10 @@ async def _tracked_order(db_session, aluno_id: str) -> Order:
     legacy usa, estoura `IntegrityError` — mesmo achado já documentado em
     `test_orders_routes.py::test_order_item_snapshots_the_product`). Por
     isso semeia um `Product` real antes do item.
+
+    `status` é `EM_SEPARACAO` por padrão (o que os testes existentes
+    esperavam); testes que precisam de outro estado (ex.: `CANCELADO`,
+    para o campo `status` do rastreio) passam o valor explicitamente.
     """
     produto = Product(name="Apostila Ed. 5.0", price=Decimal("100.00"), type="apostila")
     db_session.add(produto)
@@ -70,7 +76,7 @@ async def _tracked_order(db_session, aluno_id: str) -> Order:
         user_id=aluno_id,
         total=Decimal("100.00"),
         payment_method="pix",
-        status=StatusPedido.EM_SEPARACAO.value,
+        status=status,
         items=[
             OrderItem(
                 product_id=produto.id,
@@ -141,6 +147,8 @@ async def test_get_order_tracking_matches_flutter_contract(client, db_session) -
     body = resp.json()
     # Exatamente as chaves que `OrderModel.fromJson` lê
     # (front-end-flutter/lib/features/order_tracking/domain/order_model.dart).
+    # `status` é divergência deliberada nº 7: o legacy não tem esse campo no
+    # payload de rastreio (ver docs/back-end/commerce-parity.md).
     assert set(body) == {
         "id",
         "headline",
@@ -151,6 +159,7 @@ async def test_get_order_tracking_matches_flutter_contract(client, db_session) -
         "kit",
         "carrier",
         "map_url",
+        "status",
     }
     assert body["id"] == str(order.id)
     assert body["carrier"]
@@ -169,6 +178,23 @@ async def test_get_order_tracking_matches_flutter_contract(client, db_session) -
 
     assert set(body["location"]) == {"name", "city", "state", "updated_at"}
     assert all(set(item) == {"name", "subtitle"} for item in body["kit"])
+
+
+async def test_get_order_tracking_of_a_cancelled_order_returns_cancelled_status(
+    client, db_session
+) -> None:
+    """Divergência deliberada nº 7: o campo `status` é o que o Flutter usa
+    para parar o polling de rastreio de um pedido cancelado (a timeline
+    inteira fica PENDING nesse caso, então `isDelivered` nunca vira
+    verdadeiro sozinho — ver `order_provider.dart`)."""
+    aluno_id = str(uuid.uuid4())
+    order = await _tracked_order(db_session, aluno_id, status=StatusPedido.CANCELADO.value)
+
+    resp = await client.get(
+        f"/orders/{order.id}/tracking", headers=headers_for("student", aluno_id)
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "cancelled"
 
 
 async def test_get_order_tracking_unknown_order_returns_404(client) -> None:
