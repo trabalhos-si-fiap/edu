@@ -405,6 +405,57 @@ async def test_get_order_route_without_address_returns_503(
     assert resp.status_code == 503
 
 
+async def test_get_order_route_cached_by_owner_is_not_served_to_a_stranger(
+    client, db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regressão do achado Important 2 da rodada de correção 1: o cache de
+    rota tem que ficar atrás da checagem de ownership (`buscar_pedido`),
+    nunca na frente dela. Popula o cache como o DONO primeiro, depois pede a
+    mesma rota como um ESTRANHO — a resposta tem que ser 404, com o mesmo
+    corpo de um pedido inexistente, cache ou não.
+
+    Sob a reordenação que o revisor testou (bloco de cache movido para ANTES
+    de `buscar_pedido` em `app/services/rastreio.py`), este teste FALHA: o
+    estranho recebe 200 com a rota do dono. Ver task-C9-report.md, "Rodada
+    de correção 1", achado Important 2, para as duas rodadas medidas
+    (mutado e revertido).
+    """
+    owner = str(uuid.uuid4())
+    stranger = str(uuid.uuid4())
+    monkeypatch.setattr(settings, "google_maps_api_key", "test-key")
+    order = await _seed_pedido_com_endereco(db_session, user_id=owner)
+
+    async def fake_fetch(client, *, origin, destination, api_key):
+        return DirectionsResult(
+            polyline="enc-poly",
+            distance_text="32 km",
+            distance_km=32.0,
+            duration_text="48 min",
+            duration_minutes=48,
+            destination_latitude=-23.1857,
+            destination_longitude=-46.8978,
+        )
+
+    monkeypatch.setattr("app.services.rastreio.directions.fetch_directions", fake_fetch)
+
+    # O dono pede a rota primeiro — isso popula o cache.
+    owner_resp = await client.get(
+        f"/orders/{order.id}/route", headers=headers_for("student", owner)
+    )
+    assert owner_resp.status_code == 200
+
+    # O estranho pede a MESMA rota depois. Tem que ser indistinguível de um
+    # pedido que nunca existiu.
+    stranger_resp = await client.get(
+        f"/orders/{order.id}/route", headers=headers_for("student", stranger)
+    )
+    unknown_resp = await client.get(
+        f"/orders/{uuid.uuid4()}/route", headers=headers_for("student", stranger)
+    )
+    assert stranger_resp.status_code == 404
+    assert stranger_resp.json() == unknown_resp.json()
+
+
 async def test_route_503_never_echoes_the_provider_detail(
     client, db_session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
