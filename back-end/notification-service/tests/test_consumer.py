@@ -1,4 +1,5 @@
 import json
+import uuid
 from contextlib import asynccontextmanager
 from unittest.mock import MagicMock
 
@@ -155,14 +156,15 @@ async def test_order_status_changed_creates_a_notification(
     db_session, test_session_factory, monkeypatch
 ):
     monkeypatch.setattr(consumer_module, "async_session", test_session_factory)
+    pedido_id = str(uuid.uuid4())
 
     await consumer_module.handle_order_status_changed(
-        fake_message({"aluno_id": STUDENT_ID, "pedido_id": 7, "status": "EM_TRANSITO"})
+        fake_message({"aluno_id": STUDENT_ID, "pedido_id": pedido_id, "status": "EM_TRANSITO"})
     )
 
     stored = (await db_session.execute(select(Notificacao))).scalars().all()
     assert len(stored) == 1
-    assert stored[0].pedido_id == 7
+    assert str(stored[0].pedido_id) == pedido_id
     assert "entrega" in stored[0].descricao.lower()
 
 
@@ -195,7 +197,13 @@ async def test_order_status_changed_aguardando_separacao_still_notifies(
     monkeypatch.setattr(consumer_module, "async_session", test_session_factory)
 
     await consumer_module.handle_order_status_changed(
-        fake_message({"aluno_id": STUDENT_ID, "pedido_id": 7, "status": "AGUARDANDO_SEPARACAO"})
+        fake_message(
+            {
+                "aluno_id": STUDENT_ID,
+                "pedido_id": str(uuid.uuid4()),
+                "status": "AGUARDANDO_SEPARACAO",
+            }
+        )
     )
 
     stored = (await db_session.execute(select(Notificacao))).scalars().all()
@@ -220,12 +228,13 @@ async def test_stock_issue_creates_a_notification_with_pedido_and_ocorrencia(
     db_session, test_session_factory, monkeypatch
 ):
     monkeypatch.setattr(consumer_module, "async_session", test_session_factory)
+    pedido_id = str(uuid.uuid4())
 
     await consumer_module.handle_stock_issue(
         fake_message(
             {
                 "aluno_id": STUDENT_ID,
-                "pedido_id": 3,
+                "pedido_id": pedido_id,
                 "ocorrencia_id": 9,
                 "produtos_sugeridos": [],
             }
@@ -234,7 +243,7 @@ async def test_stock_issue_creates_a_notification_with_pedido_and_ocorrencia(
 
     stored = (await db_session.execute(select(Notificacao))).scalars().all()
     assert len(stored) == 1
-    assert stored[0].pedido_id == 3
+    assert str(stored[0].pedido_id) == pedido_id
     assert stored[0].ocorrencia_id == 9
     assert stored[0].tipo == "order_status"
 
@@ -243,12 +252,13 @@ async def test_delivery_delayed_creates_a_notification_with_pedido_and_ocorrenci
     db_session, test_session_factory, monkeypatch
 ):
     monkeypatch.setattr(consumer_module, "async_session", test_session_factory)
+    pedido_id = str(uuid.uuid4())
 
     await consumer_module.handle_delivery_delayed(
         fake_message(
             {
                 "aluno_id": STUDENT_ID,
-                "pedido_id": 5,
+                "pedido_id": pedido_id,
                 "ocorrencia_id": 11,
                 "motivo": "Trânsito intenso",
             }
@@ -257,7 +267,7 @@ async def test_delivery_delayed_creates_a_notification_with_pedido_and_ocorrenci
 
     stored = (await db_session.execute(select(Notificacao))).scalars().all()
     assert len(stored) == 1
-    assert stored[0].pedido_id == 5
+    assert str(stored[0].pedido_id) == pedido_id
     assert stored[0].ocorrencia_id == 11
     assert "Trânsito intenso" in stored[0].descricao
 
@@ -333,3 +343,29 @@ async def test_revision_notification_falls_back_when_the_name_is_missing(
 
     notificacao = (await db_session.execute(select(Notificacao))).scalar_one()
     assert "seu conteúdo" in notificacao.descricao
+
+
+async def test_order_notification_stores_a_uuid_order_id(
+    db_session, test_session_factory, monkeypatch
+):
+    """Task C10: `Notificacao.pedido_id` era `Integer`, mas o commerce-service
+    publica `pedido_id` como string de UUID desde a task C3 (`orders.id` é
+    UUID) — o consumidor perdia toda notificação de pedido em silêncio
+    (`DataError`/`invalid input syntax for type integer`, dentro do
+    `message.process()`, sem chegar a nenhum log de aplicação). Depois da
+    migration, a coluna guarda o UUID de verdade."""
+    monkeypatch.setattr(consumer_module, "async_session", test_session_factory)
+    pedido_id = str(uuid.uuid4())
+
+    await consumer_module.handle_order_status_changed(
+        fake_message(
+            {
+                "pedido_id": pedido_id,
+                "aluno_id": STUDENT_ID,
+                "status": "EM_TRANSITO",
+            }
+        )
+    )
+
+    notificacao = (await db_session.execute(select(Notificacao))).scalar_one()
+    assert str(notificacao.pedido_id) == pedido_id
