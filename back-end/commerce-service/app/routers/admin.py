@@ -52,8 +52,33 @@ async def confirmar_pagamento(
     Encadear duas transições numa rota é o padrão que `finalizar_separacao`
     (separacao.py) já usa para SEPARADO -> AGUARDANDO_COLETA. As duas geram
     linha de histórico e evento, nessa ordem.
+
+    A primeira transição é CONDICIONAL ao pedido ainda estar em `CRIADO`, e
+    isso é o que torna a rota retentável. `transicionar_pedido` comita por
+    dentro e só então publica o evento, e `EventPublisher.publish`
+    (`edu_common.events`) propaga a exceção: um broker indisponível no meio
+    do clique do admin deixa `CRIADO -> CONFIRMADO` gravado e aborta antes
+    da segunda transição. `CONFIRMADO` não é estado de repouso — a fila de
+    separação seleciona `AGUARDANDO_SEPARACAO` e esta rota é a única que
+    oferece `CONFIRMADO -> AGUARDANDO_SEPARACAO` — então, sem o guard, o
+    segundo clique tentaria `CONFIRMADO -> CONFIRMADO`, que
+    `validar_transicao` recusa, e o pedido só sairia de lá por SQL manual.
+    Com o guard, o segundo clique retoma de onde parou e não duplica a
+    linha `CONFIRMADO` do histórico.
+
+    O `SELECT` abaixo NÃO precisa de `with_for_update()`: ele é uma dica de
+    idempotência, não o guarda de concorrência. Quem serializa é o
+    `SELECT ... FOR UPDATE` de dentro de `transicionar_pedido`, que relê o
+    status sob lock e reprova a transição inválida. Dois admins clicando ao
+    mesmo tempo continuam terminando em `AGUARDANDO_SEPARACAO` com um único
+    par de linhas no histórico; o perdedor recebe 400, com ou sem lock aqui.
     """
-    await transicionar_pedido(db, pedido_id, StatusPedido.CONFIRMADO.value, user["sub"])
+    result = await db.execute(select(Order).where(Order.id == pedido_id))
+    pedido = result.scalar_one_or_none()
+    if pedido is not None and pedido.status == StatusPedido.CRIADO.value:
+        await transicionar_pedido(db, pedido_id, StatusPedido.CONFIRMADO.value, user["sub"])
+    # Sem `if pedido is None`: um id inexistente cai no 404 de
+    # `transicionar_pedido`, que é a mesma resposta de antes deste guard.
     pedido = await transicionar_pedido(
         db, pedido_id, StatusPedido.AGUARDANDO_SEPARACAO.value, user["sub"]
     )

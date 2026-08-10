@@ -8,6 +8,7 @@ para traduzir o prefixo. Ver task-11-report.md."""
 import uuid
 from decimal import Decimal
 
+import pytest
 from edu_common.security import create_access_token
 from sqlalchemy import select
 
@@ -299,6 +300,95 @@ async def test_confirm_payment_lands_the_order_in_the_picking_queue(
         StatusPedido.CONFIRMADO.value,
         StatusPedido.AGUARDANDO_SEPARACAO.value,
     ]
+
+
+async def test_confirm_payment_recovers_after_the_first_publish_fails(
+    client, db_session, monkeypatch
+):
+    """Um publish que falha na PRIMEIRA transição não pode tornar o pedido
+    irrecuperável.
+
+    `transicionar_pedido` (app/routers/separacao.py) comita ANTES de
+    publicar o evento, e `EventPublisher.publish`
+    (packages/edu-common/src/edu_common/events.py) propaga a exceção. Se o
+    broker der um blip no meio do clique do admin, `CRIADO -> CONFIRMADO`
+    já está gravado e a rota estoura antes de encadear
+    `CONFIRMADO -> AGUARDANDO_SEPARACAO`.
+
+    `CONFIRMADO` não é estado de repouso: a fila de separação seleciona
+    `AGUARDANDO_SEPARACAO` (`separacao.py::fila_separacao`) e
+    `TRANSICOES_VALIDAS[CONFIRMADO]` só oferece `AGUARDANDO_SEPARACAO` e
+    `CANCELADO` — e `confirmar_pagamento` era a ÚNICA rota que oferecia a
+    primeira. Sem o guard de estado, o retry tentava `CONFIRMADO ->
+    CONFIRMADO`, que `validar_transicao` recusa, e o pedido só saía de lá
+    por SQL manual.
+
+    O teste força o blip no evento de `CONFIRMADO`, prova que o pedido fica
+    fora da fila, e então exige que um segundo clique — o gesto que o admin
+    realmente faz — o leve até `AGUARDANDO_SEPARACAO` SEM duplicar a linha
+    `CONFIRMADO` do histórico.
+    """
+    pedido = await _seed_pedido(db_session, status=StatusPedido.CRIADO.value)
+
+    async def _publish_com_blip(routing_key: str, payload: dict) -> None:
+        if payload.get("status") == StatusPedido.CONFIRMADO.value:
+            raise RuntimeError("blip do broker")
+
+    monkeypatch.setattr("app.routers.separacao.publish_event", _publish_com_blip)
+
+    with pytest.raises(RuntimeError, match="blip do broker"):
+        await client.patch(
+            f"/admin/orders/{pedido.id}/confirm-payment", headers=headers_for("admin")
+        )
+
+    await db_session.refresh(pedido)
+    assert pedido.status == StatusPedido.CONFIRMADO.value
+
+    fila = await client.get("/picking/queue", headers=headers_for("admin"))
+    assert fila.status_code == 200
+    assert str(pedido.id) not in {row["id"] for row in fila.json()}
+
+    eventos: list[tuple[str, dict]] = []
+
+    async def _publish_ok(routing_key: str, payload: dict) -> None:
+        eventos.append((routing_key, payload))
+
+    monkeypatch.setattr("app.routers.separacao.publish_event", _publish_ok)
+
+    retry = await client.patch(
+        f"/admin/orders/{pedido.id}/confirm-payment", headers=headers_for("admin")
+    )
+    assert retry.status_code == 200, retry.text
+    assert retry.json()["status"] == StatusPedido.AGUARDANDO_SEPARACAO.value
+
+    await db_session.refresh(pedido)
+    assert pedido.status == StatusPedido.AGUARDANDO_SEPARACAO.value
+
+    assert [h.status for h in await _historico_do_pedido(db_session, pedido.id)] == [
+        StatusPedido.CONFIRMADO.value,
+        StatusPedido.AGUARDANDO_SEPARACAO.value,
+    ]
+    assert [payload["status"] for _key, payload in eventos] == [
+        StatusPedido.AGUARDANDO_SEPARACAO.value
+    ]
+
+    fila_depois = await client.get("/picking/queue", headers=headers_for("admin"))
+    assert fila_depois.status_code == 200
+    assert str(pedido.id) in {row["id"] for row in fila_depois.json()}
+
+
+async def test_confirm_payment_on_an_unknown_order_still_answers_404(client):
+    """Guarda do ramo `pedido is None` do guard de estado.
+
+    Não nasceu vermelho: o 404 sempre veio de `transicionar_pedido` e
+    continua vindo de lá. Existe porque o guard introduziu um caminho em que
+    `scalar_one_or_none()` devolve `None` — sem este teste, trocá-lo por um
+    `scalar_one()` (que estoura 500) passaria despercebido.
+    """
+    response = await client.patch(
+        f"/admin/orders/{uuid.uuid4()}/confirm-payment", headers=headers_for("admin")
+    )
+    assert response.status_code == 404
 
 
 async def test_inventory_listing_actually_applies_limit_and_offset(client, db_session):
