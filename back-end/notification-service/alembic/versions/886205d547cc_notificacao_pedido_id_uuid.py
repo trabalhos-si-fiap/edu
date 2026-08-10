@@ -27,6 +27,15 @@ referência real. `index=True` acompanha o model (`app/models/notificacao.py`)
 (`grep -rn "Notificacao.pedido_id\\|pedido_id ==" app/` vazio), então o
 índice não tem leitor ainda; mantido por seguir o desenho do model, não por
 necessidade medida.
+
+`downgrade()` — achado da revisão (fix round 1, Minor promovido #5): a
+primeira versão fazia `ALTER ... TYPE integer USING NULL` incondicional. Um
+UUID não tem correspondência com nenhum inteiro válido — não é como a FK da
+dívida #1 do commerce (onde o downgrade É seguro se não houver linha
+órfã); aqui QUALQUER `pedido_id` preenchido é descartado, sempre, porque não
+existe conversão de volta. O guard verifica se a coluna já tem dado de
+verdade e recusa o downgrade nesse caso, em vez de perder o valor em
+silêncio.
 """
 
 from collections.abc import Sequence
@@ -55,8 +64,23 @@ def upgrade() -> None:
     op.create_index(op.f("ix_notificacoes_pedido_id"), "notificacoes", ["pedido_id"], unique=False)
 
 
+def _falhar_se_pedido_id_tiver_dado(conn) -> None:
+    total = conn.execute(
+        sa.text("SELECT count(*) FROM notificacoes WHERE pedido_id IS NOT NULL")
+    ).scalar_one()
+    if total:
+        raise RuntimeError(
+            f"{total} notificacoes têm pedido_id preenchido. Não há downgrade seguro: "
+            "um UUID não corresponde a nenhum valor inteiro válido — "
+            "'ALTER ... TYPE integer USING NULL' descartaria esses valores em "
+            "silêncio. Restaure de backup ou aceite a perda explicitamente."
+        )
+
+
 def downgrade() -> None:
     """Downgrade schema."""
+    conn = op.get_bind()
+    _falhar_se_pedido_id_tiver_dado(conn)
     op.drop_index(op.f("ix_notificacoes_pedido_id"), table_name="notificacoes")
     op.alter_column(
         "notificacoes",
