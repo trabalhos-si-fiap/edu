@@ -39,9 +39,23 @@ dropa. Um banco construído por `Base.metadata.create_all()` (como
 `tests/conftest.py` faz) nomearia a constraint `order_items_product_id_fkey`
 em vez disso — por isso este nome só pôde ser medido contra a cadeia real de
 migrations, não contra a suíte.
+
+`downgrade()` — achado da revisão (fix round 1, Minor promovido #5): a
+primeira versão só recriava a FK, sem guard. Isso é seguro SE nenhum
+`order_items.product_id` órfão existir, mas essa é exatamente a situação
+que esta migration existe para permitir — um `order_items` cujo produto foi
+apagado do catálogo. Sobre um banco assim, `op.create_foreign_key`
+estouraria `ForeignKeyViolationError` cru do Postgres, sem explicação
+nenhuma. Diferente de `bd410bba0e85`/`099099b0c1a8` (conversões
+irreversíveis por construção, `raise RuntimeError` incondicional), aqui o
+downgrade É possível quando não há linha órfã — por isso o guard checa dado
+de verdade, no mesmo espírito de `_falhar_se_houver_dado` daquelas
+revisions, só que do lado do `downgrade()`.
 """
 
 from collections.abc import Sequence
+
+import sqlalchemy as sa
 
 from alembic import op
 
@@ -59,8 +73,27 @@ def upgrade() -> None:
     op.drop_constraint(_FK_ORDER_ITEMS_PRODUCT_ID, "order_items", type_="foreignkey")
 
 
+def _falhar_se_downgrade_quebrar_referencia(conn) -> None:
+    total = conn.execute(
+        sa.text(
+            "SELECT count(*) FROM order_items oi "
+            "WHERE NOT EXISTS (SELECT 1 FROM products p WHERE p.id = oi.product_id)"
+        )
+    ).scalar_one()
+    if total:
+        raise RuntimeError(
+            f"{total} linha(s) de order_items apontam para um product_id que não "
+            "existe mais em products — exatamente o estado que esta migration existe "
+            "para permitir. Recriar a FK order_items.product_id -> products.id "
+            "estouraria ForeignKeyViolationError nessas linhas. Não há downgrade "
+            "seguro sem antes resolver (ou apagar) essas linhas órfãs à mão."
+        )
+
+
 def downgrade() -> None:
     """Downgrade schema."""
+    conn = op.get_bind()
+    _falhar_se_downgrade_quebrar_referencia(conn)
     op.create_foreign_key(
         _FK_ORDER_ITEMS_PRODUCT_ID, "order_items", "products", ["product_id"], ["id"]
     )
