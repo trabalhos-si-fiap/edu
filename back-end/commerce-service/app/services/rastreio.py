@@ -92,7 +92,17 @@ async def rota_do_pedido(
         # migration, ou sem endereço); não há para onde rotear.
         raise RouteUnavailableError("order has no delivery address")
 
-    cache_key = f"{_ROUTE_CACHE_PREFIX}{order_id}"
+    # A chave carrega o DONO, não só o pedido, mesmo com o ownership check já
+    # feito acima em `buscar_pedido`. Defesa em profundidade (regra 2 do
+    # CLAUDE.md): se esta função ou uma futura reescrita algum dia inverter a
+    # ordem entre o cache lookup e o ownership check, uma chave sem o dono
+    # devolveria a rota (com `ship_label` e as coordenadas do destino) do
+    # dono para qualquer estranho autenticado que pedisse o mesmo
+    # `order_id` — achado Important 2 da rodada de correção 1, medido pelo
+    # revisor sob exatamente essa reordenação. Não há cache vivo em produção
+    # para esta feature (ela nasce nesta branch), então não há entrada órfã
+    # sob o prefixo antigo a migrar.
+    cache_key = f"{_ROUTE_CACHE_PREFIX}{user_id}:{order_id}"
     cached = await redis.get(cache_key)
     if cached is not None:
         return RouteOut.model_validate_json(cached)
