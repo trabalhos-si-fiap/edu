@@ -66,18 +66,34 @@ async def confirmar_pagamento(
     Com o guard, o segundo clique retoma de onde parou e não duplica a
     linha `CONFIRMADO` do histórico.
 
-    O `SELECT` abaixo NÃO precisa de `with_for_update()`: ele é uma dica de
-    idempotência, não o guarda de concorrência. Quem serializa é o
-    `SELECT ... FOR UPDATE` de dentro de `transicionar_pedido`, que relê o
-    status sob lock e reprova a transição inválida. Dois admins clicando ao
-    mesmo tempo continuam terminando em `AGUARDANDO_SEPARACAO` com um único
-    par de linhas no histórico; o perdedor recebe 400, com ou sem lock aqui.
+    O `SELECT` abaixo lê a COLUNA (`select(Order.status)`), não a entidade
+    `Order`, e isso é obrigatório — não estilo. Ler a entidade a coloca no
+    identity map da sessão; o `SELECT ... FOR UPDATE` de dentro de
+    `transicionar_pedido`, na MESMA sessão, traz a linha nova do banco mas o
+    ORM devolve a instância já carregada **sem repopular os atributos**
+    (comportamento padrão do SQLAlchemy — só `populate_existing()` repopula).
+    O `FOR UPDATE` fica desarmado para esta rota: o segundo admin revalida
+    contra um status velho, passa, e reescreve por cima do primeiro. Medido
+    com duas sessões contra Postgres, interleave determinístico (o pre-read
+    de B, depois a rota inteira de A, depois B): com leitura de entidade B
+    recebe 200, o histórico vira
+    `[CONFIRMADO, AGUARDANDO_SEPARACAO, CONFIRMADO, AGUARDANDO_SEPARACAO]`,
+    o evento sai duas vezes e o pedido volta para trás na fila; com a
+    leitura escalar B recebe 400 e o histórico fica no par único. Coberto
+    por `test_two_concurrent_confirm_payments_leave_one_pair_of_transitions`.
+
+    Escalar, e não `with_for_update()` na entidade: o lock aqui também
+    corrige o envenenamento, mas fica SEGURADO por toda a rota — na mesma
+    medição, o admin concorrente bloqueia até o timeout de 3 s em vez de
+    receber 400. A leitura escalar é uma dica de idempotência que não
+    envenena nada e não segura lock nenhum; quem serializa continua sendo o
+    `SELECT ... FOR UPDATE` de `transicionar_pedido`.
     """
-    result = await db.execute(select(Order).where(Order.id == pedido_id))
-    pedido = result.scalar_one_or_none()
-    if pedido is not None and pedido.status == StatusPedido.CRIADO.value:
+    result = await db.execute(select(Order.status).where(Order.id == pedido_id))
+    status_atual = result.scalar_one_or_none()
+    if status_atual == StatusPedido.CRIADO.value:
         await transicionar_pedido(db, pedido_id, StatusPedido.CONFIRMADO.value, user["sub"])
-    # Sem `if pedido is None`: um id inexistente cai no 404 de
+    # Sem `if status_atual is None`: um id inexistente cai no 404 de
     # `transicionar_pedido`, que é a mesma resposta de antes deste guard.
     pedido = await transicionar_pedido(
         db, pedido_id, StatusPedido.AGUARDANDO_SEPARACAO.value, user["sub"]

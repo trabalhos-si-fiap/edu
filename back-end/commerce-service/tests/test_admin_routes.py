@@ -5,6 +5,7 @@ encontrada em `GET /admin/estoque` / `PATCH /admin/estoque/{id}/ajustar"
 (sem response_model nenhum) enquanto essas rotas já precisavam ser tocadas
 para traduzir o prefixo. Ver task-11-report.md."""
 
+import asyncio
 import uuid
 from decimal import Decimal
 
@@ -375,6 +376,90 @@ async def test_confirm_payment_recovers_after_the_first_publish_fails(
     fila_depois = await client.get("/picking/queue", headers=headers_for("admin"))
     assert fila_depois.status_code == 200
     assert str(pedido.id) in {row["id"] for row in fila_depois.json()}
+
+
+async def test_two_concurrent_confirm_payments_leave_one_pair_of_transitions(
+    client, db_session, _stub_publish_event, monkeypatch
+):
+    """Dois admins clicando ao mesmo tempo: um passa, o outro leva 400.
+
+    O guard de estado de `confirmar_pagamento` (admin.py) lê o pedido ANTES
+    de delegar a `transicionar_pedido`, e é `transicionar_pedido` quem toma
+    o `SELECT ... FOR UPDATE`. Se o guard ler a ENTIDADE `Order`, ela entra
+    no identity map da sessão; o `SELECT ... FOR UPDATE` seguinte, na mesma
+    sessão, traz a linha nova do banco mas o ORM devolve a instância já
+    carregada SEM repopular os atributos (comportamento padrão do
+    SQLAlchemy — só `populate_existing()` repopula). O `FOR UPDATE` fica
+    desarmado para esta rota: o perdedor revalida contra um status velho,
+    passa, e reescreve a transição por cima da do vencedor.
+
+    O envenenamento depende de a instância continuar VIVA: o identity map
+    é de referências fracas, e a rota mantém a referência na local `pedido`
+    até a segunda transição. Este teste passa pela rota de verdade
+    justamente por isso — uma cópia do corpo que soltasse a entidade não
+    reproduziria o defeito (medido: soltando a referência, o mesmo
+    interleave devolve 400 mesmo com a leitura de entidade).
+
+    Interleave determinístico, sem `sleep`: o wrapper abaixo suspende a
+    PRIMEIRA chamada a `transicionar_pedido` que a rota fizer. B é lançado
+    primeiro, então a primeira chamada é dele — ele fica parado exatamente
+    entre o pre-read e a transição. A roda inteiro nesse meio-tempo, e só
+    então B é liberado. O wrapper não substitui nada da lógica sob teste:
+    delega para a função real.
+    """
+    import app.routers.admin as admin_router
+
+    pedido = await _seed_pedido(db_session, status=StatusPedido.CRIADO.value)
+
+    transicionar_real = admin_router.transicionar_pedido
+    ja_suspendeu = False
+    b_no_ponto = asyncio.Event()
+    liberar_b = asyncio.Event()
+
+    async def _suspende_a_primeira_chamada(db, pedido_id, novo_status, user_id, observacao=None):
+        nonlocal ja_suspendeu
+        if not ja_suspendeu:
+            ja_suspendeu = True
+            b_no_ponto.set()
+            await liberar_b.wait()
+        return await transicionar_real(db, pedido_id, novo_status, user_id, observacao)
+
+    monkeypatch.setattr("app.routers.admin.transicionar_pedido", _suspende_a_primeira_chamada)
+
+    admin_b = "00000000-0000-0000-0000-0000000000b0"
+    requisicao_b = asyncio.create_task(
+        client.patch(
+            f"/admin/orders/{pedido.id}/confirm-payment", headers=headers_for("admin", admin_b)
+        )
+    )
+    await asyncio.wait_for(b_no_ponto.wait(), timeout=5)
+
+    resposta_a = await asyncio.wait_for(
+        client.patch(f"/admin/orders/{pedido.id}/confirm-payment", headers=headers_for("admin")),
+        timeout=5,
+    )
+    assert resposta_a.status_code == 200, resposta_a.text
+    assert resposta_a.json()["status"] == StatusPedido.AGUARDANDO_SEPARACAO.value
+
+    liberar_b.set()
+    resposta_b = await asyncio.wait_for(requisicao_b, timeout=5)
+
+    assert resposta_b.status_code == 400, resposta_b.text
+    assert "Transição inválida" in resposta_b.json()["detail"]
+
+    # Nem histórico duplicado, nem evento duplicado, nem transição retrógrada.
+    assert [h.status for h in await _historico_do_pedido(db_session, pedido.id)] == [
+        StatusPedido.CONFIRMADO.value,
+        StatusPedido.AGUARDANDO_SEPARACAO.value,
+    ]
+    assert [
+        payload["status"] for key, payload in _stub_publish_event if key == "order.status_changed"
+    ] == [
+        StatusPedido.CONFIRMADO.value,
+        StatusPedido.AGUARDANDO_SEPARACAO.value,
+    ]
+    await db_session.refresh(pedido)
+    assert pedido.status == StatusPedido.AGUARDANDO_SEPARACAO.value
 
 
 async def test_confirm_payment_on_an_unknown_order_still_answers_404(client):
