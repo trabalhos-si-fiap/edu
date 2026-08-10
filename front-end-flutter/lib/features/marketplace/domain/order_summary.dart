@@ -1,6 +1,14 @@
-/// Status de entrega de um pedido. Espelha `OrderStatus` do backend
-/// (pending -> confirmed -> separating -> out_for_delivery -> delivered).
-enum OrderSummaryStatus { pending, confirmed, separating, outForDelivery, delivered }
+/// Status de entrega de um pedido. Espelha `StatusContrato` do backend
+/// (pending -> confirmed -> separating -> out_for_delivery -> delivered),
+/// mais `cancelled`, que é a saída do fluxo e não um passo dele.
+enum OrderSummaryStatus {
+  pending,
+  confirmed,
+  separating,
+  outForDelivery,
+  delivered,
+  cancelled,
+}
 
 OrderSummaryStatus _statusFromJson(String? raw) {
   switch (raw) {
@@ -12,6 +20,11 @@ OrderSummaryStatus _statusFromJson(String? raw) {
       return OrderSummaryStatus.outForDelivery;
     case 'delivered':
       return OrderSummaryStatus.delivered;
+    // Sem este caso, o `default` abaixo faria um pedido cancelado aparecer
+    // como "Pendente", no passo 0 do stepper, para sempre — e ele nunca
+    // sairia da lista de pedidos ativos.
+    case 'cancelled':
+      return OrderSummaryStatus.cancelled;
     case 'pending':
     default:
       return OrderSummaryStatus.pending;
@@ -75,6 +88,14 @@ class OrderSummary {
 
   bool get isDelivered => status == OrderSummaryStatus.delivered;
 
+  /// Pedido que saiu do fluxo: entregue OU cancelado.
+  ///
+  /// `isDelivered` sozinho não serve para dividir "ativos" de "concluídos":
+  /// um pedido cancelado não está entregue, mas também não está em curso.
+  bool get isFinished =>
+      status == OrderSummaryStatus.delivered ||
+      status == OrderSummaryStatus.cancelled;
+
   /// Soma das quantidades de todos os itens do pedido.
   int get totalQuantity => items.fold(0, (sum, item) => sum + item.quantity);
 
@@ -88,6 +109,10 @@ class OrderSummary {
       case OrderSummaryStatus.outForDelivery:
         return 1;
       case OrderSummaryStatus.delivered:
+      // Um pedido cancelado não está no stepper. Devolve o último índice
+      // para o widget não renderizar barra de progresso pela metade; quem
+      // decide não mostrar o stepper é a tela, via `isFinished`.
+      case OrderSummaryStatus.cancelled:
         return 2;
     }
   }
@@ -105,6 +130,8 @@ class OrderSummary {
         return 'Saiu para entrega';
       case OrderSummaryStatus.delivered:
         return 'Entregue';
+      case OrderSummaryStatus.cancelled:
+        return 'Cancelado';
     }
   }
 }

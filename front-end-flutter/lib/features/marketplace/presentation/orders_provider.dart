@@ -33,13 +33,15 @@ class OrdersProvider extends ChangeNotifier {
   List<OrderSummary> get orders => _orders;
   String? get errorMessage => _errorMessage;
 
-  /// Pedidos ainda em andamento (não entregues), na ordem retornada.
+  /// Pedidos ainda em andamento (não entregues nem cancelados), na ordem
+  /// retornada.
   List<OrderSummary> get activeOrders =>
-      _orders.where((o) => !o.isDelivered).toList();
+      _orders.where((o) => !o.isFinished).toList();
 
-  /// Pedidos já entregues, na ordem retornada.
+  /// Pedidos que já saíram do fluxo — entregues ou cancelados —, na ordem
+  /// retornada.
   List<OrderSummary> get deliveredOrders =>
-      _orders.where((o) => o.isDelivered).toList();
+      _orders.where((o) => o.isFinished).toList();
 
   /// `true` quando a carga foi bem-sucedida mas não há pedidos.
   bool get isEmpty =>
