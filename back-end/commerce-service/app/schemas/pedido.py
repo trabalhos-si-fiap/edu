@@ -96,8 +96,8 @@ class PedidoStaffOut(BaseModel):
     português nesta classe", contradita pela própria declaração do campo
     `endereco_entrega: str` nesta classe.
 
-    Classe PLANA (não herda de `PedidoOut`) porque `endereco_entrega` não é
-    mais uma coluna do model — é composta por `endereco_formatado` a partir
+    Classe PLANA, sem base comum com `OrderOut`, porque `endereco_entrega`
+    não é mais uma coluna do model — é composta por `endereco_formatado` a partir
     de sete dos oito `ship_*` (ver o docstring de `endereco_formatado` para
     o porquê do oitavo, `ship_label`, ficar de fora).
     `from_attributes`/`model_validate` não alcançaria isso (não há atributo

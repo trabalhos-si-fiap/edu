@@ -37,15 +37,12 @@ class Order(Base):
 
     `pedido_status_historico` continua em português: sem cliente.
 
-    `status` guarda o estado INTERNO (nove valores, `StatusPedido`). A
-    função que traduz para os seis do contrato (`StatusContrato`) EXISTE
-    (`app/services/status_pedido.py::status_do_contrato`) mas ainda NÃO
-    está ligada a nenhuma resposta: `grep -rn "status_do_contrato"
-    app/routers/ app/schemas/` devolve zero linhas (exit 1), e
-    `PedidoOut.status` é `str` alimentado por `from_attributes`, ou seja,
-    serializa o valor interno cru. Quem liga é a task C6, em
-    `OrderOut.de_order` (`status=status_do_contrato(order.status)`); o
-    contrato de staff continua expondo o valor interno de propósito.
+    `status` guarda o estado INTERNO (nove valores, `StatusPedido`). Quem
+    traduz para os seis do contrato (`StatusContrato`) é
+    `app/services/status_pedido.py::status_do_contrato`, e a ligação com a
+    resposta do aluno foi feita pela task C6 em `OrderOut.de_order`
+    (`app/schemas/pedido.py`). A visão de staff, `PedidoStaffOut`, continua
+    expondo o valor interno de propósito.
     """
 
     __tablename__ = "orders"
