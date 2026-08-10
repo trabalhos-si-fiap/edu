@@ -1,6 +1,7 @@
 import json
 from collections.abc import AsyncIterator
 
+import httpx
 import pytest
 from fakeredis.aioredis import FakeRedis
 from httpx import ASGITransport, AsyncClient
@@ -15,6 +16,38 @@ from app.config import settings
 from app.database import Base, get_db
 from app.main import app
 from app.redis_client import get_redis
+
+
+@pytest.fixture(autouse=True)
+def _block_real_network_calls(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Trava estrutural: nenhum teste pode falar com a rede de verdade.
+
+    Achado Important 3 da revisão da task C9, rodada de correção 1: a
+    proteção contra chamada real à Google era só AMBIENTAL — cada teste que
+    passa por `directions.fetch_directions` monkeypatcha a função, mas três
+    testes de tracking (`test_get_order_route_unknown_order_raises`,
+    `test_get_order_route_foreign_order_raises`,
+    `test_get_order_route_without_address_raises`) nunca chegam a chamar
+    `fetch_directions` porque um raise anterior (pedido inexistente/alheio,
+    sem endereço) os intercepta antes. Nada IMPEDE estruturalmente uma
+    chamada real; o revisor mediu isso ao remover o filtro de ownership: a
+    suíte disparou `GET https://maps.googleapis.com/maps/api/directions/
+    json?...&key=test-key` de verdade. Chamada de rede real para a Google é
+    proibição absoluta do projeto (gasta cota paga).
+
+    `httpx.AsyncClient()` sem `transport=` explícito usa
+    `httpx.AsyncHTTPTransport` por baixo — é esse método que qualquer
+    request real acabaria atravessando. `test_tracking_directions.py` usa
+    `httpx.MockTransport` explicitamente (não `AsyncHTTPTransport`), então
+    não é afetado por este patch; o `client` de `tests/conftest.py` usa
+    `ASGITransport`, também uma classe diferente — nenhum dos dois passa por
+    aqui.
+    """
+
+    async def _blocked(self, request: httpx.Request) -> httpx.Response:
+        raise RuntimeError(f"chamada de rede real tentada: {request.url}")
+
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", _blocked)
 
 
 @pytest.fixture(scope="session")
