@@ -40,7 +40,7 @@ class OrdersProvider extends ChangeNotifier {
 
   /// Pedidos que já saíram do fluxo — entregues ou cancelados —, na ordem
   /// retornada.
-  List<OrderSummary> get deliveredOrders =>
+  List<OrderSummary> get finishedOrders =>
       _orders.where((o) => o.isFinished).toList();
 
   /// `true` quando a carga foi bem-sucedida mas não há pedidos.

@@ -61,10 +61,10 @@ void main() {
     await provider.load();
 
     expect(provider.activeOrders.map((o) => o.id), ['a', 'c']);
-    expect(provider.deliveredOrders.map((o) => o.id), ['b', 'd']);
+    expect(provider.finishedOrders.map((o) => o.id), ['b', 'd']);
   });
 
-  test('a cancelled order is not active and lands in deliveredOrders too', () async {
+  test('a cancelled order is not active and lands in finishedOrders too', () async {
     final service = _FakeService(
       onFetch: () async => [
         _order('a', OrderSummaryStatus.separating),
@@ -76,7 +76,7 @@ void main() {
     await provider.load();
 
     expect(provider.activeOrders.map((o) => o.id), ['a']);
-    expect(provider.deliveredOrders.map((o) => o.id), ['e']);
+    expect(provider.finishedOrders.map((o) => o.id), ['e']);
   });
 
   test('isEmpty is true only after a successful load with no orders', () async {

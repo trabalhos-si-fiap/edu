@@ -111,7 +111,7 @@ class _OrdersList extends StatelessWidget {
                 _ActiveOrderCard(order: order),
                 const SizedBox(height: 20),
               ],
-              for (final order in provider.deliveredOrders) ...[
+              for (final order in provider.finishedOrders) ...[
                 _FinishedOrderCard(order: order),
                 const SizedBox(height: 20),
               ],
@@ -506,11 +506,11 @@ class _OrderStepper extends StatelessWidget {
 }
 
 /// Card de um pedido que já saiu do fluxo — entregue OU cancelado (a lista
-/// que alimenta este widget é `OrdersProvider.deliveredOrders`, que hoje
-/// junta os dois; ver `isFinished` em `order_summary.dart`). O selo e as
-/// ações mudam por status: revisão de correção 1 achou que um pedido
-/// cancelado renderizava com o selo verde "ENTREGUE" fixo, porque o texto e
-/// a cor eram literais, não derivados de `order.status`.
+/// que alimenta este widget é `OrdersProvider.finishedOrders`, que junta os
+/// dois; ver `isFinished` em `order_summary.dart`). O selo e as ações mudam
+/// por status: revisão de correção 1 achou que um pedido cancelado
+/// renderizava com o selo verde "ENTREGUE" fixo, porque o texto e a cor eram
+/// literais, não derivados de `order.status`.
 class _FinishedOrderCard extends StatelessWidget {
   const _FinishedOrderCard({required this.order});
 
@@ -561,7 +561,7 @@ class _FinishedOrderCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   // Cancelado não é sucesso: badge vermelho (AppColors.danger),
                   // não o verde de entregue. Os únicos dois status que chegam
-                  // aqui são delivered/cancelled (OrdersProvider.deliveredOrders
+                  // aqui são delivered/cancelled (OrdersProvider.finishedOrders
                   // filtra por isFinished), então o ternário cobre os dois casos.
                   color: order.status == OrderSummaryStatus.cancelled
                       ? AppColors.danger
