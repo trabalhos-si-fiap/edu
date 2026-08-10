@@ -299,17 +299,22 @@ services:
     ports:
       - "8104:8000"
     environment:
-      # O chatbot não tem banco e não publica nem consome eventos (ver o
-      # docstring de app/config.py). DATABASE_URL é zerada pelo mesmo motivo
-      # do gateway: o .env compartilhado traz a do legacy.
-      DATABASE_URL: ""
-      DATABASE_URL_TEST: ""
+      # O chatbot ganhou banco na fase 2 (módulo `support`). Antes destas
+      # duas linhas serem preenchidas, elas eram zeradas de propósito, pelo
+      # mesmo motivo do gateway: o `.env` compartilhado traz a URL do legacy,
+      # e um serviço sem banco não pode herdá-la por acidente. Continua sem
+      # publicar nem consumir eventos.
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/chatbot_db
+      DATABASE_URL_TEST: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/chatbot_test
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET não definido em back-end/.env}
       JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       LEARNING_SERVICE_URL: http://learning-service:8000
     depends_on:
-      - learning-service
+      learning-service:
+        condition: service_started
+      postgres:
+        condition: service_healthy
 
   notification-service:
     build:
