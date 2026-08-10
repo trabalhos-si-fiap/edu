@@ -73,7 +73,12 @@ async def rota_pedido(
     except RouteUnavailableError as exc:
         # Provedor fora do ar, sem cota, sem rota, sem endereço ou chave não
         # configurada — 503 limpo, nunca ecoando o detalhe do provedor (que
-        # pode conter a chave ou o endereço completo).
+        # pode conter a chave ou o endereço completo) NEM logando-o. Regra 5
+        # do CLAUDE.md: nunca logar dado sensível — o texto de erro do
+        # Google pode carregar a chave da API ou o endereço completo do
+        # aluno. Guardado por
+        # `test_route_503_never_logs_the_provider_detail` (Minor 4, rodada
+        # de correção 1).
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Rota indisponível no momento",

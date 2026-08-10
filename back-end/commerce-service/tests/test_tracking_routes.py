@@ -32,6 +32,7 @@ from decimal import Decimal
 
 import pytest
 from edu_common.security import create_access_token
+from loguru import logger
 
 from app.config import settings
 from app.exceptions import RouteUnavailableError
@@ -479,3 +480,41 @@ async def test_route_503_never_echoes_the_provider_detail(
     assert response.status_code == 503
     assert response.json()["detail"] == "Rota indisponível no momento"
     assert "SEGREDO" not in response.text
+
+
+async def test_route_503_never_logs_the_provider_detail(
+    client, db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Minor promovido 4, rodada de correção 1: estende a prova acima (corpo
+    da resposta) para o LOG, que é a propriedade que o usuário nomeou como a
+    mais importante da C9 — nada do provedor de mapas pode chegar ao
+    cliente, nem no corpo do 503, nem em log, nem encadeado em `__cause__`,
+    porque o texto de erro do Google pode carregar a chave da API ou o
+    endereço completo do aluno.
+
+    O revisor acrescentou `logger.error("...", str(exc))` ao handler de
+    `RouteUnavailableError` em `app/routers/rastreio.py` e os 34 testes de
+    tracking existentes passaram — nenhum deles olhava o log, só
+    `response.text`. Este teste fecha esse buraco anexando um sink temporário
+    ao `loguru.logger` (o app não configura nenhum sink de captura por
+    padrão) durante a requisição.
+    """
+    monkeypatch.setattr(settings, "google_maps_api_key", "test-key")
+    pedido = await _seed_pedido_com_endereco(db_session, user_id=ALUNO)
+
+    async def _falha(*args, **kwargs):
+        raise RouteUnavailableError("directions status: REQUEST_DENIED key=SEGREDO_LOG")
+
+    monkeypatch.setattr("app.services.rastreio.directions.fetch_directions", _falha)
+
+    log_lines: list[str] = []
+    sink_id = logger.add(lambda message: log_lines.append(str(message)), level="DEBUG")
+    try:
+        response = await client.get(
+            f"/orders/{pedido.id}/route", headers=headers_for("student", sub=ALUNO)
+        )
+    finally:
+        logger.remove(sink_id)
+
+    assert response.status_code == 503
+    assert not any("SEGREDO_LOG" in line for line in log_lines)
