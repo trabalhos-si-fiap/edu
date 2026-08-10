@@ -98,10 +98,10 @@ mapeado é repassado, e aí o 404 (se houver) vem do serviço de destino.
 | `diagnostic` | learning-service | OK |
 | `recommendations` | learning-service | OK |
 | `reviews` | learning-service | OK |
-| `products` | commerce-service | Existe, mas **diverge do contrato do Flutter** — fase 2 |
-| `orders` | commerce-service | Existe parcialmente, **diverge do contrato** — fase 2 |
-| `cart` | commerce-service | **404 — nada serve este prefixo**, fase 2 |
-| `payment-methods` | commerce-service | **404 — nada serve este prefixo**, fase 2 |
+| `products` | commerce-service | OK — reconciliado com o Flutter na fase 2b |
+| `orders` | commerce-service | OK — ciclo completo, reconciliado na fase 2c |
+| `cart` | commerce-service | OK — portado na fase 2b |
+| `payment-methods` | commerce-service | OK — portado na fase 2b |
 | `picking` | commerce-service | OK |
 | `delivery` | commerce-service | OK |
 | `occurrences` | commerce-service | OK |
@@ -113,9 +113,11 @@ mapeado é repassado, e aí o 404 (se houver) vem do serviço de destino.
 
 ### O que "404" quer dizer aqui
 
-Três prefixos estão mapeados no gateway e **não têm nenhuma rota no serviço de
-destino**: `cart`, `payment-methods` e `support`. Eles são exatamente as
-lacunas de paridade que a fase 2 porta do legacy.
+Sobrou **um** prefixo mapeado no gateway sem nenhuma rota no serviço de
+destino: `support`. `cart` e `payment-methods` estavam nesta lista até a fase
+2b e saíram dela — os dois são servidos hoje por
+`commerce-service/app/routers/carrinho.py` e `.../pagamento.py`, ambos
+montados em `app/main.py`.
 
 `addresses` é um caso diferente: é uma **entrada morta no mapa**. Nenhum dos
 dois backends serve `/addresses` — tanto o legacy quanto o
@@ -125,23 +127,32 @@ prefixo `auth`. O app Flutter também chama `/auth/addresses`
 (`front-end-flutter/lib/features/profile/data/addresses_api.dart`). A entrada
 é inofensiva — só nunca é atingida.
 
-### `products` e `orders` não são 404
+### `products` e `orders`: as divergências da fase 1 foram fechadas
 
-Ambos **respondem**. O que falta neles é forma, não rota, e é por isso que a
-fase 1 tornou o problema mais sutil em vez de mais óbvio: ao mover o commerce
-para o mesmo espaço de nomes que o app usa, requisições que antes davam 404
-limpo passaram a dar 405, 422 ou 200 com a forma errada.
+Esta seção descrevia um estado que **não existe mais**. Na fase 1, `products` e
+`orders` respondiam com a forma errada — o problema era forma, não rota, e por
+isso requisições que antes davam 404 limpo passaram a dar 405, 422 ou 200
+errado. As fases 2b e 2c reconciliaram os dois campo a campo contra o código do
+Flutter.
 
-As divergências foram medidas campo a campo contra o código do Flutter e estão
-registradas na seção "Divergências de contrato medidas na fase 1" do design
-doc. Em resumo: `GET /products` devolve array puro onde o app lê
-`{"items": [...]}` e `id` inteiro onde o app faz `as String`; `GET /orders`
-devolve 405 porque a listagem está em `/orders/mine`; `POST /orders` devolve
-422 porque exige outro corpo; `GET /products/{id}/reviews` e
-`GET /orders/{id}/route` não existem.
+O que a fase 1 registrava, e o que está no lugar hoje (medido nesta árvore):
 
-**Consequência para a fase 4:** apontar o Flutter para o gateway e ver se
-responde não basta. É preciso uma passagem de reconciliação campo a campo.
+| Afirmação da fase 1 | Hoje |
+|---|---|
+| `GET /products` devolve array puro; o app lê `{"items": [...]}` | Devolve `ProductList`, que tem `items:` — a forma que `product_service.dart` lê |
+| `id` inteiro onde o app faz `as String` | `ProductOut.id` é `uuid.UUID`, JSON string |
+| `GET /orders` devolve 405; a listagem está em `/orders/mine` | `GET /orders` existe e devolve array puro paginado; `/orders/mine` não existe mais |
+| `POST /orders` devolve 422 porque exige outro corpo | Aceita `{payment_method, address_id}` e também corpo vazio (`OrderCreateIn`, com os dois campos opcionais) |
+| `GET /products/{id}/reviews` não existe | Existe (`routers/produtos.py`) |
+| `GET /orders/{id}/route` não existe | Existe (`routers/rastreio.py::rota_pedido`) |
+
+A reconciliação completa — contagem portada, asserções adaptadas e as
+divergências deliberadas que sobraram de propósito — está em
+[`commerce-parity.md`](commerce-parity.md), seção 9 para o bloco C.
+
+**Consequência para a fase 4:** o que falta agora não é a reconciliação de
+forma, e sim rodar a frota junto — migrations, seed e os consumidores de
+evento. A dívida aberta está em [`phase-2-debt.md`](phase-2-debt.md).
 
 ---
 
@@ -188,11 +199,18 @@ Postgres só dispara em volume novo, então rode também:
 ```bash
 make services-dbs      # cria os bancos por serviço no volume existente (idempotente)
 make services-migrate  # aplica alembic upgrade head em cada serviço com banco
+make services-seed     # popula o catálogo do commerce (baixa as fotos no MinIO)
 ```
 
 Em um volume totalmente novo, `make stack-up` sozinho já cria os bancos pelo
-`initdb.d` — mas rodar os dois alvos depois não faz mal: ambos são
+`initdb.d` — mas rodar os dois primeiros alvos depois não faz mal: ambos são
 idempotentes.
+
+`make services-seed` é o terceiro alvo desse fluxo e **nunca foi executado** —
+foi escrito na fase 2b, e no `commerce_db` de dev a tabela `products` nem
+existe ainda (`to_regclass('public.products')` devolve vazio). A idempotência
+dele é declarada no comentário do alvo, não medida; veja
+[`phase-2-debt.md`](phase-2-debt.md) antes de rodá-lo pela primeira vez.
 
 Conferindo que subiu:
 
