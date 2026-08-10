@@ -66,9 +66,11 @@ execuções concorrentes do seed leem "está vazio" e inserem as seis linhas cad
 uma: doze produtos, seis pares de duplicatas, e nenhum erro.
 
 **Por que foi adiado:** a suíte prova idempotência **sequencial**
-(`tests/test_products_seed.py::test_is_idempotent`), que é o cenário que
+(`tests/test_products_seed.py::TestProductsSeed::test_is_idempotent` — o node id
+completo; o teste vive dentro da classe `TestProductsSeed`), que é o cenário que
 existia enquanto o alvo não rodava. A corrida exige duas conexões contendentes,
-que nenhum teste da fase 2 montou.
+que nenhum teste da fase 2 montou. `microservices.md` diz a mesma coisa na
+seção de subida do stack: sequencial medido, concorrente não.
 
 **O que custaria:** uma migration acrescentando `UNIQUE` em `products.name`
 mais um `ON CONFLICT DO NOTHING` no insert; ou, mais barato e sem migration, um

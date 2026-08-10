@@ -217,7 +217,13 @@ idempotentes.
 `make services-seed` é o terceiro alvo desse fluxo e **nunca foi executado** —
 foi escrito na fase 2b, e no `commerce_db` de dev a tabela `products` nem
 existe ainda (`to_regclass('public.products')` devolve vazio). A idempotência
-dele é declarada no comentário do alvo, não medida; veja
+**sequencial** dele é medida — `seed_products` rodado duas vezes na mesma
+sessão insere o catálogo e depois insere zero
+(`tests/test_products_seed.py::TestProductsSeed::test_is_idempotent`, verde).
+O que **não** é medido, e é a dívida de verdade, é a idempotência
+**concorrente**: o seed lê o que já existe e só então grava, e `products.name`
+tem índice sem `unique`, então duas execuções simultâneas inserem o catálogo
+duas vezes sem erro. Veja a §2.1 de
 [`phase-2-debt.md`](phase-2-debt.md) antes de rodá-lo pela primeira vez.
 
 Conferindo que subiu:
