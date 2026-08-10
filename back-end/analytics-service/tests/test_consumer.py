@@ -1,4 +1,5 @@
 import json
+import uuid
 from contextlib import asynccontextmanager
 from unittest.mock import MagicMock
 
@@ -82,3 +83,24 @@ async def test_staff_created_is_logged_without_name(db_session, test_session_fac
         "user_id": "00000000-0000-0000-0000-000000000002",
         "role": "separador",
     }
+
+
+async def test_order_event_payload_keeps_pedido_id_as_a_string(
+    db_session, test_session_factory, monkeypatch
+):
+    """Task C10: fecha o mesmo item de backlog que o notification-service —
+    `pedido_id` chega como string de UUID nos cinco eventos de pedido
+    (`orders.id` é UUID desde a fase 2, task C3). Diferente do
+    notification-service, este serviço grava `payload` como JSONB sem tipar
+    `pedido_id` (`app/models/event_log.py`) — não precisa de mudança de
+    schema nenhuma, só desta trava: o valor tem que atravessar sem
+    conversão nenhuma, nem para inteiro nem para qualquer outra coisa."""
+    monkeypatch.setattr(consumer_module, "async_session", test_session_factory)
+    pedido_id = str(uuid.uuid4())
+
+    await consumer_module.handle_event(
+        _fake_message("order.created", {"pedido_id": pedido_id, "aluno_id": "x"})
+    )
+
+    result = await db_session.execute(select(EventLog))
+    assert result.scalar_one().payload["pedido_id"] == pedido_id
