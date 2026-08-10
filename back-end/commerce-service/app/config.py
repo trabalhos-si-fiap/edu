@@ -16,9 +16,16 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     google_maps_api_key: str = ""
 
-    # Rastreio. Os três batem com `legacy/app/core/config.py:70,71,80` — a
-    # suíte portada asserta sobre eles, então mudar qualquer um aqui faz um
-    # teste de paridade falhar (que é o comportamento certo).
+    # Rastreio. Os três valores batem com `legacy/app/core/config.py:70,71,80`
+    # (`grep -n "TRACKING_" back-end/legacy/app/core/config.py` ->
+    # `TRACKING_AVERAGE_SPEED_KMH: float = 30.0`,
+    # `TRACKING_URBAN_ROUTE_FACTOR: float = 1.4`,
+    # `TRACKING_ROUTE_CACHE_TTL_SECONDS: int = 21600`). Nenhum teste da suíte
+    # asserta sobre estes três números — medido na rodada de correção 1
+    # mutando os três (30.0->77.0, 1.4->3.3, 21600->7) e rodando `uv run
+    # pytest -q`: 340 passed, sem nenhuma falha. Mudar qualquer um aqui não
+    # quebra nada automaticamente; se quiser divergir do legacy, é seguro
+    # fazê-lo, só documente o motivo aqui.
     tracking_average_speed_kmh: float = 30.0
     tracking_urban_route_factor: float = 1.4
     tracking_route_cache_ttl_seconds: int = 21600  # 6 horas
