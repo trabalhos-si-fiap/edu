@@ -91,7 +91,6 @@ mapeado é repassado, e aí o 404 (se houver) vem do serviço de destino.
 |---|---|---|
 | `auth` | auth-users-service | OK |
 | `users` | auth-users-service | OK |
-| `addresses` | auth-users-service | **404 — entrada morta**, veja abaixo |
 | `subjects` | learning-service | OK |
 | `topics` | learning-service | OK |
 | `subtopics` | learning-service | OK |
@@ -119,13 +118,22 @@ destino: `support`. `cart` e `payment-methods` estavam nesta lista até a fase
 `commerce-service/app/routers/carrinho.py` e `.../pagamento.py`, ambos
 montados em `app/main.py`.
 
-`addresses` é um caso diferente: é uma **entrada morta no mapa**. Nenhum dos
-dois backends serve `/addresses` — tanto o legacy quanto o
-auth-users-service montam os endereços sob **`/auth/addresses`**
-(`APIRouter(prefix="/auth/addresses")`), que já roteia corretamente pelo
-prefixo `auth`. O app Flutter também chama `/auth/addresses`
-(`front-end-flutter/lib/features/profile/data/addresses_api.dart`). A entrada
-é inofensiva — só nunca é atingida.
+`addresses` **não está na tabela acima porque não está no mapa**. A entrada
+existia e foi removida pelo commit `42bc7ce` ("refactor(gateway): drop the dead
+addresses entry from SERVICE_MAP"), ancestral do HEAD desta branch:
+`grep -c addresses back-end/api-gateway/app/routing.py` devolve `0`. Ninguém
+serve `/addresses` — tanto o legacy quanto o auth-users-service montam os
+endereços sob **`/auth/addresses`**
+(`APIRouter(prefix="/auth/addresses")`, em
+`back-end/auth-users-service/app/routers/addresses.py:12` e
+`back-end/legacy/app/modules/addresses/routes.py:14`), que roteia pelo prefixo
+`auth`; o app Flutter também chama `/auth/addresses`
+(`front-end-flutter/lib/features/profile/data/addresses_api.dart:33`).
+Um `/api/addresses/...` que chegue hoje cai no 404 do próprio gateway, e é isso
+que `api-gateway/tests/test_routing.py:49` trava —
+`resolve_destination("addresses/123") is None`, com o caso irmão
+`resolve_destination("auth/addresses/123")` provando que o caminho real
+continua resolvendo.
 
 ### `products` e `orders`: as divergências da fase 1 foram fechadas
 
