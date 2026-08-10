@@ -274,6 +274,47 @@ publicação para um outbox. É refatoração, não correção de fechamento.
 na mesma transação, publicada por um worker). Vários dias, e é a mesma solução
 que resolve a §3.1 pela outra ponta.
 
+### 4.7 Duas rotas ainda desarmam o `FOR UPDATE` pelo identity map
+
+**Onde:** `back-end/commerce-service/app/routers/separacao.py:233`
+(`finalizar_separacao`) e `.../entrega.py:147` (`confirmar_entrega`). Esse
+pre-read de entidade sem lock aparece em cinco linhas —
+`grep -n "result = await db.execute(select(Order).where(Order.id == pedido_id))" app/routers/*.py | sort`
+devolve também `admin.py:111`, `admin.py:128` e `ocorrencias.py:170` — mas só
+estas duas são seguidas de uma chamada a `transicionar_pedido` na mesma sessão;
+as outras três (`atribuir_separador`, `atribuir_entregador` e
+`listar_ocorrencias_pedido`) não passam pelo funil de transição.
+
+**O que é:** as duas leem a **entidade** `Order` antes de chamar
+`transicionar_pedido`, e essa leitura põe a instância no identity map da sessão.
+Quando `transicionar_pedido` roda o próprio `SELECT ... FOR UPDATE` na mesma
+sessão, o Postgres devolve a linha nova mas o ORM devolve a instância já
+carregada **sem repopular os atributos** (padrão do SQLAlchemy — só
+`populate_existing()` repopula), então o lock não protege nada: o chamador
+concorrente revalida contra um status velho, passa em `validar_transicao` e
+grava por cima. O envenenamento depende de a instância continuar viva, e nas
+duas rotas ela continua — a local `pedido` é usada para a checagem de posse e
+segue referenciada.
+
+**Por que foi adiado:** as duas são **anteriores a esta branch** e estão fora do
+escopo da correção que fechou o mesmo defeito em `confirmar_pagamento`
+(§4.6 e `test_two_concurrent_confirm_payments_leave_one_pair_of_transitions`).
+O mecanismo foi medido lá, com duas sessões e interleave determinístico; estas
+duas **não** têm harness de corrida rodado contra elas — o que está medido é que
+a forma do código é a mesma, não o efeito em cada uma. O efeito esperado é o
+mesmo de lá: linha de histórico duplicada e `order.status_changed` publicado
+duas vezes, que `notification-service` e `analytics-service` consomem duas
+vezes.
+
+**O que custaria:** um `.populate_existing()` no `SELECT ... FOR UPDATE` de
+`transicionar_pedido` fecharia **as três rotas de uma vez**, no único ponto por
+onde todas passam — uma linha, mais um teste de corrida por rota (o de
+`confirm-payment` serve de molde). A alternativa por call site (trocar cada
+pre-read de entidade por `select(Order.<coluna>)`, como `confirmar_pagamento`
+fez) não serve igual aqui: as duas rotas precisam de mais de uma coluna
+(`picker_id`/`deliverer_id` além do status), então o escalar viraria uma tupla e
+o ganho de clareza some.
+
 ---
 
 ## 5. Migrations e schema
