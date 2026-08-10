@@ -6,7 +6,8 @@ de pagamento, para que a fase 4 seja uma troca de `API_BASE_URL` no app
 Flutter.
 
 As seções 1 a 8 são o portão do **bloco B**. A **§9 é o portão do bloco C**
-(pedido, checkout, rastreio e rota): divergências deliberadas nº 6 a nº 11,
+(pedido, checkout, rastreio e rota): contagem portada das 17 suítes do critério
+de aceite, frota e sync-check re-medidos, divergências deliberadas nº 6 a nº 11,
 asserções adaptadas daquele bloco e carve-outs de fase 3.
 
 - Branch medida: `feat/microservices-phase-2b`, HEAD `9ea4398` (portão, task
@@ -24,17 +25,20 @@ escrito que não houve.
 
 ---
 
-## 1. Veredito
+## 1. Veredito do bloco B
+
+Números **do portão do bloco B** (2026-08-07). Os do bloco C, mais novos, estão
+na §9.1 — inclusive a suíte do commerce e a frota, que mudaram desde então.
 
 | Item | Resultado |
 |---|---|
 | Chaves das quatro rotas que o app consome | **idênticas** ao legacy (diff vazio nas quatro) |
 | Tipos JSON de cada valor | **idênticos** (zero divergências) |
-| Suíte do commerce | **187 passando** (`63f8977`; eram 177 no portão) |
-| Frota | 8/8 alvos, `ruff` limpo — 491 medidos no portão, **501 medidos** depois da B12 (§8) |
-| Sync-check de schema | 5 de 5 vazios |
+| Suíte do commerce | **187 passando** (`63f8977`; eram 177 no portão) — **363** no portão do bloco C, §9.1 |
+| Frota | 8/8 alvos, `ruff` limpo — 491 medidos no portão, **501 medidos** depois da B12 (§8); 8/8 de novo no portão do bloco C, §9.1 |
+| Sync-check de schema | 5 de 5 vazios (re-medido 5 de 5 no bloco C, §9.1) |
 | Buracos de porte | **0** — o único (§4) foi fechado pela B12 |
-| Divergências deliberadas | **5** (ver §5) |
+| Divergências deliberadas | **5** no bloco B (§5); com as do bloco C (§9.3) o registro tem hoje **11** |
 
 **O corte é viável do ponto de vista do contrato HTTP.** O que falta é
 operacional (§7), não de forma de resposta.
@@ -247,7 +251,7 @@ idêntico; o caminho de falha do auth não é.
 
 | # | Divergência | Onde | Razão | Quem decidiu |
 |---|---|---|---|---|
-| 1 | **403 vs 401** quando falta o header `Authorization` | `packages/edu-common/src/edu_common/deps.py` | `edu-common` responde **403** `{"detail":"Não autenticado"}` para header ausente e **401** `{"detail":"Token inválido ou expirado"}` para token presente-mas-inválido; o legacy responde 401 nos dois. Alinhar o `edu-common` afetaria 6 serviços e 53 asserções `== 403` em 16 arquivos **na medição da B0, em `d2427f5`** — o próprio bloco B acrescentou mais 5, então hoje são **58 asserções em 19 arquivos** (`git grep -c "== 403" HEAD -- "back-end/*.py" ":!back-end/legacy"`, descontando 1 ocorrência que é código de produção). Para um caso que o app quase não exercita — o `TokenRefresher` do Flutter dispara no **401**, idêntico dos dois lados. **Vale igual para o bloco C.** | Plano, confirmado por medição (task B0) |
+| 1 | **403 vs 401** quando falta o header `Authorization` | `packages/edu-common/src/edu_common/deps.py` | `edu-common` responde **403** `{"detail":"Não autenticado"}` para header ausente e **401** `{"detail":"Token inválido ou expirado"}` para token presente-mas-inválido; o legacy responde 401 nos dois. Alinhar o `edu-common` afetaria 6 serviços e 53 asserções `== 403` em 16 arquivos **na medição da B0, em `d2427f5`**; **ao fim do bloco B eram 58 em 19 arquivos**. O valor corrente está na §9.3, re-medido no portão do bloco C: **64 asserções em 21 arquivos de teste** (`git grep -c "== 403" HEAD -- "back-end/*.py" ":!back-end/legacy"` dá 65 ocorrências em 22 arquivos, das quais 1 é código de produção). Para um caso que o app quase não exercita — o `TokenRefresher` do Flutter dispara no **401**, idêntico dos dois lados. **Vale igual para o bloco C.** | Plano, confirmado por medição (task B0) |
 | 2 | **`GET /payment-methods` sem paginação** | `commerce-service/app/routers/pagamento.py` | Contraria a regra 4 do `CLAUDE.md` (paginação obrigatória). Réplica exata do legacy. Medido: o conjunto é escopado por usuário mas **não tem teto** nem no banco nem na aplicação — e o legacy também não tem. | **Usuário, 2026-08-07**: o plano governa |
 | 3 | **Lock de linha + índice único parcial** em `payment_methods` | `commerce-service/app/services/pagamento.py`; migration `942f75a9a3f2` | O legacy não tem nenhum dos dois e deixa **dois defaults simultâneos** em 10/10 tentativas de DELETE-do-default concorrente com POST. A regra 3 do `CLAUDE.md` (read→write atômico) é inviolável, e a proteção **não muda o contrato HTTP** — medido, o PATCH concorrente devolve `(200, 200)` com 1 default, igual ao legacy. | **Usuário, 2026-08-07**: pôr o lock |
 | 4 | **Asserção de PNG substituída** no teste do seed | `commerce-service/tests/test_products_seed.py` | `validate_image_bytes` não existe no commerce (carve-out de upload). Virou checagem estrutural de PNG pela stdlib. Revisor mediu que a substituta é **estritamente mais forte**: um PNG com CRC calculado sobre `data` em vez de `typ+data` passa na checagem do legacy e falha na nova. | Task B10, ratificado na revisão |
@@ -298,11 +302,14 @@ categoria hoje**. Remoção deliberada, mandada pelo plano.
 
 1. **`commerce_db` está no baseline e vazio.** Medido:
    `alembic_version = 62926745dd94`, tabela ainda chamada `produtos`, 0 linhas.
-   As **sete** migrations do bloco B (`77290516f1b1` … `942f75a9a3f2`)
-   **nunca foram aplicadas** ali. (`alembic/versions/` tem oito arquivos; o
-   oitavo é a baseline `62926745dd94`, que já está aplicada — a cadeia é
+   As migrations acima da baseline **nunca foram aplicadas** ali. Eram **sete**
+   ao fim do bloco B; hoje são **doze** — `ls alembic/versions/*.py | wc -l` dá
+   **13** arquivos, sendo um deles a baseline `62926745dd94`, que já está
+   aplicada. A cadeia completa, extraída de `revision`/`down_revision`:
    `62926745dd94 → 77290516f1b1 → 1308bb221890 → d3a5f5cd6ea8 → c28f71cb6e30
-   → ae70488977ef → 6c409ccb480c → 942f75a9a3f2`.) O corte precisa de `alembic upgrade head` e depois do
+   → ae70488977ef → 6c409ccb480c → 942f75a9a3f2` (fim do bloco B)
+   `→ 39d3b55161af → bd410bba0e85 → 099099b0c1a8 → 73f26f88d679 → c90210e9965c`
+   (bloco C, head). O corte precisa de `alembic upgrade head` e depois do
    seed. Risco relacionado, medido na task B5: `server_default` **não** protege
    `ALTER COLUMN … SET NOT NULL` contra linha pré-existente com NULL (o
    Postgres não faz backfill). Hoje a tabela está vazia; se alguém popular
@@ -416,7 +423,48 @@ previa.
   executada (o conftest dela dá `flushdb` no Redis vivo). O que isso não prova
   é o mesmo da §3: rede, granian, Dockerfile, api-gateway e stack real.
 
-### 9.1 Reconciliação de chaves
+### 9.1 Contagem, frota e sync-check do bloco C
+
+Recorte: as **17 suítes** do critério de aceite da fase 2 (catálogo, carrinho,
+formas de pagamento, seed, media, storage — do bloco B — mais pedido, checkout e
+os seis arquivos de rastreio, do bloco C, mais `support`, que é bloco D).
+
+| Lado | Testes |
+|---|---|
+| Legacy, nas 17 suítes do critério | **151** funções |
+| Commerce, nos 16 arquivos de contraparte | **188** funções |
+| Nomes com contraparte de **nome idêntico** | **135** |
+
+Instrumento, o mesmo dos dois lados: `grep -oE '^[[:space:]]*(async )?def
+(test_[A-Za-z0-9_]+)'` + `sort -u` para as listas, `comm -12` para a interseção.
+São funções de teste, não casos coletados — do lado do commerce a expansão de
+`parametrize` leva os 188 a mais (a suíte inteira do serviço coleta 363); do
+lado do legacy a expansão não pode ser medida, porque rodar a suíte do monólito
+é proibido.
+
+Dos **16** nomes sem contraparte idêntica, **2 são renomes com a cobertura
+intacta** (`test_exactly_one_current_step_unless_delivered` →
+`…_or_cancelled`, que ainda parametriza sobre **nove** estados em vez de cinco;
+e `test_get_order_tracking_malformed_id_returns_404` → `…_returns_422`, a
+divergência nº 8). Os **14** restantes são ausência real: 7 de `support`
+(**bloco D** — a 17ª suíte, sem a qual o critério da fase 2 não fecha), 5
+`test_validate_*` de media e 1 de storage (carve-outs, §9.5), e 1 de
+`orders/test_services.py` **redistribuído**, não apagado (fim da §9.4).
+
+Frota no portão do bloco C: `make services-test` e `make services-lint`, 8/8
+alvos, exit 0, `ruff` limpo nos oito — edu-common 59, api-gateway 36,
+auth-users 65, learning 78, **commerce 363**, chatbot 23, notification 29,
+analytics 34. Nenhum serviço diminuiu. Flutter: 147 testes passando e 8 itens
+pré-existentes em `flutter analyze lib/` (6 `info`, 2 `error` do
+`firebase_options.dart`, que fica fora do git).
+
+Sync-check de schema do bloco C: cinco bancos descartáveis `syncchk_c12_*`,
+`upgrade()` e `downgrade()` **vazios nos cinco**, bancos descartados
+(`SELECT datname … LIKE 'syncchk%'` → 0 linhas).
+`grep -l compare_server_default */alembic/env.py | wc -l` = **5** — de **6**
+arquivos `env.py` em `back-end/`, sendo o sexto o do `legacy/`.
+
+### 9.2 Reconciliação de chaves
 
 Doze classes comparadas por forma de schema; as chaves da resposta **real** do
 commerce medidas em processo e conferidas contra elas. **Uma única diferença em
@@ -424,7 +472,7 @@ tudo**: `status` no payload de rastreio (divergência nº 7). `GET /orders`,
 `items[0]`, `GET /payment-methods`, `steps[0]`, `location` e `kit[0]` batem
 chave a chave com o legacy.
 
-### 9.2 As seis divergências deliberadas do bloco C
+### 9.3 As seis divergências deliberadas do bloco C
 
 A numeração 8 a 11 foi atribuída por este portão: os relatórios do bloco C
 nomeiam só a nº 6 e a nº 7; as outras quatro existiam em docstring de teste, em
@@ -446,9 +494,9 @@ da C12: `git grep -c "== 403" HEAD -- "back-end/*.py" ":!back-end/legacy"` dá
 arquivos de teste. Atenção ao ler esse número: boa parte das que o bloco C
 acrescentou são 403 de **papel** (separador, entregador, admin), que nada têm a
 ver com header ausente. As que existem por causa da divergência nº 1 no bloco C
-são cinco, listadas em §9.3.
+são cinco, listadas em §9.4.
 
-### 9.3 Asserções adaptadas do bloco C
+### 9.4 Asserções adaptadas do bloco C
 
 | Arquivo:linha (`back-end/commerce-service/`) | Asserção original (legacy) | Asserção atual | Razão |
 |---|---|---|---|
@@ -474,7 +522,7 @@ ownership do endereço passou a ser do `auth-users-service` (com teste lá) e a
 metade de tradução virou
 `test_orders_parity.py::TestCheckoutAddress::test_checkout_with_an_invalid_address_id_returns_400`.
 
-### 9.4 Carve-outs de fase 3
+### 9.5 Carve-outs de fase 3
 
 1. **Upload de imagem de produto** — `legacy/tests/modules/products/test_image_upload.py`
    (5 testes) e os cinco `test_validate_*` de `legacy/tests/core/test_media.py`
@@ -484,17 +532,46 @@ metade de tradução virou
 3. **Pipeline de status por Celery** — `legacy/tests/modules/orders/test_status_pipeline.py`
    (9 testes) e `advance_order_status_task.delay(...)`, não portado.
 
-Os três arquivos foram conferidos ausentes do commerce **nome a nome**: os 21
-testes deles não existem lá sob nenhum nome. Consequência operacional: sem
-simulador, um pedido só avança se alguém trabalhar a fila de separação.
+Os três arquivos foram conferidos ausentes do commerce **nome a nome**: os
+**22** testes deles (5 + 8 + 9) não existem lá sob nenhum nome — 22 procurados,
+22 ausentes. Consequência operacional: sem simulador, um pedido só avança se
+alguém trabalhar a fila de separação.
 
-### 9.5 Correção à dívida do seed registrada na §7.2
+**Buraco de cobertura vizinho, que não é carve-out de teste e sim código sem
+teste:** `commerce-service/app/storage.py:33` (`put_object`) e `:39`
+(`delete_object`) foram embarcados e **nenhum teste exercita a implementação
+real**. `grep -rn "put_object\|delete_object" tests/` devolve 4 linhas, e as
+quatro são inofensivas: duas são um **dublê** que reimplementa a interface
+(`tests/test_products_seed.py:151,154`) e duas são **docstring**
+(`tests/test_storage.py:10-11`). A classificação do teste do legacy como
+carve-out de leitura é fiel ao plano; o ponto é que o caminho de **escrita** no
+S3/R2 vai para produção sem uma linha de teste, e a fase 3 pretende ligar o
+upload em cima dele.
+
+### 9.6 Correção à dívida do seed registrada na §7.2
 
 Circula no bloco C a afirmação de que "a imagem publicada do commerce **não
 contém** `app/seeds/`". **Ela não tem medição que a sustente** — o registro do
-bloco B diz "unproven", que é o que a §7.2 acima afirma. Medido no portão da
-C12, nesta branch: `commerce-service/Dockerfile:15` faz
-`COPY commerce-service/ ./`, o serviço não tem `.dockerignore`, e
-`app/seeds/{__init__,products}.py` existem — um **rebuild** embarca o pacote. O
-que continua verdadeiro é que **`make services-seed` nunca foi executado** e que
-a imagem no ar foi construída do checkout principal, que não foi inspecionado.
+bloco B diz "unproven", que é o que a §7.2 acima afirma.
+
+Medido no portão da C12, nesta branch:
+
+- `commerce-service/Dockerfile:15` faz `COPY commerce-service/ ./`;
+- **existe** um arquivo de exclusão, `commerce-service/Dockerfile.dockerignore`,
+  versionado (`git ls-files back-end/commerce-service | grep -i dockerignore`) e
+  no nome que o BuildKit casa com o dockerfile que o
+  `back-end/docker-compose.yml:253-256` usa (`dockerfile: commerce-service/Dockerfile`);
+- o conteúdo dele exclui `**/.venv/`, `**/__pycache__/`, `**/*.pyc|pyo|pyd`,
+  `**/.pytest_cache/`, `**/.ruff_cache/`, `**/.coverage`, `**/htmlcov/`,
+  `**/.env`, `**/.env.*`, `**/*.egg-info/`, `**/dist/`, `**/build/` e
+  `**/.git/` — e **não** exclui `app/seeds/`, que existe
+  (`app/seeds/__init__.py`, `app/seeds/products.py`).
+
+Conclusão: um **rebuild embarca o pacote de seed**. Vale registrar junto, porque
+quem herdasse "não tem ignore" também não saberia: `**/.env` e `**/.env.*` estão
+excluídos, isto é, **nenhum `.env` entra na imagem** — a configuração tem que
+vir do compose/ambiente.
+
+O que continua verdadeiro é que **`make services-seed` nunca foi executado** e
+que a imagem no ar foi construída do checkout principal, que não foi
+inspecionado. Nenhuma imagem foi construída para escrever esta seção.
