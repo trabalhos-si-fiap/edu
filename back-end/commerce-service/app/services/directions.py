@@ -70,6 +70,16 @@ async def fetch_directions(
         body = response.json()
     except (httpx.HTTPError, ValueError) as exc:  # ValueError cobre JSON inválido
         logger.warning("tracking: directions request failed: {}", type(exc).__name__)
+        # `from exc` encadeia a chave real em `__cause__`: para um
+        # `httpx.HTTPStatusError`, `str(exc)` inclui a URL completa com
+        # `?key=...` (medido nesta rodada de correção:
+        # `Client error '403 Forbidden' for url
+        # 'https://maps.googleapis.com/maps/api/directions/json?key=AIzaSECRETKEY'`).
+        # Não vaza hoje — ninguém loga nem serializa `__cause__` neste
+        # caminho — mas qualquer `logger.exception`/Sentry/traceback futuro
+        # aqui vazaria a chave paga. Não remova o `from exc`: perder a causa
+        # original piora o debug; o cuidado é nunca logar/serializar esta
+        # exceção a partir daqui pra frente.
         raise RouteUnavailableError("directions request failed") from exc
 
     status = body.get("status")
