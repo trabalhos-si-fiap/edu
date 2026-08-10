@@ -132,7 +132,7 @@ class _PedidoFilaCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Pedido #${pedido.id}',
+                      'Pedido #${pedido.idCurto}',
                       style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w700,

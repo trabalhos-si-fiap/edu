@@ -1,5 +1,7 @@
+import json
 from collections.abc import AsyncIterator
 
+import httpx
 import pytest
 from fakeredis.aioredis import FakeRedis
 from httpx import ASGITransport, AsyncClient
@@ -14,6 +16,38 @@ from app.config import settings
 from app.database import Base, get_db
 from app.main import app
 from app.redis_client import get_redis
+
+
+@pytest.fixture(autouse=True)
+def _block_real_network_calls(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Trava estrutural: nenhum teste pode falar com a rede de verdade.
+
+    Achado Important 3 da revisão da task C9, rodada de correção 1: a
+    proteção contra chamada real à Google era só AMBIENTAL — cada teste que
+    passa por `directions.fetch_directions` monkeypatcha a função, mas três
+    testes de tracking (`test_get_order_route_unknown_order_raises`,
+    `test_get_order_route_foreign_order_raises`,
+    `test_get_order_route_without_address_raises`) nunca chegam a chamar
+    `fetch_directions` porque um raise anterior (pedido inexistente/alheio,
+    sem endereço) os intercepta antes. Nada IMPEDE estruturalmente uma
+    chamada real; o revisor mediu isso ao remover o filtro de ownership: a
+    suíte disparou `GET https://maps.googleapis.com/maps/api/directions/
+    json?...&key=test-key` de verdade. Chamada de rede real para a Google é
+    proibição absoluta do projeto (gasta cota paga).
+
+    `httpx.AsyncClient()` sem `transport=` explícito usa
+    `httpx.AsyncHTTPTransport` por baixo — é esse método que qualquer
+    request real acabaria atravessando. `test_tracking_directions.py` usa
+    `httpx.MockTransport` explicitamente (não `AsyncHTTPTransport`), então
+    não é afetado por este patch; o `client` de `tests/conftest.py` usa
+    `ASGITransport`, também uma classe diferente — nenhum dos dois passa por
+    aqui.
+    """
+
+    async def _blocked(self, request: httpx.Request) -> httpx.Response:
+        raise RuntimeError(f"chamada de rede real tentada: {request.url}")
+
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", _blocked)
 
 
 @pytest.fixture(scope="session")
@@ -80,10 +114,24 @@ def _stub_publish_event(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, dict
     mesmo teste (fixture de escopo `function`, pedida duas vezes no mesmo
     teste = uma única resolução), então a lista devolvida aqui é a mesma que
     `client` já está usando por baixo dos panos.
+
+    O `json.dumps` abaixo é o que torna este stub uma trava, e não só um
+    espião. O transporte real serializa o payload —
+    `packages/edu-common/src/edu_common/events.py:62` faz
+    `body=json.dumps(payload).encode()` — mas um stub que só faz `append`
+    nunca serializa nada. Foi exatamente esse buraco que deixou a suíte
+    inteira verde enquanto TODO publish de evento de pedido estourava
+    `TypeError: Object of type UUID is not JSON serializable` em runtime
+    (task C3, fix round 1, findings 1 e 2): `orders.id` virou UUID e os
+    payloads seguiam mandando o valor cru. Serializar aqui faz um payload
+    impublicável reprovar o teste que o produziu, no mesmo lugar onde o
+    runtime falharia.
     """
     eventos: list[tuple[str, dict]] = []
 
     async def _capturar(routing_key: str, payload: dict) -> None:
+        # Espelha o transporte real: se não serializa aqui, não publica lá.
+        json.dumps(payload)
         eventos.append((routing_key, payload))
 
     monkeypatch.setattr("app.routers.pedidos.publish_event", _capturar)

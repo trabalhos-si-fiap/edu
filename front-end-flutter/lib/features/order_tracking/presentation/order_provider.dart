@@ -70,17 +70,21 @@ class OrderProvider extends ChangeNotifier {
     await load(id);
   }
 
-  /// (Re)agenda o polling. Não faz nada se o pedido já foi entregue — não há
-  /// mais transições a aguardar.
+  /// (Re)agenda o polling. Não faz nada se o pedido já foi entregue ou
+  /// cancelado — não há mais transições a aguardar. Um pedido cancelado
+  /// deixa a timeline inteira PENDING, então `isDelivered` sozinho nunca
+  /// pega esse caso (ver `isCancelled` em `order_model.dart`).
   void _startPolling() {
     _pollTimer?.cancel();
     if (_order?.isDelivered ?? false) return;
+    if (_order?.isCancelled ?? false) return;
     _pollTimer = Timer.periodic(_pollInterval, (_) => _poll());
   }
 
   /// Busca silenciosa do status atual: não volta para o estado de loading nem
   /// derruba a tela em caso de falha de rede — mantém o último dado bom e tenta
-  /// de novo no próximo tick. Para o polling assim que o pedido é entregue.
+  /// de novo no próximo tick. Para o polling assim que o pedido é entregue ou
+  /// cancelado.
   Future<void> _poll() async {
     final id = _orderId;
     if (id == null) return;
@@ -90,7 +94,7 @@ class OrderProvider extends ChangeNotifier {
       _order = fresh;
       _state = OrderViewState.success;
       notifyListeners();
-      if (fresh.isDelivered) _pollTimer?.cancel();
+      if (fresh.isDelivered || fresh.isCancelled) _pollTimer?.cancel();
     } catch (_) {
       // Falha transitória: preserva o estado atual e tenta no próximo ciclo.
     }

@@ -8,7 +8,10 @@ class Ocorrencia(Base):
     __tablename__ = "ocorrencias"
 
     id = Column(Integer, primary_key=True)
-    pedido_id = Column(Integer, ForeignKey("pedidos.id"), nullable=False, index=True)
+    # O NOME da coluna fica: `ocorrencias` é agregado sem cliente. Só o alvo
+    # do FK acompanha o rename de `pedidos` para `orders` (task C2), e só o
+    # TIPO acompanha `orders.id` virando uuid (task C3).
+    pedido_id = Column(UUID(as_uuid=True), ForeignKey("orders.id"), nullable=False, index=True)
     tipo = Column(String(30), nullable=False)  # FALTA_ESTOQUE | ATRASO_ENTREGA
     # `default=` covers ORM inserts; `server_default` matches schema.sql's
     # `DEFAULT 'ABERTA'` for any insert bypassing the ORM — fix round 1,

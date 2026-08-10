@@ -5,7 +5,7 @@ from edu_common.security import create_access_token
 from sqlalchemy import insert
 
 from app.config import settings
-from app.models.pedido import Pedido
+from app.models.pedido import Order
 from app.services.status_pedido import StatusPedido
 
 # Precisa bater com CANDIDATOS_FILA_MAXIMO em app/routers/separacao.py — mas
@@ -48,13 +48,12 @@ PICKER_B = "00000000-0000-0000-0000-0000000000b2"
 ADMIN = "00000000-0000-0000-0000-0000000000a9"
 
 
-async def _seed_pedido_em_separacao(db_session, separador_id: str | None) -> Pedido:
-    pedido = Pedido(
-        aluno_id=str(uuid.uuid4()),
+async def _seed_pedido_em_separacao(db_session, separador_id: str | None) -> Order:
+    pedido = Order(
+        user_id=str(uuid.uuid4()),
         status=StatusPedido.EM_SEPARACAO.value,
-        endereco_entrega="Rua Teste, 123",
-        valor_total=Decimal("100.00"),
-        separador_id=separador_id,
+        total=Decimal("100.00"),
+        picker_id=separador_id,
     )
     db_session.add(pedido)
     await db_session.commit()
@@ -62,12 +61,11 @@ async def _seed_pedido_em_separacao(db_session, separador_id: str | None) -> Ped
     return pedido
 
 
-async def _seed_pedido_aguardando_separacao(db_session) -> Pedido:
-    pedido = Pedido(
-        aluno_id=str(uuid.uuid4()),
+async def _seed_pedido_aguardando_separacao(db_session) -> Order:
+    pedido = Order(
+        user_id=str(uuid.uuid4()),
         status=StatusPedido.AGUARDANDO_SEPARACAO.value,
-        endereco_entrega="Rua Teste, 123",
-        valor_total=Decimal("100.00"),
+        total=Decimal("100.00"),
     )
     db_session.add(pedido)
     await db_session.commit()
@@ -95,7 +93,7 @@ async def test_finish_picking_allows_the_separador_who_claimed_the_order(client,
 
 
 # ── Fix round 1, reviewer finding #2: start must honor a pre-set
-# separador_id (e.g. from admin's assign-picker) instead of letting any
+# picker_id (e.g. from admin's assign-picker) instead of letting any
 # other separador overwrite it on claim. ────────────────────────────────
 
 
@@ -112,7 +110,7 @@ async def test_start_rejects_a_separador_when_admin_already_assigned_someone_els
         headers=headers_for("admin", sub=ADMIN),
     )
     assert assign_response.status_code == 200
-    assert assign_response.json()["separador_id"] == PICKER_A
+    assert assign_response.json()["picker_id"] == PICKER_A
 
     hijack_response = await client.patch(
         f"/picking/{pedido.id}/start", headers=headers_for("separador", sub=PICKER_B)
@@ -146,7 +144,7 @@ async def test_picking_queue_candidate_fetch_is_capped(client, db_session):
     Todos os pedidos são idênticos em espera/risco (sem itens, portanto
     sem risco de estoque, e criados quase simultaneamente), então
     `priorizar_fila` empata todos os scores; como `list.sort` é estável, a
-    ordem final == ordem de chegada do SELECT, que é `criado_em ASC, id
+    ordem final == ordem de chegada do SELECT, que é `created_at ASC, id
     ASC` — ou seja, ordem de inserção. Pedindo `offset=490&limit=200`:
     se o fetch está corretamente limitado ao teto, sobram só os últimos
     `CANDIDATOS_FILA_MAXIMO_ESPERADO - 490 = 10` candidatos; sem o cap
@@ -154,13 +152,12 @@ async def test_picking_queue_candidate_fetch_is_capped(client, db_session):
     """
     total_semeado = CANDIDATOS_FILA_MAXIMO_ESPERADO + 5
     await db_session.execute(
-        insert(Pedido),
+        insert(Order),
         [
             {
-                "aluno_id": str(uuid.uuid4()),
+                "user_id": str(uuid.uuid4()),
                 "status": StatusPedido.AGUARDANDO_SEPARACAO.value,
-                "endereco_entrega": "Rua Teste, 123",
-                "valor_total": Decimal("100.00"),
+                "total": Decimal("100.00"),
             }
             for _ in range(total_semeado)
         ],
@@ -176,7 +173,7 @@ async def test_picking_queue_candidate_fetch_is_capped(client, db_session):
 
 async def test_old_portuguese_finalizar_path_is_gone(client, db_session):
     """Fix round 1 (reviewer finding #1): o pedido usado precisa EXISTIR e
-    estar em EM_SEPARACAO com `separador_id=PICKER_A` — a rota antiga
+    estar em EM_SEPARACAO com `picker_id=PICKER_A` — a rota antiga
     (`finalizar_separacao`) 404a em "Pedido não encontrado" para QUALQUER
     id inexistente, então um id chumbado como `1` sem seed passaria com
     404 mesmo se o path nunca tivesse sido traduzido. Com um pedido real

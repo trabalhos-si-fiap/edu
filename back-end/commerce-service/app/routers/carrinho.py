@@ -10,16 +10,10 @@ from app.exceptions import CartItemNotFoundError, CartProductNotFoundError
 from app.redis_client import get_redis
 from app.schemas.carrinho import CartItemIn, CartOut
 from app.services import carrinho as services
-from app.services.media import presigned_image_url
+from app.services.media import presign_cart
 from app.storage import ObjectStorage, get_storage
 
 router = APIRouter(prefix="/cart", tags=["cart"])
-
-
-async def _presign_cart(cart: CartOut, *, storage: ObjectStorage, redis: aioredis.Redis) -> CartOut:
-    for item in cart.items:
-        item.image_url = await presigned_image_url(item.image_url, storage=storage, redis=redis)
-    return cart
 
 
 @router.get("", response_model=CartOut)
@@ -30,7 +24,7 @@ async def obter_carrinho(
     redis: aioredis.Redis = Depends(get_redis),
 ) -> CartOut:
     cart = await services.obter_carrinho(db, uuid.UUID(user["sub"]))
-    return await _presign_cart(cart, storage=storage, redis=redis)
+    return await presign_cart(cart, storage=storage, redis=redis)
 
 
 @router.post("/items", response_model=CartOut, status_code=status.HTTP_201_CREATED)
@@ -43,7 +37,7 @@ async def adicionar_item(
 ) -> CartOut:
     try:
         cart = await services.adicionar_item(db, uuid.UUID(user["sub"]), payload)
-        return await _presign_cart(cart, storage=storage, redis=redis)
+        return await presign_cart(cart, storage=storage, redis=redis)
     except CartProductNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Product not found"
@@ -61,7 +55,7 @@ async def remover_item(
 ) -> CartOut:
     try:
         cart = await services.remover_item(db, uuid.UUID(user["sub"]), product_id, quantity)
-        return await _presign_cart(cart, storage=storage, redis=redis)
+        return await presign_cart(cart, storage=storage, redis=redis)
     except CartItemNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Item not in cart"

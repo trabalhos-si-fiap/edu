@@ -50,6 +50,8 @@ void main() {
         OrderSummaryStatus.outForDelivery);
     expect(OrderSummary.fromJson(_json(status: 'delivered')).status,
         OrderSummaryStatus.delivered);
+    expect(OrderSummary.fromJson(_json(status: 'cancelled')).status,
+        OrderSummaryStatus.cancelled);
   });
 
   test('unknown or missing status falls back to pending', () {
@@ -62,6 +64,15 @@ void main() {
         isTrue);
     expect(OrderSummary.fromJson(_json(status: 'out_for_delivery')).isDelivered,
         isFalse);
+    expect(OrderSummary.fromJson(_json(status: 'cancelled')).isDelivered,
+        isFalse);
+  });
+
+  test('isFinished is true for delivered and cancelled orders, false otherwise', () {
+    expect(OrderSummary.fromJson(_json(status: 'delivered')).isFinished, isTrue);
+    expect(OrderSummary.fromJson(_json(status: 'cancelled')).isFinished, isTrue);
+    expect(OrderSummary.fromJson(_json(status: 'separating')).isFinished, isFalse);
+    expect(OrderSummary.fromJson(_json(status: 'out_for_delivery')).isFinished, isFalse);
   });
 
   test('totalQuantity sums the quantity of every item', () {
@@ -74,6 +85,7 @@ void main() {
     expect(OrderSummary.fromJson(_json(status: 'separating')).stepIndex, 0);
     expect(OrderSummary.fromJson(_json(status: 'out_for_delivery')).stepIndex, 1);
     expect(OrderSummary.fromJson(_json(status: 'delivered')).stepIndex, 2);
+    expect(OrderSummary.fromJson(_json(status: 'cancelled')).stepIndex, 2);
   });
 
   test('statusLabel exposes a human-readable Portuguese label', () {
@@ -87,6 +99,8 @@ void main() {
         'Saiu para entrega');
     expect(OrderSummary.fromJson(_json(status: 'delivered')).statusLabel,
         'Entregue');
+    expect(OrderSummary.fromJson(_json(status: 'cancelled')).statusLabel,
+        'Cancelado');
   });
 
   group('formatOrderTotal', () {

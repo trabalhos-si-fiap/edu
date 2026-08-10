@@ -4,14 +4,17 @@ import 'package:edu_ia/features/order_tracking/presentation/order_provider.dart'
 import 'package:flutter_test/flutter_test.dart';
 
 /// Builds a tracking payload whose last step ('delivered') is [delivered],
-/// mirroring the backend contract.
-OrderModel _order({required bool delivered}) {
+/// mirroring the backend contract. [status] is the top-level contract
+/// status (e.g. 'cancelled'); omitted entirely when null, to also exercise
+/// the tolerant fallback for a backend that doesn't send the key yet.
+OrderModel _order({required bool delivered, String? status}) {
   final now = DateTime.now();
   return OrderModel.fromJson({
     'id': 'order-1',
     'headline': 'Pedido',
     'description': '...',
     'estimated_arrival': now.toIso8601String(),
+    if (status != null) 'status': status,
     'steps': [
       {'code': 'confirmed', 'title': 'Confirmado', 'status': 'done'},
       {
@@ -56,7 +59,33 @@ class _FailingService extends OrderService {
       throw OrderException('boom');
 }
 
+/// Returns 'separating' until [cancelAfter] calls have happened, then a
+/// cancelled order. Mirrors _SequenceService but for the cancel path: a
+/// cancelled order's timeline stays entirely pending, so isDelivered alone
+/// never fires and the provider must key off the status field instead.
+class _CancelSequenceService extends OrderService {
+  _CancelSequenceService({required this.cancelAfter}) : super();
+
+  final int cancelAfter;
+  int calls = 0;
+
+  @override
+  Future<OrderModel> fetchTracking(String orderId) async {
+    calls++;
+    return _order(
+      delivered: false,
+      status: calls >= cancelAfter ? 'cancelled' : 'separating',
+    );
+  }
+}
+
 void main() {
+  test('OrderModel.fromJson reads the status field, tolerating a missing key', () {
+    expect(_order(delivered: false, status: 'cancelled').isCancelled, isTrue);
+    expect(_order(delivered: false, status: 'separating').isCancelled, isFalse);
+    expect(_order(delivered: false).isCancelled, isFalse); // key omitted entirely
+  });
+
   test('load() reaches success and exposes the order', () async {
     final provider = OrderProvider(
       service: _SequenceService(deliverAfter: 99),
@@ -88,6 +117,43 @@ void main() {
     // Once delivered, polling must stop — no further calls.
     await Future<void>.delayed(const Duration(milliseconds: 80));
     expect(service.calls, callsAtDelivery);
+    provider.dispose();
+  });
+
+  test('polls until cancelled, then stops fetching', () async {
+    final service = _CancelSequenceService(cancelAfter: 3);
+    final provider = OrderProvider(
+      service: service,
+      pollInterval: const Duration(milliseconds: 20),
+    );
+
+    await provider.load('order-1'); // call #1: separating
+    // Let the periodic polling run past the cancellation point.
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+
+    expect(provider.order!.isCancelled, isTrue);
+    final callsAtCancel = service.calls;
+    expect(callsAtCancel, greaterThanOrEqualTo(3));
+
+    // Once cancelled, polling must stop — no further calls.
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+    expect(service.calls, callsAtCancel);
+    provider.dispose();
+  });
+
+  test('load() does not poll when the order is already cancelled', () async {
+    final service = _CancelSequenceService(cancelAfter: 0); // cancelled from call #1
+    final provider = OrderProvider(
+      service: service,
+      pollInterval: const Duration(milliseconds: 20),
+    );
+
+    await provider.load('order-1');
+    expect(provider.order!.isCancelled, isTrue);
+
+    final callsAfterLoad = service.calls;
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+    expect(service.calls, callsAfterLoad);
     provider.dispose();
   });
 

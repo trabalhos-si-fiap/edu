@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime
 
 from edu_common.security import create_access_token
@@ -40,21 +41,30 @@ async def test_list_returns_only_own_notifications(client, db_session):
 async def test_notification_data_uses_english_field_names(client, db_session):
     """Contrato público em inglês (Global Constraints do plano) — o
     sub-objeto `data` devolve `order_id`/`occurrence_id`, não os nomes
-    internos do model (`pedido_id`/`ocorrencia_id`)."""
+    internos do model (`pedido_id`/`ocorrencia_id`).
+
+    `pedido_id` como UUID string, não inteiro literal — desde a task C10,
+    `Notificacao.pedido_id` é `UUID(as_uuid=True)` (o commerce publica
+    `orders.id`, UUID desde a fase 2)."""
+    pedido_id = uuid.uuid4()
     db_session.add(
         Notificacao(
             aluno_id=STUDENT_ID,
             titulo="Pedido",
             descricao="d",
             tipo="order_status",
-            pedido_id=42,
+            pedido_id=pedido_id,
             ocorrencia_id=7,
         )
     )
     await db_session.commit()
 
     body = (await client.get("/notifications", headers=headers_for(STUDENT_ID))).json()
-    assert body[0]["data"] == {"type": "order_status", "order_id": 42, "occurrence_id": 7}
+    assert body[0]["data"] == {
+        "type": "order_status",
+        "order_id": str(pedido_id),
+        "occurrence_id": 7,
+    }
 
 
 async def test_list_unread_only_filters_read_notifications(client, db_session):

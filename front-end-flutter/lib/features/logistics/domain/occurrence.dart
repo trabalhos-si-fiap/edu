@@ -1,5 +1,5 @@
 class ProdutoSugerido {
-  final int id;
+  final String id;
   final String nome;
   final double preco;
   final String? imagemUrl;
@@ -13,7 +13,7 @@ class ProdutoSugerido {
 
   factory ProdutoSugerido.fromJson(Map<String, dynamic> json) {
     return ProdutoSugerido(
-      id: json['id'] as int,
+      id: json['id'] as String,
       nome: json['nome'] as String,
       preco: (json['preco'] as num).toDouble(),
       imagemUrl: json['imagem_url'] as String?,
@@ -24,11 +24,14 @@ class ProdutoSugerido {
 /// Ocorrência excepcional durante separação (falta de estoque) ou entrega
 /// (atraso), reportada por separador/entregador e resolvida pelo aluno.
 class Ocorrencia {
+  // `id` da ocorrência continua inteiro — o schema do backend
+  // (`OcorrenciaOut.id`) mantém; só `pedido_id` acompanhou `orders.id`
+  // virando UUID (task C3), e `produto_id` acompanhou `products.id` (B4).
   final int id;
-  final int pedidoId;
+  final String pedidoId;
   final String tipo; // FALTA_ESTOQUE | ATRASO_ENTREGA
   final String status; // ABERTA | RESOLVIDA
-  final int? produtoId;
+  final String? produtoId;
   final DateTime? novaDataSugerida;
   final String motivo;
   final String? resolucao;
@@ -55,10 +58,10 @@ class Ocorrencia {
   factory Ocorrencia.fromJson(Map<String, dynamic> json) {
     return Ocorrencia(
       id: json['id'] as int,
-      pedidoId: json['pedido_id'] as int,
+      pedidoId: json['pedido_id'] as String,
       tipo: json['tipo'] as String,
       status: json['status'] as String,
-      produtoId: json['produto_id'] as int?,
+      produtoId: json['produto_id'] as String?,
       novaDataSugerida: json['nova_data_sugerida'] != null
           ? DateTime.parse(json['nova_data_sugerida'] as String)
           : null,

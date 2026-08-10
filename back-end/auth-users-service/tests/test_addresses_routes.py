@@ -1,3 +1,5 @@
+import uuid
+
 from app.models.address import Address
 
 REGISTER = {
@@ -75,6 +77,43 @@ async def test_user_cannot_delete_another_users_address(client):
 
     pedro = await _register(client, OTHER)
     assert (await client.delete(f"/auth/addresses/{address_id}", headers=pedro)).status_code == 404
+
+
+async def test_get_address_returns_the_owners_address(client):
+    headers = await _register(client, REGISTER)
+    address_id = (await client.post("/auth/addresses", json=ADDRESS, headers=headers)).json()["id"]
+
+    response = await client.get(f"/auth/addresses/{address_id}", headers=headers)
+
+    assert response.status_code == 200
+    assert response.json()["street"] == ADDRESS["street"]
+
+
+async def test_get_address_hides_another_users_address_behind_404(client):
+    maria = await _register(client, REGISTER)
+    address_id = (await client.post("/auth/addresses", json=ADDRESS, headers=maria)).json()["id"]
+
+    pedro = await _register(client, OTHER)
+    response = await client.get(f"/auth/addresses/{address_id}", headers=pedro)
+
+    # 404, não 403: 403 confirmaria que o id existe, virando um oráculo de
+    # enumeração sobre os endereços dos outros.
+    assert response.status_code == 404
+
+
+async def test_get_address_returns_404_for_a_missing_id(client):
+    """A mensagem de commit de `8c99d47` afirma que um endereço de outro
+    dono devolve o MESMO 404 de um id inexistente. O teste acima só prova a
+    metade "outro dono" (com um segundo usuário real); esta prova a metade
+    "id nunca existiu", com um `uuid.uuid4()` que nenhum `POST` criou."""
+    headers = await _register(client, REGISTER)
+    response = await client.get(f"/auth/addresses/{uuid.uuid4()}", headers=headers)
+    assert response.status_code == 404
+
+
+async def test_get_address_requires_authentication(client):
+    response = await client.get(f"/auth/addresses/{uuid.uuid4()}")
+    assert response.status_code == 403
 
 
 async def test_list_addresses_is_paginated(client):

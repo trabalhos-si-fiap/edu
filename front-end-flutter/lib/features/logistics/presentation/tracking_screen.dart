@@ -15,7 +15,7 @@ class EntregadorEmRotaScreen extends StatefulWidget {
 class _EntregadorEmRotaScreenState extends State<EntregadorEmRotaScreen> {
   final _api = LogisticsApi();
   late Future<List<Pedido>> _entregasFuture;
-  int? _acaoEmAndamentoId;
+  String? _acaoEmAndamentoId;
 
   @override
   void initState() {
@@ -34,7 +34,7 @@ class _EntregadorEmRotaScreenState extends State<EntregadorEmRotaScreen> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('Confirmar entrega?'),
         content: Text(
-          'Pedido #${pedido.id}\n${pedido.enderecoEntrega}\n\n'
+          'Pedido #${pedido.idCurto}\n${pedido.enderecoEntrega}\n\n'
           'Confirme apenas após entregar o material ao destinatário.',
         ),
         actions: [
@@ -82,7 +82,7 @@ class _EntregadorEmRotaScreenState extends State<EntregadorEmRotaScreen> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Pedido #${pedido.id}', style: const TextStyle(fontWeight: FontWeight.w700)),
+                    Text('Pedido #${pedido.idCurto}', style: const TextStyle(fontWeight: FontWeight.w700)),
                     const SizedBox(height: 12),
                     const Text(
                       'O aluno será notificado e poderá aceitar a nova data '
@@ -258,7 +258,7 @@ class _EntregadorEmRotaScreenState extends State<EntregadorEmRotaScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    'Pedido #${pedido.id}',
+                                    'Pedido #${pedido.idCurto}',
                                     style: const TextStyle(
                                       fontSize: 16,
                                       fontWeight: FontWeight.w700,

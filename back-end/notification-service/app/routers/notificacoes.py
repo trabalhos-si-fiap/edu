@@ -24,7 +24,14 @@ def _para_notification_out(n: Notificacao) -> NotificationOut:
         id=str(n.id),
         title=n.titulo,
         body=n.descricao,
-        data=NotificationDataOut(type=n.tipo, order_id=n.pedido_id, occurrence_id=n.ocorrencia_id),
+        data=NotificationDataOut(
+            type=n.tipo,
+            # `str(...)`: `Notificacao.pedido_id` é UUID desde a task C10, e
+            # `NotificationDataOut.order_id` é `str | None` — sem a
+            # conversão, o Pydantic recusa um `uuid.UUID` cru num campo `str`.
+            order_id=str(n.pedido_id) if n.pedido_id is not None else None,
+            occurrence_id=n.ocorrencia_id,
+        ),
         created_at=n.criado_em,
         read_at=n.lido_em,
     )

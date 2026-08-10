@@ -124,6 +124,14 @@ class OrderModel {
   final String carrier;
   final String? mapUrl;
 
+  /// Status do contrato (`StatusContrato` no backend), ex.: 'separating',
+  /// 'cancelled'. String crua, não enum: a tela só precisa distinguir
+  /// "cancelado" do resto para saber quando parar o polling — ver
+  /// [isCancelled]. Tolerante a ausência da chave (string vazia), para não
+  /// quebrar contra um backend que ainda não devolva o campo (divergência
+  /// deliberada nº 7 da task C11 — o legacy nunca terá esse campo).
+  final String status;
+
   const OrderModel({
     required this.id,
     required this.headline,
@@ -133,6 +141,7 @@ class OrderModel {
     required this.location,
     required this.kit,
     required this.carrier,
+    required this.status,
     this.mapUrl,
   });
 
@@ -156,6 +165,7 @@ class OrderModel {
       ),
       kit: kit,
       carrier: (json['carrier'] as String?) ?? '',
+      status: (json['status'] as String?) ?? '',
       mapUrl: json['map_url'] as String?,
     );
   }
@@ -169,6 +179,7 @@ class OrderModel {
     'location': location.toJson(),
     'kit': kit.map((k) => k.toJson()).toList(),
     'carrier': carrier,
+    'status': status,
     'map_url': mapUrl,
   };
 
@@ -186,4 +197,10 @@ class OrderModel {
       steps.isNotEmpty &&
       steps.last.code == 'delivered' &&
       steps.last.status == OrderStepStatus.done;
+
+  /// `true` quando o pedido foi cancelado. Não dá para derivar isso de
+  /// [steps]: um pedido cancelado deixa a timeline inteira PENDING
+  /// (`rastreio_builder.py`), então [isDelivered] nunca fica verdadeiro
+  /// sozinho — a tela usa [status] para parar o polling nesse caso.
+  bool get isCancelled => status == 'cancelled';
 }

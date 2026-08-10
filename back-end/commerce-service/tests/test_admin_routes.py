@@ -5,14 +5,16 @@ encontrada em `GET /admin/estoque` / `PATCH /admin/estoque/{id}/ajustar"
 (sem response_model nenhum) enquanto essas rotas já precisavam ser tocadas
 para traduzir o prefixo. Ver task-11-report.md."""
 
+import asyncio
 import uuid
 from decimal import Decimal
 
+import pytest
 from edu_common.security import create_access_token
 from sqlalchemy import select
 
 from app.config import settings
-from app.models.pedido import Pedido, PedidoStatusHistorico
+from app.models.pedido import Order, PedidoStatusHistorico
 from app.models.produto import Estoque, Fornecedor, Product
 from app.services.status_pedido import StatusPedido
 
@@ -22,12 +24,50 @@ def headers_for(role: str, sub: str = "00000000-0000-0000-0000-000000000001") ->
     return {"Authorization": f"Bearer {token}"}
 
 
-async def _seed_pedido(db_session, status: str) -> Pedido:
-    pedido = Pedido(
-        aluno_id=str(uuid.uuid4()),
+async def _seed_pedido(db_session, status: str) -> Order:
+    pedido = Order(
+        user_id=str(uuid.uuid4()),
         status=status,
-        endereco_entrega="Rua Teste, 123",
-        valor_total=Decimal("100.00"),
+        total=Decimal("100.00"),
+    )
+    db_session.add(pedido)
+    await db_session.commit()
+    await db_session.refresh(pedido)
+    return pedido
+
+
+async def _historico_do_pedido(db_session, pedido_id: int) -> list[PedidoStatusHistorico]:
+    """Histórico de transições de um pedido, em ordem de criação.
+
+    Contra `PedidoStatusHistorico.order_id`: a task C2 renomeou o FK de
+    `pedido_id` para `order_id` (a TABELA `pedido_status_historico` fica em
+    português — agregado sem cliente — só o FK acompanhou o rename de
+    `pedidos` para `orders`). Medido em app/models/pedido.py."""
+    result = await db_session.execute(
+        select(PedidoStatusHistorico)
+        .where(PedidoStatusHistorico.order_id == pedido_id)
+        .order_by(PedidoStatusHistorico.id)
+    )
+    return list(result.scalars().all())
+
+
+async def _seed_pedido_com_endereco(db_session) -> Order:
+    """Pedido com os oito campos `ship_*` preenchidos — só para o teste que
+    prova que a visão de staff compõe `endereco_entrega` a partir deles
+    (ver app/services/pedidos.py::endereco_formatado)."""
+    pedido = Order(
+        user_id=str(uuid.uuid4()),
+        status=StatusPedido.CRIADO.value,
+        total=Decimal("100.00"),
+        payment_method="PIX",
+        ship_label="Casa",
+        ship_zip_code="01310-100",
+        ship_street="Av. Paulista",
+        ship_number="1000",
+        ship_complement="ap 42",
+        ship_neighborhood="Bela Vista",
+        ship_city="São Paulo",
+        ship_state="SP",
     )
     db_session.add(pedido)
     await db_session.commit()
@@ -76,6 +116,38 @@ async def test_orders_listing_is_paginated(client):
     assert response.status_code == 422
 
 
+# ── C4: `ship_*`, `payment_method`, `status_updated_at` e o snapshot do
+# item — ver task-C4-brief.md. ────────────────────────────────────────────
+
+
+async def test_staff_view_composes_the_address_from_the_snapshot(client, db_session):
+    """Os schemas de staff mostravam `endereco_entrega`; a coluna morreu, mas
+    a informação não — ela passa a ser composta de sete dos oito campos
+    `ship_*` do snapshot (`ship_label` fica de fora — ver
+    app/services/pedidos.py::endereco_formatado)."""
+    await _seed_pedido_com_endereco(db_session)
+    response = await client.get("/admin/orders", headers=headers_for("admin"))
+    assert response.status_code == 200
+    assert response.json()[0]["endereco_entrega"] == (
+        "Av. Paulista, 1000, ap 42 - Bela Vista, São Paulo - SP, 01310-100"
+    )
+
+
+async def test_a_transition_stamps_status_updated_at(client, db_session):
+    """A timeline do rastreio mostra a hora da última mudança — sem este
+    carimbo ela mostraria a hora da criação para sempre."""
+    pedido = await _seed_pedido(db_session, status=StatusPedido.CRIADO.value)
+    antes = pedido.status_updated_at
+
+    response = await client.patch(
+        f"/admin/orders/{pedido.id}/confirm-payment", headers=headers_for("admin")
+    )
+    assert response.status_code == 200
+
+    await db_session.refresh(pedido)
+    assert pedido.status_updated_at > antes
+
+
 # ── Fix round 2, reviewer finding: transicionar_pedido's own SELECT
 # (app/routers/separacao.py:44) had no lock — confirmar_pagamento doesn't
 # even read the pedido before delegating to it, so a double-click/retry
@@ -89,13 +161,19 @@ async def test_confirm_payment_is_idempotent_against_a_sequential_double_call(
     task-11-report.md, Fix round 2, para o que continua sem prova
     automatizada (a corrida concorrente em si).
 
-    O que isto prova: a mesma máquina de estados que o `.with_for_update()`
-    protege contra corrida também rejeita um reenvio sequencial — a
-    segunda chamada nunca encontra o pedido em CRIADO de novo (já está em
-    AGUARDANDO_SEPARACAO), então `validar_transicao` recusa ANTES de
-    qualquer `db.add(PedidoStatusHistorico(...))` ou `publish_event(...)`
-    rodar uma segunda vez. Exatamente um registro de histórico e
-    exatamente um evento `order.status_changed`, não dois.
+    Atualizado na task C1: `confirmar_pagamento` agora encadeia CRIADO ->
+    CONFIRMADO -> AGUARDANDO_SEPARACAO numa única chamada (ver
+    status_pedido.py), então a PRIMEIRA chamada por si só já grava duas
+    linhas de histórico e publica dois eventos — isso não é o duplo-clique
+    que este teste mede, é o comportamento normal de uma chamada. A
+    invariante que sobra, e que continua valendo, é a mesma de sempre: a
+    mesma máquina de estados que o `.with_for_update()` protege contra
+    corrida também rejeita um reenvio sequencial — a segunda chamada nunca
+    encontra o pedido em CRIADO de novo (já está em AGUARDANDO_SEPARACAO),
+    então `validar_transicao` recusa ANTES de qualquer
+    `db.add(PedidoStatusHistorico(...))` ou `publish_event(...)` rodar de
+    novo. A SEGUNDA chamada não acrescenta nada — nem histórico, nem
+    evento.
     """
     pedido = await _seed_pedido(db_session, StatusPedido.CRIADO.value)
 
@@ -110,18 +188,26 @@ async def test_confirm_payment_is_idempotent_against_a_sequential_double_call(
     )
     assert second.status_code == 400
 
-    historico_result = await db_session.execute(
-        select(PedidoStatusHistorico).where(PedidoStatusHistorico.pedido_id == pedido.id)
-    )
-    assert len(historico_result.scalars().all()) == 1
+    historico = await _historico_do_pedido(db_session, pedido.id)
+    assert [h.status for h in historico] == [
+        StatusPedido.CONFIRMADO.value,
+        StatusPedido.AGUARDANDO_SEPARACAO.value,
+    ]
 
     status_changed_events = [
         payload
         for routing_key, payload in _stub_publish_event
         if routing_key == "order.status_changed"
     ]
-    assert len(status_changed_events) == 1
-    assert status_changed_events[0]["pedido_id"] == pedido.id
+    assert [e["status"] for e in status_changed_events] == [
+        StatusPedido.CONFIRMADO.value,
+        StatusPedido.AGUARDANDO_SEPARACAO.value,
+    ]
+    # `str(pedido.id)`: o payload carrega o id como string, porque JSON não
+    # tem tipo UUID. Esta asserção comparava contra o `uuid.UUID` cru e
+    # passava — ou seja, travava como CORRETO um payload que o transporte
+    # real não conseguia serializar (task C3, fix round 1, finding 3).
+    assert all(e["pedido_id"] == str(pedido.id) for e in status_changed_events)
 
 
 # ── B7: o cap declarado nao provava que o `.limit()`/`.offset()` da query
@@ -134,13 +220,12 @@ async def test_confirm_payment_is_idempotent_against_a_sequential_double_call(
 
 async def test_orders_listing_actually_applies_limit_and_offset(client, db_session):
     total = 55
-    for i in range(total):
+    for _i in range(total):
         db_session.add(
-            Pedido(
-                aluno_id=str(uuid.uuid4()),
+            Order(
+                user_id=str(uuid.uuid4()),
                 status=StatusPedido.CRIADO.value,
-                endereco_entrega=f"Rua Teste, {i}",
-                valor_total=Decimal("100.00"),
+                total=Decimal("100.00"),
             )
         )
     await db_session.commit()
@@ -184,6 +269,211 @@ async def test_inventory_adjust_accepts_zero(client, db_session):
     )
     assert response.status_code == 200
     assert response.json()["quantidade"] == 0
+
+
+async def test_confirm_payment_lands_the_order_in_the_picking_queue(
+    client, db_session, _stub_publish_event
+):
+    """Confirmar pagamento passa por CONFIRMADO e para em AGUARDANDO_SEPARACAO.
+
+    Parar em CONFIRMADO deixaria a fila de separação sempre vazia — não há
+    simulador na fase 2 para avançar sozinho."""
+    pedido = await _seed_pedido(db_session, status=StatusPedido.CRIADO.value)
+
+    response = await client.patch(
+        f"/admin/orders/{pedido.id}/confirm-payment", headers=headers_for("admin")
+    )
+
+    assert response.status_code == 200
+    await db_session.refresh(pedido)
+    assert pedido.status == StatusPedido.AGUARDANDO_SEPARACAO.value
+
+    historico = [h.status for h in await _historico_do_pedido(db_session, pedido.id)]
+    assert historico == [
+        StatusPedido.CONFIRMADO.value,
+        StatusPedido.AGUARDANDO_SEPARACAO.value,
+    ]
+
+    chaves_status = [
+        payload["status"] for key, payload in _stub_publish_event if key == "order.status_changed"
+    ]
+    assert chaves_status == [
+        StatusPedido.CONFIRMADO.value,
+        StatusPedido.AGUARDANDO_SEPARACAO.value,
+    ]
+
+
+async def test_confirm_payment_recovers_after_the_first_publish_fails(
+    client, db_session, monkeypatch
+):
+    """Um publish que falha na PRIMEIRA transição não pode tornar o pedido
+    irrecuperável.
+
+    `transicionar_pedido` (app/routers/separacao.py) comita ANTES de
+    publicar o evento, e `EventPublisher.publish`
+    (packages/edu-common/src/edu_common/events.py) propaga a exceção. Se o
+    broker der um blip no meio do clique do admin, `CRIADO -> CONFIRMADO`
+    já está gravado e a rota estoura antes de encadear
+    `CONFIRMADO -> AGUARDANDO_SEPARACAO`.
+
+    `CONFIRMADO` não é estado de repouso: a fila de separação seleciona
+    `AGUARDANDO_SEPARACAO` (`separacao.py::fila_separacao`) e
+    `TRANSICOES_VALIDAS[CONFIRMADO]` só oferece `AGUARDANDO_SEPARACAO` e
+    `CANCELADO` — e `confirmar_pagamento` era a ÚNICA rota que oferecia a
+    primeira. Sem o guard de estado, o retry tentava `CONFIRMADO ->
+    CONFIRMADO`, que `validar_transicao` recusa, e o pedido só saía de lá
+    por SQL manual.
+
+    O teste força o blip no evento de `CONFIRMADO`, prova que o pedido fica
+    fora da fila, e então exige que um segundo clique — o gesto que o admin
+    realmente faz — o leve até `AGUARDANDO_SEPARACAO` SEM duplicar a linha
+    `CONFIRMADO` do histórico.
+    """
+    pedido = await _seed_pedido(db_session, status=StatusPedido.CRIADO.value)
+
+    async def _publish_com_blip(routing_key: str, payload: dict) -> None:
+        if payload.get("status") == StatusPedido.CONFIRMADO.value:
+            raise RuntimeError("blip do broker")
+
+    monkeypatch.setattr("app.routers.separacao.publish_event", _publish_com_blip)
+
+    with pytest.raises(RuntimeError, match="blip do broker"):
+        await client.patch(
+            f"/admin/orders/{pedido.id}/confirm-payment", headers=headers_for("admin")
+        )
+
+    await db_session.refresh(pedido)
+    assert pedido.status == StatusPedido.CONFIRMADO.value
+
+    fila = await client.get("/picking/queue", headers=headers_for("admin"))
+    assert fila.status_code == 200
+    assert str(pedido.id) not in {row["id"] for row in fila.json()}
+
+    eventos: list[tuple[str, dict]] = []
+
+    async def _publish_ok(routing_key: str, payload: dict) -> None:
+        eventos.append((routing_key, payload))
+
+    monkeypatch.setattr("app.routers.separacao.publish_event", _publish_ok)
+
+    retry = await client.patch(
+        f"/admin/orders/{pedido.id}/confirm-payment", headers=headers_for("admin")
+    )
+    assert retry.status_code == 200, retry.text
+    assert retry.json()["status"] == StatusPedido.AGUARDANDO_SEPARACAO.value
+
+    await db_session.refresh(pedido)
+    assert pedido.status == StatusPedido.AGUARDANDO_SEPARACAO.value
+
+    assert [h.status for h in await _historico_do_pedido(db_session, pedido.id)] == [
+        StatusPedido.CONFIRMADO.value,
+        StatusPedido.AGUARDANDO_SEPARACAO.value,
+    ]
+    assert [payload["status"] for _key, payload in eventos] == [
+        StatusPedido.AGUARDANDO_SEPARACAO.value
+    ]
+
+    fila_depois = await client.get("/picking/queue", headers=headers_for("admin"))
+    assert fila_depois.status_code == 200
+    assert str(pedido.id) in {row["id"] for row in fila_depois.json()}
+
+
+async def test_two_concurrent_confirm_payments_leave_one_pair_of_transitions(
+    client, db_session, _stub_publish_event, monkeypatch
+):
+    """Dois admins clicando ao mesmo tempo: um passa, o outro leva 400.
+
+    O guard de estado de `confirmar_pagamento` (admin.py) lê o pedido ANTES
+    de delegar a `transicionar_pedido`, e é `transicionar_pedido` quem toma
+    o `SELECT ... FOR UPDATE`. Se o guard ler a ENTIDADE `Order`, ela entra
+    no identity map da sessão; o `SELECT ... FOR UPDATE` seguinte, na mesma
+    sessão, traz a linha nova do banco mas o ORM devolve a instância já
+    carregada SEM repopular os atributos (comportamento padrão do
+    SQLAlchemy — só `populate_existing()` repopula). O `FOR UPDATE` fica
+    desarmado para esta rota: o perdedor revalida contra um status velho,
+    passa, e reescreve a transição por cima da do vencedor.
+
+    O envenenamento depende de a instância continuar VIVA: o identity map
+    é de referências fracas, e a rota mantém a referência na local `pedido`
+    até a segunda transição. Este teste passa pela rota de verdade
+    justamente por isso — uma cópia do corpo que soltasse a entidade não
+    reproduziria o defeito (medido: soltando a referência, o mesmo
+    interleave devolve 400 mesmo com a leitura de entidade).
+
+    Interleave determinístico, sem `sleep`: o wrapper abaixo suspende a
+    PRIMEIRA chamada a `transicionar_pedido` que a rota fizer. B é lançado
+    primeiro, então a primeira chamada é dele — ele fica parado exatamente
+    entre o pre-read e a transição. A roda inteiro nesse meio-tempo, e só
+    então B é liberado. O wrapper não substitui nada da lógica sob teste:
+    delega para a função real.
+    """
+    import app.routers.admin as admin_router
+
+    pedido = await _seed_pedido(db_session, status=StatusPedido.CRIADO.value)
+
+    transicionar_real = admin_router.transicionar_pedido
+    ja_suspendeu = False
+    b_no_ponto = asyncio.Event()
+    liberar_b = asyncio.Event()
+
+    async def _suspende_a_primeira_chamada(db, pedido_id, novo_status, user_id, observacao=None):
+        nonlocal ja_suspendeu
+        if not ja_suspendeu:
+            ja_suspendeu = True
+            b_no_ponto.set()
+            await liberar_b.wait()
+        return await transicionar_real(db, pedido_id, novo_status, user_id, observacao)
+
+    monkeypatch.setattr("app.routers.admin.transicionar_pedido", _suspende_a_primeira_chamada)
+
+    admin_b = "00000000-0000-0000-0000-0000000000b0"
+    requisicao_b = asyncio.create_task(
+        client.patch(
+            f"/admin/orders/{pedido.id}/confirm-payment", headers=headers_for("admin", admin_b)
+        )
+    )
+    await asyncio.wait_for(b_no_ponto.wait(), timeout=5)
+
+    resposta_a = await asyncio.wait_for(
+        client.patch(f"/admin/orders/{pedido.id}/confirm-payment", headers=headers_for("admin")),
+        timeout=5,
+    )
+    assert resposta_a.status_code == 200, resposta_a.text
+    assert resposta_a.json()["status"] == StatusPedido.AGUARDANDO_SEPARACAO.value
+
+    liberar_b.set()
+    resposta_b = await asyncio.wait_for(requisicao_b, timeout=5)
+
+    assert resposta_b.status_code == 400, resposta_b.text
+    assert "Transição inválida" in resposta_b.json()["detail"]
+
+    # Nem histórico duplicado, nem evento duplicado, nem transição retrógrada.
+    assert [h.status for h in await _historico_do_pedido(db_session, pedido.id)] == [
+        StatusPedido.CONFIRMADO.value,
+        StatusPedido.AGUARDANDO_SEPARACAO.value,
+    ]
+    assert [
+        payload["status"] for key, payload in _stub_publish_event if key == "order.status_changed"
+    ] == [
+        StatusPedido.CONFIRMADO.value,
+        StatusPedido.AGUARDANDO_SEPARACAO.value,
+    ]
+    await db_session.refresh(pedido)
+    assert pedido.status == StatusPedido.AGUARDANDO_SEPARACAO.value
+
+
+async def test_confirm_payment_on_an_unknown_order_still_answers_404(client):
+    """Guarda do ramo `pedido is None` do guard de estado.
+
+    Não nasceu vermelho: o 404 sempre veio de `transicionar_pedido` e
+    continua vindo de lá. Existe porque o guard introduziu um caminho em que
+    `scalar_one_or_none()` devolve `None` — sem este teste, trocá-lo por um
+    `scalar_one()` (que estoura 500) passaria despercebido.
+    """
+    response = await client.patch(
+        f"/admin/orders/{uuid.uuid4()}/confirm-payment", headers=headers_for("admin")
+    )
+    assert response.status_code == 404
 
 
 async def test_inventory_listing_actually_applies_limit_and_offset(client, db_session):

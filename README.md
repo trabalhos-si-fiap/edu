@@ -198,6 +198,8 @@ Rode `make help` para ver todos. Resumo:
 | `make stack-logs` | Logs de um servico (`SVC=analytics-service`) |
 | `make services-dbs` | Cria os bancos por servico num volume existente |
 | `make services-migrate` | Aplica as migracoes de cada servico com banco |
+| `make services-seed` | Popula o catalogo do commerce (nunca executado — veja `docs/back-end/phase-2-debt.md`) |
+| `make services-env` | Cria cada `.env` a partir do `.env.example` (obrigatorio num clone limpo) |
 | `make services-test` | Roda a suite dos 8 projetos |
 | `make services-lint` | Roda ruff em cada projeto |
 | `make services-sync` | Sync deps de cada projeto no host (para IDE) |

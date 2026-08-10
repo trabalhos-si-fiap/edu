@@ -10,7 +10,11 @@ class NotificationDataOut(BaseModel):
     implementarmos, navegar direto para o pedido/ocorrência."""
 
     type: str
-    order_id: int | None = None
+    # `str`, não `int`, desde a task C10: `Notificacao.pedido_id` virou UUID
+    # (ver app/models/notificacao.py) — JSON não tem tipo UUID, e o router
+    # (`_para_notification_out`) já converte com `str(...)` antes de montar
+    # este schema.
+    order_id: str | None = None
     occurrence_id: int | None = None
 
 
