@@ -87,6 +87,31 @@ void main() {
     expect(find.text('Comprar novamente'), findsOneWidget);
   });
 
+  testWidgets(
+      'a cancelled order shows a Cancelado badge, not a green Entregue one',
+      (tester) async {
+    final provider = OrdersProvider(
+      service: _FakeService([
+        _order(id: 'c1', status: OrderSummaryStatus.cancelled),
+      ]),
+    );
+    await provider.load();
+
+    await tester.pumpWidget(_harness(provider));
+    await tester.pump();
+
+    // Regression for review round 1, Important 1: the finished-order card
+    // used to hardcode the literal 'ENTREGUE' regardless of status, so a
+    // cancelled order rendered with a green "delivered" badge.
+    expect(find.text('CANCELADO'), findsOneWidget);
+    expect(find.text('ENTREGUE'), findsNothing);
+
+    // Recomprar um pedido cancelado é legítimo; avaliar itens que nunca
+    // chegaram não é.
+    expect(find.text('Comprar novamente'), findsOneWidget);
+    expect(find.text('Avaliar itens'), findsNothing);
+  });
+
   testWidgets('shows an empty state when there are no orders',
       (tester) async {
     final provider = OrdersProvider(service: _FakeService(const []));
