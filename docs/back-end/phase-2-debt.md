@@ -176,8 +176,10 @@ chamada bem-sucedida já publica dois. O teste que ele descreve continua correto
 
 ### 4.1 O `SELECT` de lock ordena por coluna mutável
 
-**Onde:** `back-end/commerce-service/app/services/pagamento.py:79`
-(`listar_metodos`) e `:94` (`_listar_metodos_com_lock`).
+**Onde:** `back-end/commerce-service/app/services/pagamento.py:81`
+(dentro de `listar_metodos`, que começa em `:77`) e `:96` (dentro de
+`_listar_metodos_com_lock`, que começa em `:86`) — as duas linhas que
+`grep -n "order_by" app/services/pagamento.py` devolve.
 
 **O que é:** o select que toma `with_for_update()` ordena por
 `is_default.desc(), created_at`. `is_default` é justamente a coluna que as rotas
@@ -259,7 +261,11 @@ estado intermediário, `SEPARADO`, também não é oferecido por nenhuma outra r
 
 **Por que foi adiado:** a correção estrutural — uma transação envolvendo as duas
 transições, ou publicação fora do caminho de request — exige tirar o `commit()`
-de dentro de `transicionar_pedido`, que quatro rotas compartilham, e mover a
+de dentro de `transicionar_pedido`, que **cinco rotas** compartilham
+(`confirmar_pagamento`, `confirmar_coleta`, `confirmar_entrega`,
+`iniciar_separacao` e `finalizar_separacao` — sete chamadas ao todo, porque
+`confirmar_pagamento` e `finalizar_separacao` encadeiam duas cada;
+`grep -n "await transicionar_pedido(" app/routers/*.py | sort`), e mover a
 publicação para um outbox. É refatoração, não correção de fechamento.
 
 **O que custaria:** um padrão de outbox transacional (tabela de eventos escrita
@@ -359,7 +365,7 @@ teste.
 | `commerce-service/tests/test_occurrences_routes.py` | A resolução `remover_item` de uma ocorrência não tem teste (`grep -c '"remover_item"'` devolve 0), e ela passa por um caminho de flush assíncrono. | Poucas horas |
 | `commerce-service/app/services/auth_client.py::get_address` | Nenhum teste exercita `GET /auth/addresses/not-a-uuid`; o 422 foi medido à mão. | Uma hora |
 | `commerce-service` ↔ `auth-users-service` | Nenhum teste faz os dois serviços falarem HTTP de verdade; o cliente é sempre stubado. Inerente à suíte por serviço — entra no checklist de corte, não numa correção de código. | Ambiente, não código |
-| `front-end-flutter/test/features/logistics/` | Só existe `logistics_api_test.dart`. As telas de staff (`picking_*`, `delivery_*`, `tracking_screen`) não têm teste de widget. O lado marketplace foi coberto (`orders_screen_test.dart`). | Um a dois dias |
+| `front-end-flutter/test/features/logistics/` | Existem três arquivos (`logistics_api_test.dart`, `occurrence_test.dart`, `order_test.dart`), e **nenhum é teste de widget**: os três cobrem cliente HTTP e parsing de domínio. As telas de staff (`picking_*`, `delivery_*`, `tracking_screen`) continuam sem cobertura. O lado marketplace foi coberto (`orders_screen_test.dart`). | Um a dois dias |
 | `commerce-service/tests/test_cart_parity.py:345` | `_e_select_lock_item` casa mais consultas do que o próprio docstring diz travar. O fix já está escrito na entrada original: exigir a substring `"cart_items.product_id = "`. | Uma hora |
 
 ---
@@ -458,10 +464,19 @@ Flutter chama essas rotas**, então o rename é livre a qualquer momento.
 
 **Onde:** `front-end-flutter/lib/features/logistics/domain/order.dart:150-154`.
 
-**O que é:** os casts (`json['id'] as String` etc.) ficam **fora** do `try`, então
-uma mudança de contrato no backend vira exceção visível, não campo silenciosamente
-vazio. Foi discutido e **mantido**: numa tela de operação, tela de erro é melhor
-que dado errado.
+**O que é:** os casts (`json['id'] as String` etc.) não são defendidos por
+nenhum `try` — `order.dart` não tem nenhum (`grep -c "try"` nele devolve `0`).
+Os `try` do módulo estão no arquivo vizinho,
+`front-end-flutter/lib/features/logistics/data/logistics_api.dart` — `:54`
+(`_listaPedidos`) e `:73` (`_patchPedido`), com os blocos `try`/`on` indo até
+`:63` e `:82` — e envolvem só a chamada HTTP: convertem falha de rede em
+`LogisticsException` e deixam de fora `jsonDecode(...)` e
+`Pedido.fromJson(...)`, que rodam DEPOIS do `try`. (O terceiro `try` do
+arquivo, `:90`, é outro assunto: protege o parse do corpo de ERRO dentro de
+`_mensagemErro`.) Uma mudança de contrato no
+backend vira, portanto, exceção visível, não campo silenciosamente vazio. Foi
+discutido e **mantido**: numa tela de operação, tela de erro é melhor que dado
+errado.
 
 **Não corrija sem decidir o contrário.** Está aqui só para não ser
 redescoberto como defeito.
