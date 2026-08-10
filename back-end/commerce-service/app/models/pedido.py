@@ -174,7 +174,10 @@ class PedidoStatusHistorico(Base):
     id = Column(Integer, primary_key=True)
     # Só o TIPO acompanha `orders.id` (task C3). O `id` desta tabela continua
     # inteiro: ela não tem cliente e ninguém a endereça por id.
-    order_id = Column(UUID(as_uuid=True), ForeignKey("orders.id"))
+    # `nullable=False` desde a task C10 (decisão do usuário, 2026-08-09):
+    # nullable foi o que deixou o bug de flush da C6 gravar `order_id=NULL`
+    # em silêncio em vez de levantar.
+    order_id = Column(UUID(as_uuid=True), ForeignKey("orders.id"), nullable=False)
     status = Column(String(30), nullable=False)
     user_id = Column(UUID(as_uuid=True), nullable=True)  # quem fez a transição
     observacao = Column(Text, nullable=True)
