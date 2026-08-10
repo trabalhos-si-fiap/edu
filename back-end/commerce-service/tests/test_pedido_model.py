@@ -15,7 +15,7 @@ encadeada a partir de `099099b0c1a8`.
 import uuid
 from decimal import Decimal
 
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from app.models.pedido import Order, OrderItem
 from app.models.produto import Product
@@ -45,21 +45,37 @@ async def test_deleting_a_referenced_product_does_not_raise(db_session):
     """Um pedido é snapshot histórico — apagar o produto que ele
     referenciou não pode quebrar o catálogo. Hoje (FK presente) apaga: este
     teste prova o RED contra o código atual antes da migration remover o
-    `ForeignKey`."""
+    `ForeignKey`.
+
+    Não basta "não levantar" — achado da revisão (fix round 1, Minor #3):
+    um FK futuro com `ondelete="CASCADE"` também não levantaria, mas
+    apagaria a linha do `OrderItem` em silêncio, exatamente o oposto do que
+    esta dívida existe para impedir (o item é o registro histórico do que
+    foi comprado; sumir junto com o produto apagaria a compra da história).
+    Por isso a asserção final confere que o item SOBREVIVE, com o MESMO
+    `product_id` que apontava para o produto agora apagado — uma FK com
+    CASCADE reprovaria esta linha (o `scalar_one()` levantaria
+    `NoResultFound`, a linha já não existiria)."""
     pedido = await _seed_pedido(db_session)
     produto = await _seed_produto(db_session)
-    db_session.add(
-        OrderItem(
-            order_id=pedido.id,
-            product_id=produto.id,
-            product_name=produto.name,
-            unit_price=produto.price,
-            quantity=1,
-        )
+    item = OrderItem(
+        order_id=pedido.id,
+        product_id=produto.id,
+        product_name=produto.name,
+        unit_price=produto.price,
+        quantity=1,
     )
+    db_session.add(item)
     await db_session.commit()
+    item_id = item.id
+    produto_id = produto.id
 
     # Apagar o produto que o item referencia não pode levantar — o item é
     # um snapshot, não uma referência viva ao catálogo.
-    await db_session.execute(delete(Product).where(Product.id == produto.id))
+    await db_session.execute(delete(Product).where(Product.id == produto_id))
     await db_session.commit()
+
+    db_session.expire_all()
+    result = await db_session.execute(select(OrderItem).where(OrderItem.id == item_id))
+    sobrevivente = result.scalar_one()
+    assert sobrevivente.product_id == produto_id
