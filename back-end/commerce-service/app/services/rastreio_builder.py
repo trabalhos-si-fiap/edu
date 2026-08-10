@@ -182,4 +182,5 @@ def build_order_tracking(order: Order) -> OrderTrackingOut:
         kit=[KitItemOut(name=item.product_name) for item in order.items],
         carrier=_CARRIER,
         map_url=None,
+        status=status,
     )

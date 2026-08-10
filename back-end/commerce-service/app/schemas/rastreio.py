@@ -18,6 +18,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
+from app.services.status_pedido import StatusContrato
+
 # Limites geográficos usados para rejeitar coordenadas impossíveis na borda
 # do sistema (regra 4 do CLAUDE.md — todo input tem limite).
 _LAT_MIN, _LAT_MAX = -90.0, 90.0
@@ -72,6 +74,12 @@ class OrderTrackingOut(BaseModel):
     (`app/modules/tracking/builders.py:159`) também nunca a preenche — e o
     Flutter já lê a chave com cast null-safe e default. O campo existe para
     o dia em que algo a popular, não porque há um preenchedor agora.
+
+    `status` é divergência deliberada nº 7 (task C11, decisão do usuário de
+    2026-08-09): o legacy não tem esse campo no payload de rastreio. Ele
+    entrou porque a timeline de um pedido cancelado fica inteira PENDING
+    (`_step_status` em `rastreio_builder.py`), então `isDelivered` sozinho
+    nunca detecta cancelamento — o app usa `status` para parar o polling.
     """
 
     id: str = Field(..., max_length=64)
@@ -83,6 +91,7 @@ class OrderTrackingOut(BaseModel):
     kit: list[KitItemOut]
     carrier: str = Field(..., max_length=120)
     map_url: str | None = Field(default=None, max_length=512)
+    status: StatusContrato
 
 
 # --- Rota no mapa (GET /orders/{id}/route) -----------------------------------
