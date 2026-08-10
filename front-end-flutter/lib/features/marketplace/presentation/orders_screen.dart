@@ -112,7 +112,7 @@ class _OrdersList extends StatelessWidget {
                 const SizedBox(height: 20),
               ],
               for (final order in provider.deliveredOrders) ...[
-                _DeliveredOrderCard(order: order),
+                _FinishedOrderCard(order: order),
                 const SizedBox(height: 20),
               ],
             ],
@@ -505,8 +505,14 @@ class _OrderStepper extends StatelessWidget {
   }
 }
 
-class _DeliveredOrderCard extends StatelessWidget {
-  const _DeliveredOrderCard({required this.order});
+/// Card de um pedido que já saiu do fluxo — entregue OU cancelado (a lista
+/// que alimenta este widget é `OrdersProvider.deliveredOrders`, que hoje
+/// junta os dois; ver `isFinished` em `order_summary.dart`). O selo e as
+/// ações mudam por status: revisão de correção 1 achou que um pedido
+/// cancelado renderizava com o selo verde "ENTREGUE" fixo, porque o texto e
+/// a cor eram literais, não derivados de `order.status`.
+class _FinishedOrderCard extends StatelessWidget {
+  const _FinishedOrderCard({required this.order});
 
   final OrderSummary order;
 
@@ -553,12 +559,18 @@ class _DeliveredOrderCard extends StatelessWidget {
                   vertical: 6,
                 ),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF22C55E),
+                  // Cancelado não é sucesso: badge vermelho (AppColors.danger),
+                  // não o verde de entregue. Os únicos dois status que chegam
+                  // aqui são delivered/cancelled (OrdersProvider.deliveredOrders
+                  // filtra por isFinished), então o ternário cobre os dois casos.
+                  color: order.status == OrderSummaryStatus.cancelled
+                      ? AppColors.danger
+                      : AppColors.success,
                   borderRadius: BorderRadius.circular(20),
                 ),
-                child: const Text(
-                  'ENTREGUE',
-                  style: TextStyle(
+                child: Text(
+                  order.statusLabel.toUpperCase(),
+                  style: const TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w800,
                     color: AppColors.white,
@@ -622,28 +634,33 @@ class _DeliveredOrderCard extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: () {},
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.white,
-                    foregroundColor: AppColors.textPrimary,
-                    elevation: 0,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+              // "Avaliar itens" pressupõe que o pedido chegou. Um pedido
+              // cancelado nunca chegou — a ação some, "Comprar novamente"
+              // continua (recomprar um pedido cancelado é legítimo).
+              if (order.status != OrderSummaryStatus.cancelled) ...[
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () {},
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.white,
+                      foregroundColor: AppColors.textPrimary,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
-                  ),
-                  child: const Text(
-                    'Avaliar itens',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w800,
+                    child: const Text(
+                      'Avaliar itens',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                   ),
                 ),
-              ),
+              ],
             ],
           ),
         ],
