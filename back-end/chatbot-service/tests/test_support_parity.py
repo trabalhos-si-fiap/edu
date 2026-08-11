@@ -82,7 +82,13 @@ async def test_a_student_never_sees_another_students_conversation(client, studen
     aluno vem de `auth_services.register` (banco de usuários local); aqui não
     há tabela de usuários neste serviço, então o segundo aluno vem de um JWT
     minerado com um `sub` novo."""
-    await client.post("/support", json={"body": "minha mensagem"}, headers=student_identity.headers)
+    # O 201 é assertado de propósito: sem ele, um POST que regredisse deixaria o
+    # banco vazio e o `== []` abaixo passaria por não haver conversa nenhuma —
+    # o único guard cross-tenant do serviço ficaria verde sem exercer nada.
+    seed = await client.post(
+        "/support", json={"body": "minha mensagem"}, headers=student_identity.headers
+    )
+    assert seed.status_code == 201
 
     resposta = await client.get("/support", headers=_headers_de_outro_aluno())
     assert resposta.status_code == 200
