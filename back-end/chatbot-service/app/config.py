@@ -9,6 +9,9 @@ plano de migração); e `faiss_index_path` — o índice FAISS é construído
 código lê ou escreve nesse path. Manter qualquer uma delas exigiria que
 toda config local/CI declarasse uma variável morta, e sugeriria
 persistência que não existe — o oposto de YAGNI/KISS.
+
+Desde a fase 2 este serviço TEM banco (`chatbot_db`), para o módulo
+`support`. Ele continua sem publicar nem consumir eventos.
 """
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -38,6 +41,13 @@ class Settings(BaseSettings):
     # pelo API Gateway (que é só para tráfego externo do app Flutter). Ver
     # app/services/diagnostico_client.py.
     learning_service_url: str = "http://learning-service:8000"
+
+    # Banco próprio, criado na fase 2 para o módulo `support` (ver
+    # docs/superpowers/plans/2026-08-05-phase-2d-support.md). Sem default: o
+    # serviço não pode subir apontando para lugar nenhum, e um default
+    # apontando para o banco do legacy seria pior que estourar no import.
+    database_url: str
+    database_url_test: str = "postgresql+asyncpg://edu:edu@localhost:5433/chatbot_test"
 
 
 settings = Settings()

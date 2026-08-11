@@ -1,27 +1,35 @@
-# Dívida técnica registrada da fase 2 (blocos B e C)
+# Dívida técnica registrada da fase 2 (blocos B, C e D)
 
-Este é o inventário do que a migração do commerce para microserviços **deixou
-de propósito para depois**. Não é uma lista de bugs abertos por descuido: cada
-item aqui foi levantado durante a execução, discutido, e adiado com
-justificativa. O que estava errado e barato foi corrigido na hora e não aparece
-neste documento.
+Este é o inventário do que a migração do commerce e do suporte para
+microserviços **deixou de propósito para depois**. Não é uma lista de bugs
+abertos por descuido: cada item aqui foi levantado durante a execução,
+discutido, e adiado com justificativa. O que estava errado e barato foi
+corrigido na hora e não aparece neste documento.
 
 **Para que serve:** a fase 4 (o corte — apontar o app para o gateway e desligar
 o monolito) precisa saber o que ainda não está pronto. Comece pela seção
-[§1](#1-o-que-morde-primeiro-no-dia-do-corte): são os cinco itens que mudam de
+[§1](#1-o-que-morde-primeiro-no-dia-do-corte): são os sete itens que mudam de
 "incômodo" para "incidente" exatamente no dia em que a frota subir junto pela
 primeira vez.
 
 **Como este documento foi produzido:** as revisões de cada task registraram
-73 pendências (51 no bloco C, 22 no bloco B). A revisão final da branch triou
-uma a uma em três categorias — bloqueia o merge, dívida registrada, descartar.
-O que bloqueava foi corrigido antes do merge. O que foi descartado (resolvido
-por task posterior, cosmético, ou não era defeito) não está aqui. Sobrou o que
-segue.
+73 pendências (51 no bloco C, 22 no bloco B), mais 20 no bloco D. A revisão
+final de cada branch triou uma a uma em três categorias — bloqueia o merge,
+dívida registrada, descartar. O que bloqueava foi corrigido antes do merge. O
+que foi descartado (resolvido por task posterior, cosmético, ou não era
+defeito) não está aqui. Sobrou o que segue.
 
-**Sobre os números de linha:** todos foram medidos na árvore desta branch em
-2026-08-10, no commit `f7df208`. Eles envelhecem; o nome do arquivo e o do
-símbolo, não. Quando divergirem, confie no símbolo.
+**Sobre os números de linha:** os dos blocos B e C foram medidos na árvore
+daquela branch em 2026-08-10, no commit `f7df208`; os do bloco D
+([§9](#9-bloco-d--chatbot-service-e-o-módulo-support)), na branch
+`feat/microservices-phase-2d`, no commit `12f3ccd`. Eles envelhecem; o nome do
+arquivo e o do símbolo, não. Quando divergirem, confie no símbolo.
+
+**Por que o bloco D está aqui e não num arquivo próprio:** boa parte do que ele
+deixou em aberto não é do `chatbot-service` — é da frota inteira, e três itens
+(a engine de módulo, o `dependency_overrides.clear()` e a ausência de
+sync-check em teste) só valem a pena se forem corrigidos nos seis serviços de
+uma vez. Separar por bloco esconderia exatamente isso.
 
 **O que este documento NÃO é:** não é a lista de divergências deliberadas entre
 o commerce-service e o monolito — essas estão em
@@ -33,8 +41,9 @@ não cobre a fase 3 (simulador de avanço de status, e os carve-outs listados na
 
 ## 1. O que morde primeiro no dia do corte
 
-Cinco itens. Os quatro primeiros têm detalhe nas seções abaixo; o quinto está
-na [§3](#3-mensageria-e-consumidores).
+Sete itens. Os quatro primeiros têm detalhe nas seções abaixo; o quinto está na
+[§3](#3-mensageria-e-consumidores) e os dois últimos, do bloco D, na
+[§9](#9-bloco-d--chatbot-service-e-o-módulo-support).
 
 | # | Item | Por que é agora |
 |---|---|---|
@@ -43,6 +52,8 @@ na [§3](#3-mensageria-e-consumidores).
 | 3 | [`DeadlockDetectedError` ~1/200 nas formas de pagamento](#41-o-select-de-lock-ordena-por-coluna-mutável) | Frequência baixa por requisição, alta por volume de produção. |
 | 4 | [Título de notificação renderiza UUID de 36 caracteres](#71-o-título-da-notificação-de-pedido-mostra-o-uuid-inteiro) | Visível ao aluno no primeiro push depois do corte. |
 | 5 | [Nenhum consumidor tem dead-letter queue](#31-nenhuma-fila-tem-dead-letter-exchange) | Foi o mecanismo que engoliu notificações em silêncio durante o próprio bloco C. |
+| 6 | [`/support` não tem teto de linhas](#92-o-rabo-de-linhas-sem-teto-em-support) | É o único item do bloco D que **piora com tráfego real**, e o corte é quando o tráfego real chega. |
+| 7 | [Aluno desativado mantém o suporte por até 60 minutos](#93-aluno-desativado-continua-com-acesso-ao-suporte-por-até-60-minutos) | Divergência de comportamento contra o módulo que está sendo substituído, e ela nasce no instante em que o `support` novo entra no ar. |
 
 ---
 
@@ -540,3 +551,351 @@ quando alguém tocar nos arquivos.
 | `commerce-service/app/models/pedido.py:151` | Comentário cita `\d pedido_itens` e a coluna `fornecedor_id` — a tabela virou `order_items` e a coluna, `supplier_id`. Evidência de banco colada em código de produção, que envelheceu junto com o rename. | Minutos |
 | `front-end-flutter/lib/features/marketplace/presentation/orders_screen.dart:511` | Docstring de `_FinishedOrderCard` cita "revisão de correção 1", um artefato do processo de desenvolvimento que não significa nada para quem ler o arquivo depois. | Minutos |
 | `commerce-service/tests/` (seis arquivos) | A fixture `seeded_products` está duplicada em `test_cart_parity.py:30`, `test_cart_services_parity.py:36`, `test_orders_parity.py:118`, `test_orders_services_parity.py:65`, `test_products_parity.py:27` e `test_products_services_parity.py:62`. Vai para o `conftest.py` quando alguém precisar mudar as seis juntas. | Meio dia |
+
+---
+
+## 9. Bloco D — `chatbot-service` e o módulo `support`
+
+O bloco D tirou o módulo `support` do monolito e o pôs no `chatbot-service`,
+que até então não tinha banco. Cinco commits, `049a7bc..1689a0a`. A revisão
+final da branch **não achou nenhum defeito de código**: o que o serviço faz foi
+verificado correto, inclusive a sua única propriedade crítica de segurança (a
+cláusula `where user_id ==` que separa a conversa de um aluno da do outro,
+provada por mutação — derrubá-la reprova exatamente um teste, e nenhum outro).
+O que sobrou, e está aqui, é o que foi adiado de propósito.
+
+Caminhos relativos a `back-end/chatbot-service/` salvo quando dito o contrário.
+
+**Um aviso sobre o escopo, porque muda a decisão de correção:** dos treze itens
+abaixo, **seis não são do `chatbot-service`** — são da frota (§9.6, §9.7, §9.9
+e os três da §9.11). Corrigi-los num serviço só deixa a frota mais desigual do
+que está, e custa quase o mesmo que corrigi-los nos seis. Outros dois (§9.3 e
+§9.4) foram encontrados aqui mas têm a mesma forma nos seis serviços. Trate os
+oito como manutenção da frota, não como pendência deste bloco.
+
+**Proveniência dos números:** as linhas foram medidas no commit `12f3ccd`. Os
+resultados do portão (§9.12) são **transcritos** da execução do portão do bloco
+D, em 2026-08-10 — não foram re-executados para escrever esta seção, e a metade
+que destrói volumes não é repetível sem nova autorização do usuário.
+
+### 9.1 As duas divergências declaradas — decisões, não dívida
+
+Mesma distinção que o [`commerce-parity.md`](commerce-parity.md) faz na §5 e na
+§9.3 dele: isto **não** é para corrigir. Está aqui para não ser redescoberto
+como defeito nem "consertado" por engano.
+
+| # | Divergência | Onde | Razão | Quem decidiu |
+|---|---|---|---|---|
+| 1 | **`GET /support` sem paginação** | `app/services/suporte.py::listar_mensagens`, `app/routers/suporte.py` | Contraria a regra 4 do `CLAUDE.md` (paginação obrigatória). É réplica exata do legacy (`legacy/app/modules/support/services.py`), e réplica exata é o critério de aceite deste bloco. Mesma forma da divergência nº 2 do bloco B, em `GET /payment-methods`. A conta que ela deixa aberta está na §9.2 | Plano do bloco D, ratificado na revisão final |
+| 2 | **403 vs 401 sem header `Authorization`** | `packages/edu-common/src/edu_common/deps.py:16-23` | Propriedade do `edu-common`, não deste serviço: `HTTPBearer(auto_error=False)` mais checagem manual devolve **403** para credencial ausente e **401** para token presente-mas-inválido; o legacy devolve 401 nos dois. Já registrada como divergência nº 1 do bloco B (task B0) e **vale igual aqui**: as duas asserções de `TestAuthRequired` foram portadas de `== 401` para `== 403` | Task B0, herdada |
+
+A nº 1 ganhou, nesta correção, a única coisa que lhe faltava: o motivo está
+agora **no código**, no docstring de `listar_mensagens`. Antes disso um
+`grep -n "pagina"` no router, no serviço, nos schemas e no model devolvia
+zero linhas, e a justificativa vivia só no plano e num registro git-ignored —
+os dois somem quando o bloco fecha.
+
+### 9.2 O rabo de linhas sem teto em `/support`
+
+**Onde:** `app/routers/suporte.py` (as duas rotas) e
+`app/services/suporte.py::listar_mensagens`.
+
+**O que é:** a conversa não tem teto por nenhum lado. Não há paginação, não há
+rate limit no POST, e não há limite de mensagens por conversa. O limite de
+2000 caracteres é **por mensagem**, não por thread
+(`app/models/suporte.py:40`, `app/schemas.py:36`). E como o POST devolve a
+conversa **completa** — que é contrato, não descuido —, não é só o `GET` que
+materializa a thread inteira: **todo POST também**. Um aluno autenticado que
+mande mensagens em laço faz cada requisição seguinte ficar mais cara, para ele
+mesmo e para o banco, sem violar regra nenhuma.
+
+É o único item do bloco D que **degrada com tráfego real**. Todos os outros ou
+são de manutenção, ou dependem de um caminho que ninguém percorre hoje.
+
+**Por que foi adiado:** é a conta da divergência nº 1. Pôr paginação, teto ou
+rate limit dentro deste bloco quebraria a paridade que o bloco existe para
+provar, e a paridade era o critério de aceite acordado.
+
+**O que custaria:** a paridade acaba no corte, e é lá que a correção cabe. Três
+peças independentes, em ordem de retorno: rate limit no POST (o Redis já está
+na frota, e a regra 11 do `CLAUDE.md` manda usar `cache.incr()`, nunca
+read→modify→write); um teto de mensagens por conversa; e paginação no `GET`,
+que é a mais cara porque muda o contrato que o app consome. Um a dois dias com
+teste de carga que prove o teto.
+
+### 9.3 Aluno desativado continua com acesso ao suporte por até 60 minutos
+
+**Onde:** `app/dependencies.py` e `app/routers/suporte.py`, contra
+`legacy/app/modules/auth/dependencies.py:48`.
+
+**O que é:** o legacy carrega o usuário do banco a cada requisição e rejeita
+quem não estiver ativo — `if user is None or not user.is_active: raise
+_UNAUTHORIZED`. Este serviço **não tem tabela de usuários**: a identidade vem
+inteira do JWT, e não há nada para consultar. Desativar um aluno, portanto, não
+derruba o acesso dele ao suporte; o acesso morre quando o token expira.
+
+A janela é a validade do access token:
+`auth-users-service/app/config.py:17` é
+`access_token_expire_minutes: int = 60`. O refresh **é** barrado — a rota de
+refresh checa `not user.ativo` (`auth-users-service/app/routers/auth.py:188`)
+—, então a exposição é limitada e não se renova. Mas ela existe, e é real.
+
+**Por que está aqui:** ao contrário do 403-vs-401, que foi decidido e
+registrado na task B0, **isto nunca tinha sido escrito em lugar nenhum**. É uma
+divergência de comportamento contra o módulo que está sendo replicado, e foi
+descoberta na revisão final da branch, não na tradução das asserções.
+
+**Por que foi adiado:** é arquitetural e vale para a frota inteira — todo
+serviço que valida JWT sem consultar o auth tem a mesma janela, não só este.
+Fechá-la exige escolher entre três desenhos: TTL curto de access token (o mais
+barato, e piora a experiência), consulta ao auth-users-service por requisição
+(acopla e custa latência em todo endpoint), ou uma denylist de tokens em Redis
+alimentada pelo evento de desativação (o certo, e o mais caro).
+
+**O que custaria:** a decisão antes do código. Depois dela, a denylist em Redis
+é de um a dois dias, e resolve os seis serviços de uma vez.
+
+### 9.4 `sub` malformado devolve 500 onde o legacy devolvia 401
+
+**Onde:** `app/routers/suporte.py:21` e `:36` — as duas chamadas
+`uuid.UUID(user_id)`, sem `try`.
+
+**O que é:** um token **validamente assinado** cujo `sub` não seja um UUID faz
+o `uuid.UUID()` levantar `ValueError` dentro do handler, e o FastAPI devolve
+500. O legacy trata o mesmo caso: `legacy/app/modules/auth/dependencies.py:42-45`
+embrulha a conversão num `try` e captura `ValueError`/`TypeError`, respondendo
+401. É **comportamento do legacy que este porte não replicou** — não é uma
+questão de estilo, e é assim que deve ser lido.
+
+**Qual o risco de verdade:** quase nenhum, e vale registrar por quê, para que
+ninguém trate isto como urgente. Chegar até essa linha exige uma assinatura
+válida, isto é, o `JWT_SECRET`; e quem emite os tokens sempre põe um UUID no
+`sub` — `auth-users-service/app/routers/auth.py:40` e `:191` chamam
+`create_access_token(str(user.id), ...)`, com o id do usuário como primeiro
+argumento posicional. Não há caminho de produção que produza o token
+necessário. O que sobra é um 500 em vez de um 4xx num cenário que só um
+detentor da chave alcança.
+
+**Por que foi adiado:** a forma é da frota — `commerce-service/app/routers/pedidos.py:57`
+faz a mesma conversão nua. Corrigir aqui só troca um serviço de lugar na fila.
+
+**O que custaria:** o lugar certo é o `edu-common`, devolvendo o id já
+convertido em `uuid.UUID` (ou 401) de dentro de `get_current_user_id`, o que
+apaga a conversão de todos os call sites de uma vez. Algumas horas mais um
+teste por serviço.
+
+### 9.5 A conversa ordena por `created_at` sem desempate
+
+**Onde:** `app/services/suporte.py:29`.
+
+**O que é:** `.order_by(SupportMessage.created_at)`, e `created_at` é
+`server_default=func.now()` (`app/models/suporte.py:41`). O `now()` do Postgres
+é o horário de **início da transação**, não do INSERT: duas mensagens gravadas
+dentro da mesma transação recebem o mesmo timestamp e a ordem entre elas passa
+a ser indefinida.
+
+**Por que foi adiado:** hoje cada requisição é a sua própria transação e grava
+uma mensagem só, então o empate não é alcançável pelas rotas. E, sobretudo,
+**isto é o legacy verbatim** — a paridade proíbe mudar dentro deste bloco.
+
+**O que custaria:** `.order_by(SupportMessage.created_at, SupportMessage.id)`.
+Uma linha, e sai de graça: os ids são UUIDv7 (`app/ids.py`), que ordena no
+tempo, então o desempate é o próprio relógio com mais resolução. Faça junto com
+a primeira mudança que já quebre paridade.
+
+### 9.6 Nenhuma suíte da frota pega divergência entre modelo e migration
+
+**Este é o item de maior valor do bloco D.** É também o mais fácil de não
+enxergar, porque o sintoma é uma suíte **verde**.
+
+**Onde:** `tests/conftest.py:40` (`Base.metadata.create_all`) neste serviço, e
+o equivalente nos outros cinco.
+
+**O que é:** o schema de teste é construído pelos **modelos**, com
+`create_all`, e **nenhum teste da frota invoca o Alembic**. Medido, da raiz de
+`back-end/`:
+`grep -rn "compare_metadata\|autogenerate\|upgrade head" --include="*.py" */tests/`
+não devolve **nenhuma linha** — nem nos seis serviços, nem no legacy. Os
+`test_migration_guard*.py` do commerce e do notification não contradizem isso:
+eles travam guards de perda de dado dentro de migrations específicas, não a
+correspondência entre modelo e schema. Consequência: alguém edita um model, esquece a
+migration, e a suíte continua verde — porque ela testa contra o schema
+derivado do model que acabou de mudar — enquanto o banco real fica para trás.
+O erro só aparece em produção, como coluna que não existe.
+
+Hoje model e migration **concordam** neste serviço, e isso foi conferido contra
+o schema vivo, coluna a coluna. Mas concordam porque um humano lembrou de rodar
+o autogenerate e ler a saída. Não há nada que force isso a continuar valendo.
+
+O sync-check existe, mas como **ritual de portão**, não como teste: os blocos B
+e C o fizeram à mão, em bancos descartáveis `syncchk_*`
+([`commerce-parity.md`](commerce-parity.md) §8). Ritual de portão não roda em
+CI e não roda no `git push` de ninguém.
+
+**Por que foi adiado:** veio do desenho de fixture da task D2, que é anterior à
+task que criou o model, e a correção certa é fleet-wide.
+
+**O que custaria:** um teste por serviço que suba um banco descartável, rode
+`alembic upgrade head` e asserte que uma comparação de autogenerate volta
+**vazia** — a mesma coisa que o portão já faz à mão, virada em código. Um dia
+para os seis, e o retorno é permanente. Atenção a um detalhe que o portão
+aprendeu à própria custa: o teste tem que usar um banco **descartável**, nunca
+o de dev (veja a §9.7 e a §9.12).
+
+### 9.7 A engine de módulo aponta para o banco de **dev**
+
+**Onde:** `app/database.py:6` — `engine = create_async_engine(settings.database_url)`,
+no corpo do módulo.
+
+**O que é:** `settings.database_url` é o `chatbot_db` de **desenvolvimento**,
+não o `chatbot_test`. A engine e o `async_session` que sai dela
+(`app/database.py:10`) são criados no import, dentro da suíte inclusive. Quem
+protege o teste é o `dependency_overrides[get_db]` do `conftest.py:103`, que
+troca a sessão nas rotas — proteção que só cobre quem **recebe** a sessão por
+injeção.
+
+**O perigo não se materializou, e é importante dizer isso:** as duas funções de
+serviço recebem `db: AsyncSession` como parâmetro
+(`app/services/suporte.py:10` e `:34`), e nenhum call site alcança
+`async_session` diretamente. O código de hoje está certo.
+
+**Por que está registrado mesmo assim:** é uma armadilha armada para o
+próximo. Na primeira função de serviço que abrir a própria sessão com
+`async_session()` em vez de receber uma — o idioma óbvio para uma task
+assíncrona, um comando de manutenção ou um consumidor de evento — a suíte passa
+a **escrever no banco de dev**, sem override que a pegue e sem teste que falhe.
+
+**O que custaria:** ou fazer o `Settings` recusar apontar para o banco de dev
+quando `PYTEST_CURRENT_TEST` está no ambiente, ou (mais limpo e sem mágica)
+criar a engine dentro de uma factory em vez de no corpo do módulo, para que o
+teste possa construí-la apontando para outro lugar. Meio dia, fleet-wide.
+
+### 9.8 Uma coluna, dois esquemas de UUID
+
+**Onde:** `app/models/suporte.py:31-32` — `default=new_uuid` na linha 31,
+`server_default=text("gen_random_uuid()")` na 32.
+
+**O que é:** os dois caminhos geram versões diferentes de UUID. `new_uuid`
+(`app/ids.py`) devolve **v7**, e o próprio arquivo justifica a escolha pela
+localidade de inserção em B-tree; `gen_random_uuid()` do Postgres devolve
+**v4**, que é aleatório e joga fora exatamente essa propriedade. Uma linha
+gravada por fora do ORM — `psql`, um seed, outro serviço — cai numa posição
+arbitrária do índice.
+
+**Por que foi adiado, e por que a escolha é defensável:** o PG 17 não tem
+gerador nativo de v7, então não existe `server_default` que preserve a
+propriedade sem instalar extensão. O `server_default` está ali como rede de
+segurança para o insert que escapa do ORM, e nesse papel ele é o correto. Nada
+grava nesta tabela por fora do ORM hoje.
+
+**O que custaria:** um comentário de uma linha na coluna dizendo que o
+`server_default` é um backstop v4 consciente. O que **não** se quer é que
+alguém leia as duas linhas, conclua que é inconsistência e "arrume" uma delas.
+
+### 9.9 `new_uuid` está na terceira cópia
+
+**Onde:** `app/ids.py`, `commerce-service/app/ids.py` e
+`legacy/app/core/ids.py`.
+
+**O que é:** a mesma função, copiada pela terceira vez. Duas cópias eram
+defensáveis sob KISS — a regra de três linhas repetidas valendo mais que uma
+abstração prematura. Três cópias é o ponto em que a regra vira o contrário de
+si mesma, e é exatamente o critério do `packages/edu-common`: geração de id não
+é config, é a forma de uma chave primária que atravessa serviços.
+
+**Por que foi adiado:** mover para o `edu-common` toca três projetos e os locks
+deles, e o bloco D não podia gastar isso.
+
+**O que custaria:** um módulo no `edu-common`, três imports trocados, e o
+`legacy/app/core/ids.py` deixado quieto — ele morre no corte de qualquer forma.
+Poucas horas.
+
+### 9.10 Buracos de cobertura do bloco D
+
+Nenhum é regressão: são caminhos que nunca tiveram teste. Os dois são baratos e
+podem ir juntos.
+
+| Onde | O que falta | Custo |
+|---|---|---|
+| `tests/test_support_model.py:21` (`test_sender_defaults_to_user`) | O nome promete mais do que o teste checa: o ORM preenche `sender` **antes** do INSERT (`default="user"`), então o `server_default` nunca é exercido por teste nenhum. O banco tem o default — foi conferido no schema vivo —, mas quem confia no nome do teste está confiando no lugar errado. Fecha com um insert por SQL cru, sem passar pelo ORM. | Uma hora |
+| `app/schemas.py:32-33` | O comentário descreve, em prosa, que um corpo só de espaços vira `""` depois do `str_strip_whitespace` e é rejeitado com 422. Nenhum teste cobre esse caso. O comportamento **foi verificado** na revisão, então o comentário não é mentira — mas é prosa segurando uma garantia, e prosa não reprova ninguém. | Uma linha de teste |
+
+### 9.11 Higiene herdada da frota
+
+Sem efeito observável hoje. Estão aqui porque **não são deste serviço**: valem
+para os seis, e a correção só faz sentido nos seis de uma vez.
+
+| Onde | O que é | Custo |
+|---|---|---|
+| `app/database.py:14` (`get_db`) | Sem anotação de retorno, contra o "type hints em toda assinatura pública" do `CLAUDE.md`. Medido na frota: **cinco** dos seis serviços estão assim (`auth-users`, `chatbot`, `commerce`, `learning`, `notification`); o `analytics-service/app/database.py:27` já declara `-> AsyncIterator[AsyncSession]` e é o modelo a copiar. | Minutos, se forem os cinco |
+| `app/database.py:11` | `declarative_base()` é a API da SQLAlchemy 1.4; a forma 2.x é `class Base(DeclarativeBase)`. Três linhas acima há um comentário se parabenizando por não carregar formas 1.4. Idêntico nos **seis** serviços — trocar em um só deixa a frota mais desigual do que está. | Meio dia, nos seis |
+| `tests/conftest.py:107` | `app.dependency_overrides.clear()` apaga **todos** os overrides, não só o de `get_db`, e está **fora de um `finally`**: uma exceção que escape do context manager do client vaza o override para os testes seguintes. Foi ditado pelo plano, verbatim, e é a forma que a frota usa. Correção barata e óbvia: `finally: app.dependency_overrides.pop(get_db, None)`. | Minutos por serviço |
+
+### 9.12 O que o portão do bloco D fechou, e o que deixou aberto
+
+O portão nomeou quatro lacunas de verificação. **Três foram fechadas depois**,
+com medição, e não devem ser herdadas como abertas por quem ler um relatório
+antigo. A quarta continua aberta, de propósito.
+
+**Fechada — caminho de clone limpo.** O usuário autorizou destruir os volumes
+Docker depois de um `pg_dumpall` **conferido, não presumido**:
+`/home/elias/edu-backup-2026-08-10.sql`, 101292 bytes, com o conteúdo contado —
+12 pedidos, 2 mensagens de suporte (as do legacy) e 2 usuários. Depois de
+`docker compose down -v` e de uma subida do zero, `chatbot_db` e `chatbot_test`
+apareceram criados **pelo script do `initdb.d`, no volume virgem**, sem ninguém
+rodar `make services-dbs`. Essa é a prova de verdade da armadilha de linha de
+mount descrita em [`microservices.md`](microservices.md) §11 (o compose monta o
+`initdb.d` **script a script**, então um script novo sem a linha de mount vira
+no-op silencioso) — e ela não mordeu.
+
+**Fechada — `make services-migrate` de ponta a ponta.** Roda até o fim e **sai
+com 0**, passando por `→ chatbot-service` e por
+`Running upgrade -> 36a408e36e8d, baseline schema`. O `chatbot_db` no volume
+zerado ficou com exatamente `alembic_version` e `support_messages`. Havia uma
+pré-condição operacional, e ela está registrada como armadilha em
+[`microservices.md`](microservices.md) §11: a imagem do chatbot precisou ser
+**reconstruída** antes, porque `make stack-up` é `docker compose up -d` sem
+`--build` e a imagem em cache não continha a árvore `alembic/`.
+
+**Fechada — rede, granian, imagem Docker e gateway.** Pelo gateway na 8100, com
+um bearer de aluno: `POST /api/support` → **201** devolvendo a conversa inteira
+(duas mensagens depois do segundo POST); `GET /api/support` → uma **lista**
+JSON, com as chaves exatamente `['body', 'created_at', 'id', 'sender']`, em
+ordem cronológica e com ids UUIDv7. Um segundo aluno recebeu `[]` com HTTP
+**200** — indistinguível de uma conversa vazia, sem vazar sinal de existência.
+Requisição sem header recebeu **403**, confirmando a divergência nº 2 da §9.1
+contra a pilha real, e não só em processo.
+
+**Aberta, e corretamente — cinco dos seis sync-checks de schema não foram
+re-executados.** Re-executá-los significa aplicar migrations pendentes a bancos
+de serviço **vivos**. Só o `commerce_db` tem **12** pendentes, três delas
+destrutivas por construção, com `downgrade()` que levanta erro de propósito:
+recuperação seria restore de backup. Os blocos B e C checaram esses cinco
+([`commerce-parity.md`](commerce-parity.md) §8) e nada mudou neles no bloco D.
+Isto é **recusa deliberada, não esquecimento** — e some sozinho quando a §9.6
+virar teste, que é o argumento mais forte a favor dela.
+
+### 9.13 Consolidação do fechamento da fase 2 — sem dono
+
+**O que é:** cada um dos quatro blocos da fase 2 produziu a sua própria lista
+de asserções adaptadas e de carve-outs. Ninguém as juntou num inventário só, e
+a fase 4 precisa **de um**, não de quatro — é dela a pergunta "o que exatamente
+o app deixa de ter quando o monolito sair do ar". A revisão do portão do bloco
+D marcou isto como fora do escopo do portão, o que está certo, e não atribuiu
+dono, o que deixa o item órfão.
+
+**O que não pode se perder no caminho** — os três carve-outs declarados de fase
+3, hoje registrados na §9.5 do [`commerce-parity.md`](commerce-parity.md):
+
+1. `legacy/tests/modules/products/test_image_upload.py` — upload de imagem de produto;
+2. `legacy/tests/modules/orders/test_lifecycle.py` — ciclo de vida automático do pedido;
+3. `legacy/tests/modules/orders/test_status_pipeline.py` — pipeline de status por Celery.
+
+E, junto deles, a **metade de escrita** de `legacy/tests/core/test_storage.py`:
+o caminho de leitura foi classificado como carve-out, mas `put_object` e
+`delete_object` do commerce vão para produção sem um teste que exercite a
+implementação real.
+
+**O que custaria:** um dia de leitura dos quatro registros e uma tabela só.
+Barato agora, e caro exatamente quando ninguém mais lembrar por que uma
+asserção do legacy foi adaptada.

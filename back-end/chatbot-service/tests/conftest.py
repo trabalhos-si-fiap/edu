@@ -1,26 +1,110 @@
 """Fixtures compartilhadas dos testes do Chatbot Service.
 
-Este serviço não tem banco (não usa a Recipe C do plano de migração) — o
-único estado global é o índice FAISS/encoder em memória (`app/rag.py`) e os
-clientes Groq (`app/rag.py`, `app/services/explicacao_questao.py`), ambos
-stubados aqui, sempre, para nenhum teste baixar modelo nem tocar rede.
+Desde a fase 2 este serviço TEM banco (`chatbot_db`), para o módulo
+`support` — as fixtures `test_engine`/`test_session_factory`/`db_session`
+abaixo cobrem isso, e o `client` passa a sobrescrever `get_db` com uma
+sessão de teste. O outro estado global é o índice FAISS/encoder em memória
+(`app/rag.py`) e os clientes Groq (`app/rag.py`,
+`app/services/explicacao_questao.py`), ambos stubados aqui, sempre, para
+nenhum teste baixar modelo nem tocar rede.
 """
 
+import uuid
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from edu_common.security import create_access_token
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
+from app.config import settings
+from app.database import Base, get_db
 from app.main import app
 
 
+@pytest.fixture(scope="session")
+async def test_engine() -> AsyncIterator[AsyncEngine]:
+    from app.models import suporte as suporte_models  # noqa: F401 -- registra em Base.metadata
+
+    engine = create_async_engine(settings.database_url_test, echo=False, future=True)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(Base.metadata.create_all)
+    yield engine
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+    await engine.dispose()
+
+
+@pytest.fixture(scope="session")
+def test_session_factory(test_engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
+    return async_sessionmaker(test_engine, expire_on_commit=False)
+
+
+@pytest.fixture(autouse=True)
+async def _clean_tables(test_engine: AsyncEngine) -> AsyncIterator[None]:
+    async with test_engine.begin() as conn:
+        for table in reversed(Base.metadata.sorted_tables):
+            await conn.execute(table.delete())
+    yield
+
+
 @pytest.fixture
-async def client() -> AsyncIterator[AsyncClient]:
+async def db_session(
+    test_session_factory: async_sessionmaker[AsyncSession],
+) -> AsyncIterator[AsyncSession]:
+    async with test_session_factory() as session:
+        yield session
+
+
+@dataclass(frozen=True)
+class StudentIdentity:
+    """Um aluno de teste e o header pronto para autenticar como ele — os dois
+    lados do mesmo token, para testes que gravam linhas com o MESMO `user_id`
+    que a rota vai extrair do JWT."""
+
+    user_id: uuid.UUID
+    headers: dict[str, str]
+
+
+@pytest.fixture
+def student_identity() -> StudentIdentity:
+    user_id = uuid.uuid4()
+    token = create_access_token(
+        sub=str(user_id),
+        role="student",
+        secret=settings.jwt_secret,
+        algorithm=settings.jwt_algorithm,
+    )
+    return StudentIdentity(user_id=user_id, headers={"Authorization": f"Bearer {token}"})
+
+
+@pytest.fixture
+def auth_headers(student_identity: StudentIdentity) -> dict[str, str]:
+    return student_identity.headers
+
+
+@pytest.fixture
+async def client(
+    test_session_factory: async_sessionmaker[AsyncSession],
+) -> AsyncIterator[AsyncClient]:
+    async def _override_get_db() -> AsyncIterator[AsyncSession]:
+        async with test_session_factory() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = _override_get_db
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
+    app.dependency_overrides.clear()
 
 
 class _FakeEncoder:

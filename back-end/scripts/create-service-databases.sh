@@ -3,8 +3,8 @@
 # Idempotente: rodar de novo num volume já inicializado não falha.
 set -euo pipefail
 
-DATABASES="auth_db learning_db commerce_db notification_db analytics_db"
-DATABASES="$DATABASES auth_test learning_test commerce_test notification_test analytics_test"
+DATABASES="auth_db learning_db commerce_db notification_db analytics_db chatbot_db"
+DATABASES="$DATABASES auth_test learning_test commerce_test notification_test analytics_test chatbot_test"
 
 for db in $DATABASES; do
   echo "Garantindo banco '$db'..."

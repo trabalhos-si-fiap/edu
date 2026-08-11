@@ -149,7 +149,7 @@ back-sync: ## Sync deps on host (for IDE support)
 # GATEWAY_PORT_EXTERNAL (8100), the six services fixed on 8101-8106.
 
 SERVICES := packages/edu-common api-gateway auth-users-service learning-service commerce-service chatbot-service notification-service analytics-service
-DB_SERVICES := auth-users-service learning-service commerce-service notification-service analytics-service
+DB_SERVICES := auth-users-service learning-service commerce-service notification-service analytics-service chatbot-service
 
 .PHONY: stack-up stack-down stack-logs services-env services-dbs services-migrate services-seed services-test services-lint services-sync
 

@@ -54,7 +54,7 @@ um valida o JWT sozinho, com o mesmo `JWT_SECRET`
 | `auth-users-service` | **8101** | `auth_db` | Registro, login, refresh, reset de senha por OTP, perfil e endereços |
 | `learning-service` | **8102** | `learning_db` | Matérias, temas, subtemas, diagnóstico adaptativo, SM-2, embeddings, recomendação semântica |
 | `commerce-service` | **8103** | `commerce_db` | Catálogo, pedidos, máquina de 7 estados, separação, entrega, ocorrências, admin de estoque |
-| `chatbot-service` | **8104** | — | RAG (FAISS + Groq): perguntas livres e explicação de questão. Sem banco |
+| `chatbot-service` | **8104** | `chatbot_db` | RAG (FAISS + Groq): perguntas livres e explicação de questão; conversa de suporte (`support`), portada do legacy na fase 2d |
 | `notification-service` | **8105** | `notification_db` | Notificações in-app e registro de device token, alimentado por eventos |
 | `analytics-service` | **8106** | `analytics_db` | Event log, métricas agregadas, detecção de anomalias, resumo executivo por LLM |
 
@@ -72,11 +72,17 @@ muda. As URLs que o gateway usa entre containers são
 | MinIO | 9000 (API), 9001 (console) | 9000, 9001 |
 
 Um Postgres, vários bancos: `edu` (legacy) mais `auth_db`, `learning_db`,
-`commerce_db`, `notification_db` e `analytics_db`, cada um com um `*_test`
-correspondente para as suítes. `api-gateway` e `chatbot-service` não têm banco
-— o `DATABASE_URL` deles é explicitamente zerado no compose para que a
-credencial do legacy não fique no ambiente de um container que não deveria
-alcançá-la.
+`commerce_db`, `chatbot_db`, `notification_db` e `analytics_db`, cada um com um
+`*_test` correspondente para as suítes. **Só o `api-gateway` não tem banco** — o
+`DATABASE_URL` dele é explicitamente zerado no compose para que a credencial do
+legacy não fique no ambiente de um container que não deveria alcançá-la.
+
+O `chatbot-service` estava nessa mesma frase até a fase 2d e **saiu dela**: o
+módulo `support` deu banco a ele, e `back-end/docker-compose.yml:307-308`
+preenche `DATABASE_URL` e `DATABASE_URL_TEST` com `chatbot_db` e `chatbot_test`
+— não mais com string vazia. A razão do zeramento continua valendo, e continua
+escrita no próprio compose (`:302-306`): ela agora vale só para o gateway, que
+não fala com banco nenhum.
 
 ---
 
@@ -108,15 +114,38 @@ mapeado é repassado, e aí o 404 (se houver) vem do serviço de destino.
 | `notifications` | notification-service | OK |
 | `analytics` | analytics-service | OK |
 | `chat` | chatbot-service | OK |
-| `support` | chatbot-service | **404 — nada serve este prefixo**, fase 2 |
+| `support` | chatbot-service | OK — portado do legacy na fase 2d |
 
 ### O que "404" quer dizer aqui
 
-Sobrou **um** prefixo mapeado no gateway sem nenhuma rota no serviço de
-destino: `support`. `cart` e `payment-methods` estavam nesta lista até a fase
-2b e saíram dela — os dois são servidos hoje por
-`commerce-service/app/routers/carrinho.py` e `.../pagamento.py`, ambos
-montados em `app/main.py`.
+**Não sobrou nenhum prefixo mapeado sem rota no serviço de destino.** `support`
+era o último, e saiu dessa condição na fase 2d:
+`chatbot-service/app/routers/suporte.py` declara `APIRouter(prefix="/support")`
+e `app/main.py` o inclui. `cart` e `payment-methods` estavam na mesma lista até
+a fase 2b — hoje são servidos por `commerce-service/app/routers/carrinho.py` e
+`.../pagamento.py` —, e `orders` até a 2c.
+
+Medido serviço a serviço nesta árvore, importando cada app em processo e
+imprimindo o **primeiro segmento** de cada path do OpenAPI dele. Use o OpenAPI,
+não `app.routes`: no FastAPI 0.141.1 cada `include_router` vira uma única
+entrada `_IncludedRouter` com `path=None`, então iterar `app.routes` esconde
+exatamente os routers que interessam — `/support` e `/notifications` somem, e a
+medição diz "não há rota" sobre um serviço que tem rota.
+
+Saída dos seis comandos, um por serviço, colada como veio:
+
+```
+auth-users-service -> ['auth', 'health', 'users']
+learning-service -> ['diagnostic', 'health', 'recommendations', 'reviews', 'subjects', 'subtopics', 'topics']
+commerce-service -> ['admin', 'cart', 'delivery', 'health', 'occurrences', 'orders', 'payment-methods', 'picking', 'products']
+chatbot-service -> ['chat', 'health', 'support']
+notification-service -> ['health', 'notifications']
+analytics-service -> ['analytics', 'health']
+```
+
+Os 20 prefixos do `SERVICE_MAP` aparecem nessa lista. O 404 do gateway continua
+existindo, mas hoje ele é **sempre** sobre prefixo não mapeado — nunca sobre
+prefixo mapeado e vazio. `addresses` é o exemplo vivo disso.
 
 `addresses` **não está na tabela acima porque não está no mapa**. A entrada
 existia e foi removida pelo commit `42bc7ce` ("refactor(gateway): drop the dead
@@ -212,7 +241,16 @@ make services-seed     # popula o catálogo do commerce (baixa as fotos no MinIO
 
 Em um volume totalmente novo, `make stack-up` sozinho já cria os bancos pelo
 `initdb.d` — mas rodar os dois primeiros alvos depois não faz mal: ambos são
-idempotentes.
+idempotentes. Isso deixou de ser teoria no portão do bloco D: depois de um
+`docker compose down -v` autorizado (com `pg_dumpall` conferido antes), o
+volume virgem subiu com `chatbot_db` e `chatbot_test` já criados, **sem ninguém
+rodar `make services-dbs`**. É a prova da armadilha de mount que a §11 descreve
+— o script novo estava de fato montado.
+
+> **Antes de `make services-migrate`, reconstrua a imagem do serviço que ganhou
+> `alembic/` nesta fase.** Veja a §11 — `stack-up` não passa `--build`, e o alvo
+> roda o Alembic **dentro do container**, onde uma imagem em cache não tem a
+> árvore de migrations.
 
 `make services-seed` é o terceiro alvo desse fluxo e **nunca foi executado** —
 foi escrito na fase 2b, e no `commerce_db` de dev a tabela `products` nem
@@ -261,24 +299,36 @@ sintoma confuso para quem clonou o repositório agora. O alvo copia de cada
 `.env.example` e **nunca sobrescreve** um `.env` existente, então é seguro
 rodar de novo a qualquer momento.
 
+> **O reverso disso morde quem já tinha o repositório clonado.** "Nunca
+> sobrescreve" significa que um `.env` antigo, sem as variáveis que a fase 2d
+> acrescentou, sobrevive ao alvo — e `make services-test` estoura no import.
+> Veja a §11.
+
 Os testes rodam **no host**, não dentro dos containers, e usam os bancos
 `*_test` pelas portas publicadas — o stack precisa estar de pé. Cada projeto é
 um projeto `uv` independente, com o seu próprio `pyproject.toml`, `alembic/` e
 `tests/`.
 
-Estado no fechamento da fase 1:
+Estado medido nesta árvore, no fim do bloco D da fase 2, com
+`uv run pytest -q --collect-only` em cada projeto (coleta, não execução — não
+toca em banco):
 
 | Projeto | Testes |
 |---|---|
-| `packages/edu-common` | 55 |
-| `api-gateway` | 31 |
-| `auth-users-service` | 42 |
-| `learning-service` | 56 |
-| `commerce-service` | 69 |
-| `chatbot-service` | 23 |
-| `notification-service` | 20 |
-| `analytics-service` | 26 |
-| **Total** | **322** |
+| `packages/edu-common` | 59 |
+| `api-gateway` | 36 |
+| `auth-users-service` | 65 |
+| `learning-service` | 78 |
+| `commerce-service` | 366 |
+| `chatbot-service` | 37 |
+| `notification-service` | 31 |
+| `analytics-service` | 34 |
+| **Total** | **706** |
+
+No fechamento da fase 1 esta tabela somava **322**; os blocos B, C e D mais que
+dobraram a suíte, e o `commerce-service` sozinho respondeu pela maior parte
+disso (69 → 366). A soma de 706 confere com o total que o portão do bloco D
+mediu rodando as oito suítes de verdade.
 
 A suíte do legacy é separada e continua sendo o critério de aceite da paridade
 da fase 2 — rode com `make back-test`.
@@ -408,7 +458,10 @@ Regras:
 
 ## 11. Armadilhas conhecidas
 
-Três coisas que mordem e não são óbvias.
+Cinco coisas que mordem e não são óbvias. As duas últimas chegaram com a fase
+2d e valem para **quem já tinha o repositório ou as imagens**, não para um
+clone limpo — por isso passam despercebidas em CI e mordem só na máquina de
+quem estava trabalhando aqui antes.
 
 ### `make back-down` derruba a infra debaixo dos serviços novos
 
@@ -452,6 +505,82 @@ JWT_SECRET=qualquer-coisa docker compose down
 
 O trade-off é deliberado — falhar alto vale mais que subir um serviço com
 segredo vazio — mas o canto precisa ser conhecido.
+
+### Um `.env` de antes da fase 2d quebra `make services-test`, e `services-env` não conserta
+
+Quem clonou o repositório **depois** desta fase não vê nada disso: o
+`.env.example` do chatbot já traz `DATABASE_URL`, e `make services-env` copia o
+arquivo inteiro. O problema é de quem já tinha o repositório. O
+`chatbot-service/.env` de antes desta fase guardava **uma** variável,
+`JWT_SECRET`, e `app/config.py` passou a declarar `database_url: str` **sem
+default** de propósito (um default apontando para o banco do legacy seria pior
+que estourar). O `Makefile:183-191` só cria o `.env` que **não existe** — para
+um que existe ele imprime `mantido chatbot-service/.env` e não faz mais nada.
+
+Resultado: `make services-env` diz que está tudo certo e `make services-test`
+estoura no import, antes de qualquer teste. Reproduzido nesta árvore, pondo no
+lugar do `.env` atual um arquivo com a única linha
+`JWT_SECRET=pre-branch-placeholder` e rodando `uv run pytest -q` em
+`back-end/chatbot-service` (saída colada como veio, com **uma** edição: o
+prefixo absoluto do caminho do worktree virou `<repo>`):
+
+```
+ImportError while loading conftest '<repo>/back-end/chatbot-service/tests/conftest.py'.
+tests/conftest.py:28: in <module>
+    from app.config import settings
+app/config.py:53: in <module>
+    settings = Settings()
+               ^^^^^^^^^^
+.venv/lib/python3.14/site-packages/pydantic_settings/main.py:247: in __init__
+    super().__init__(**__pydantic_self__.__class__._settings_build_values(sources, init_kwargs))
+E   pydantic_core._pydantic_core.ValidationError: 1 validation error for Settings
+E   database_url
+E     Field required [type=missing, input_value={'jwt_secret': 'pre-branch-placeholder'}, input_type=dict]
+E       For further information visit https://errors.pydantic.dev/2.13/v/missing
+```
+
+O `.env` real foi restaurado logo em seguida, conferido pelo `md5sum` de antes
+e de depois, e a suíte voltou a `37 passed`.
+
+Correção, uma linha, no `.env` do serviço:
+
+```bash
+DATABASE_URL=postgresql+asyncpg://edu:edu@localhost:5433/chatbot_db
+```
+
+`DATABASE_URL_TEST` não precisa: tem default apontando para `chatbot_test`.
+**O caminho do compose não é afetado** — lá o `docker-compose.yml:307-308`
+injeta as duas por `environment`, e o `.env` do diretório do serviço nem é
+lido. Vale a mesma regra para qualquer fase futura: variável obrigatória nova
+significa que todo `.env` que já existe na máquina de alguém está incompleto, e
+o alvo de `.env` não vai avisar.
+
+### `make services-migrate` precisa de imagem reconstruída, e `stack-up` não reconstrói
+
+`Makefile:158` (`stack-up`) é `docker compose up -d`, **sem `--build`**. Numa
+máquina cujas imagens são anteriores a esta fase, o `stack-up` sobe o container
+do chatbot a partir do cache — uma imagem construída antes de a árvore
+`alembic/` existir. E `make services-migrate` roda `alembic upgrade head`
+**dentro do container** (`$(COMPOSE) exec -T $$s`, `Makefile:169-173`), não no
+host: sem a árvore lá dentro, o alvo não tem o que aplicar.
+
+Que a ausência do Alembic reprova o alvo está medido: no commit em que o
+chatbot entrou em `DB_SERVICES` mas ainda não tinha `alembic.ini`,
+`make services-migrate` saía com **1** na última iteração — o `|| exit 1` de
+`Makefile:172` garante isso. E no portão do bloco D a imagem do chatbot **foi**
+reconstruída de propósito antes da verificação de volume limpo, com o registro
+da época dizendo que sem o rebuild a verificação não teria significado nada.
+
+Regra prática: quando uma fase acrescenta `alembic/`, um router, ou qualquer
+arquivo novo a um serviço, reconstrua a imagem dele antes de rodar
+`services-migrate`. `stack-up` sozinho não faz isso.
+
+Sintoma vizinho e da mesma família, **anterior a esta fase**: a imagem do
+`commerce-service` no ar também é antiga. No portão do bloco D o
+`services-migrate` aplicou nela só a baseline `62926745dd94`, enquanto a árvore
+de código carrega treze revisões — o mesmo defeito de cache, num serviço em que
+o custo é maior. A cadeia pendente está listada em
+[`commerce-parity.md`](commerce-parity.md) §7, item 1.
 
 ---
 

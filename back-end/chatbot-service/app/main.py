@@ -5,6 +5,7 @@ from loguru import logger
 
 from app.dependencies import get_current_user
 from app.rag import RagIndisponivelError, inicializar_index, responder
+from app.routers import suporte
 from app.schemas import ExplicacaoOut, ExplicarQuestaoIn, MensagemIn, MensagemOut
 from app.services.diagnostico_client import DiagnosticoContextoError, buscar_contexto_questao
 from app.services.explicacao_questao import explicar_questao
@@ -22,6 +23,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Chatbot Service", lifespan=lifespan)
+app.include_router(suporte.router)
 
 
 @app.post("/chat/ask", response_model=MensagemOut)
