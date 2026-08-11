@@ -66,18 +66,34 @@ class AdminStatCard extends StatelessWidget {
                 ),
             ],
           ),
-          const SizedBox(height: 14),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.w800,
-              color: AppColors.textPrimary,
+          // Espaço elástico no lugar de um `SizedBox` fixo: a célula do grid
+          // tem altura fechada, e uma folga rígida entre o ícone e o valor
+          // era o que sobrava para estourar quando o rótulo quebrava em duas
+          // linhas ("BOTTOM OVERFLOWED BY 44 PIXELS", com o número cortado
+          // ao meio). Com o `Spacer` a folga cede antes do conteúdo.
+          const Spacer(),
+          // O valor encolhe em vez de vazar; `scaleDown` só reduz, então em
+          // caixa larga ele continua nos 22px do desenho.
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              value,
+              maxLines: 1,
+              style: const TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+                color: AppColors.textPrimary,
+              ),
             ),
           ),
           const SizedBox(height: 2),
+          // Duas linhas no máximo: rótulos como "Ocorrências resolvidas"
+          // quebram, e sem o limite a terceira linha volta a estourar.
           Text(
             label,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
             style: const TextStyle(
               fontSize: 12,
               color: AppColors.textSecondary,

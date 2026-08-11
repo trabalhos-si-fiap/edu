@@ -92,7 +92,9 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
                   crossAxisCount: 2,
                   mainAxisSpacing: 12,
                   crossAxisSpacing: 12,
-                  childAspectRatio: 1.5,
+                  // Mesma altura do dashboard — ver o comentário em
+                  // admin_dashboard_screen.dart.
+                  childAspectRatio: 1.15,
                   children: [
                     AdminStatCard(
                       icon: Icons.event_note_outlined,

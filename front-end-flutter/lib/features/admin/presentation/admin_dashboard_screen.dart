@@ -192,7 +192,11 @@ class _GradeMetricas extends StatelessWidget {
       crossAxisCount: 2,
       mainAxisSpacing: 12,
       crossAxisSpacing: 12,
-      childAspectRatio: 1.5,
+      // 1.5 deixava a célula com ~105px de altura e o AdminStatCard precisa
+      // de mais que isso quando o rótulo quebra em duas linhas. Ver
+      // test/features/admin/admin_stat_card_test.dart, que fixa a mesma
+      // geometria desta grade.
+      childAspectRatio: 1.15,
       children: [
         AdminStatCard(
           icon: Icons.shopping_bag_outlined,
