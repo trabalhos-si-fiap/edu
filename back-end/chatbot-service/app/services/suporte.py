@@ -8,11 +8,20 @@ from app.models.suporte import SupportMessage
 
 
 async def listar_mensagens(db: AsyncSession, user_id: uuid.UUID) -> list[SupportMessage]:
-    """A conversa do aluno, em ordem cronológica.
+    """A conversa do aluno, em ordem cronológica, INTEIRA — sem paginação.
 
     O filtro por `user_id` é a única defesa de posse que existe: `user_id` é
     FK lógica para outro banco, então nada no schema impede ler a conversa
     alheia — só esta cláusula.
+
+    A ausência de paginação é uma exceção CONSCIENTE à regra 4 do
+    `CLAUDE.md` (listagem sempre paginada), não um esquecimento: o critério
+    de aceite deste bloco é a réplica exata do legacy
+    (`legacy/app/modules/support/services.py`), que também devolve a conversa
+    inteira. Paginar aqui divergiria do módulo que este serviço substitui.
+    A conta que isso deixa em aberto — sem paginação, sem rate limit e sem
+    teto por conversa, todo GET e todo POST materializam a thread completa —
+    está registrada em `docs/back-end/phase-2-debt.md`.
     """
     stmt = (
         select(SupportMessage)
