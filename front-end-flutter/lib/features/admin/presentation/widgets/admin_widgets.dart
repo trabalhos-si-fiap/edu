@@ -223,14 +223,26 @@ class MiniBarChart extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 4),
-                  FractionallySizedBox(
-                    heightFactor: fracao.clamp(0.04, 1.0),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: destaque
-                            ? AppColors.purple
-                            : AppColors.purpleSoft,
-                        borderRadius: BorderRadius.circular(6),
+                  // O `Expanded` é obrigatório, não estilo: um `Column` dá
+                  // altura ILIMITADA aos filhos, e infinito vezes o
+                  // `heightFactor` continua infinito — o layout estoura com
+                  // "BoxConstraints forces an infinite height" e a árvore
+                  // inteira do painel deixa de pintar. `Expanded` fecha a
+                  // altura no espaço que sobra da coluna, e é sobre ela que
+                  // a fração passa a ser calculada. `bottomCenter` mantém a
+                  // barra crescendo de baixo para cima (o padrão do
+                  // FractionallySizedBox é centralizar).
+                  Expanded(
+                    child: FractionallySizedBox(
+                      alignment: Alignment.bottomCenter,
+                      heightFactor: fracao.clamp(0.04, 1.0),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: destaque
+                              ? AppColors.purple
+                              : AppColors.purpleSoft,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
                       ),
                     ),
                   ),
