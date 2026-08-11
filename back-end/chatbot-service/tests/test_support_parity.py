@@ -82,13 +82,16 @@ async def test_a_student_never_sees_another_students_conversation(client, studen
     aluno vem de `auth_services.register` (banco de usuários local); aqui não
     há tabela de usuários neste serviço, então o segundo aluno vem de um JWT
     minerado com um `sub` novo."""
-    # O 201 é assertado de propósito: sem ele, um POST que regredisse deixaria o
-    # banco vazio e o `== []` abaixo passaria por não haver conversa nenhuma —
-    # o único guard cross-tenant do serviço ficaria verde sem exercer nada.
+    # As duas asserções pegam regressões diferentes, e nenhuma cobre a outra: o
+    # status pega um POST que falha de vez; o corpo pega um POST que responde
+    # 201 sem gravar (ou gravando outra coisa). Sem a segunda, o `== []` lá
+    # embaixo passaria por conversa inexistente em vez de por isolamento, e o
+    # único guard cross-tenant do serviço ficaria verde sem exercer nada.
     seed = await client.post(
         "/support", json={"body": "minha mensagem"}, headers=student_identity.headers
     )
     assert seed.status_code == 201
+    assert [m["body"] for m in seed.json()] == ["minha mensagem"]
 
     resposta = await client.get("/support", headers=_headers_de_outro_aluno())
     assert resposta.status_code == 200
