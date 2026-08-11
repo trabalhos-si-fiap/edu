@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../data/demo_itens.dart';
 import '../data/logistics_api.dart';
 import '../domain/occurrence.dart';
 import '../domain/order.dart';
@@ -63,9 +64,15 @@ class _SeparadorPickingScreenState extends State<SeparadorPickingScreen> {
 
   bool get _temOcorrenciaAbertaGeral => _ocorrenciasAbertas.isNotEmpty;
 
+  /// Itens que a tela exibe e confere. Normalmente são os do pedido; numa
+  /// build de demonstração (`--dart-define=DEMO_ITENS_MOCK=true`) um pedido
+  /// que chega sem itens recebe a lista de vitrine — ver
+  /// `data/demo_itens.dart`. Fora dessa build isto é exatamente
+  /// `widget.pedido.itens`.
+  List<PedidoItem> get _itens => itensParaExibir(widget.pedido.itens);
+
   bool get _todosConferidos =>
-      widget.pedido.itens.isNotEmpty &&
-      _itensConferidos.length == widget.pedido.itens.length;
+      _itens.isNotEmpty && _itensConferidos.length == _itens.length;
 
   Future<void> _iniciarSeparacao() async {
     setState(() {
@@ -216,7 +223,7 @@ class _SeparadorPickingScreenState extends State<SeparadorPickingScreen> {
                         style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
                       ),
                       const SizedBox(height: 16),
-                      if (widget.pedido.itens.isEmpty)
+                      if (_itens.isEmpty)
                         const Padding(
                           padding: EdgeInsets.symmetric(vertical: 12),
                           child: Text(
@@ -227,7 +234,7 @@ class _SeparadorPickingScreenState extends State<SeparadorPickingScreen> {
                           ),
                         )
                       else
-                        ...widget.pedido.itens.asMap().entries.map((entry) {
+                        ..._itens.asMap().entries.map((entry) {
                           final index = entry.key;
                           final item = entry.value;
                           final conferido = _itensConferidos.contains(index);
