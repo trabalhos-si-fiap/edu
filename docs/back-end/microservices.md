@@ -54,7 +54,7 @@ um valida o JWT sozinho, com o mesmo `JWT_SECRET`
 | `auth-users-service` | **8101** | `auth_db` | Registro, login, refresh, reset de senha por OTP, perfil e endereços |
 | `learning-service` | **8102** | `learning_db` | Matérias, temas, subtemas, diagnóstico adaptativo, SM-2, embeddings, recomendação semântica |
 | `commerce-service` | **8103** | `commerce_db` | Catálogo, pedidos, máquina de 7 estados, separação, entrega, ocorrências, admin de estoque |
-| `chatbot-service` | **8104** | — | RAG (FAISS + Groq): perguntas livres e explicação de questão. Sem banco |
+| `chatbot-service` | **8104** | `chatbot_db` | RAG (FAISS + Groq): perguntas livres e explicação de questão; conversa de suporte (`support`), portada do legacy na fase 2d |
 | `notification-service` | **8105** | `notification_db` | Notificações in-app e registro de device token, alimentado por eventos |
 | `analytics-service` | **8106** | `analytics_db` | Event log, métricas agregadas, detecção de anomalias, resumo executivo por LLM |
 
@@ -72,11 +72,17 @@ muda. As URLs que o gateway usa entre containers são
 | MinIO | 9000 (API), 9001 (console) | 9000, 9001 |
 
 Um Postgres, vários bancos: `edu` (legacy) mais `auth_db`, `learning_db`,
-`commerce_db`, `notification_db` e `analytics_db`, cada um com um `*_test`
-correspondente para as suítes. `api-gateway` e `chatbot-service` não têm banco
-— o `DATABASE_URL` deles é explicitamente zerado no compose para que a
-credencial do legacy não fique no ambiente de um container que não deveria
-alcançá-la.
+`commerce_db`, `chatbot_db`, `notification_db` e `analytics_db`, cada um com um
+`*_test` correspondente para as suítes. **Só o `api-gateway` não tem banco** — o
+`DATABASE_URL` dele é explicitamente zerado no compose para que a credencial do
+legacy não fique no ambiente de um container que não deveria alcançá-la.
+
+O `chatbot-service` estava nessa mesma frase até a fase 2d e **saiu dela**: o
+módulo `support` deu banco a ele, e `back-end/docker-compose.yml:307-308`
+preenche `DATABASE_URL` e `DATABASE_URL_TEST` com `chatbot_db` e `chatbot_test`
+— não mais com string vazia. A razão do zeramento continua valendo, e continua
+escrita no próprio compose (`:302-306`): ela agora vale só para o gateway, que
+não fala com banco nenhum.
 
 ---
 
@@ -108,15 +114,38 @@ mapeado é repassado, e aí o 404 (se houver) vem do serviço de destino.
 | `notifications` | notification-service | OK |
 | `analytics` | analytics-service | OK |
 | `chat` | chatbot-service | OK |
-| `support` | chatbot-service | **404 — nada serve este prefixo**, fase 2 |
+| `support` | chatbot-service | OK — portado do legacy na fase 2d |
 
 ### O que "404" quer dizer aqui
 
-Sobrou **um** prefixo mapeado no gateway sem nenhuma rota no serviço de
-destino: `support`. `cart` e `payment-methods` estavam nesta lista até a fase
-2b e saíram dela — os dois são servidos hoje por
-`commerce-service/app/routers/carrinho.py` e `.../pagamento.py`, ambos
-montados em `app/main.py`.
+**Não sobrou nenhum prefixo mapeado sem rota no serviço de destino.** `support`
+era o último, e saiu dessa condição na fase 2d:
+`chatbot-service/app/routers/suporte.py` declara `APIRouter(prefix="/support")`
+e `app/main.py` o inclui. `cart` e `payment-methods` estavam na mesma lista até
+a fase 2b — hoje são servidos por `commerce-service/app/routers/carrinho.py` e
+`.../pagamento.py` —, e `orders` até a 2c.
+
+Medido serviço a serviço nesta árvore, importando cada app em processo e
+imprimindo o **primeiro segmento** de cada path do OpenAPI dele. Use o OpenAPI,
+não `app.routes`: no FastAPI 0.141.1 cada `include_router` vira uma única
+entrada `_IncludedRouter` com `path=None`, então iterar `app.routes` esconde
+exatamente os routers que interessam — `/support` e `/notifications` somem, e a
+medição diz "não há rota" sobre um serviço que tem rota.
+
+Saída dos seis comandos, um por serviço, colada como veio:
+
+```
+auth-users-service -> ['auth', 'health', 'users']
+learning-service -> ['diagnostic', 'health', 'recommendations', 'reviews', 'subjects', 'subtopics', 'topics']
+commerce-service -> ['admin', 'cart', 'delivery', 'health', 'occurrences', 'orders', 'payment-methods', 'picking', 'products']
+chatbot-service -> ['chat', 'health', 'support']
+notification-service -> ['health', 'notifications']
+analytics-service -> ['analytics', 'health']
+```
+
+Os 20 prefixos do `SERVICE_MAP` aparecem nessa lista. O 404 do gateway continua
+existindo, mas hoje ele é **sempre** sobre prefixo não mapeado — nunca sobre
+prefixo mapeado e vazio. `addresses` é o exemplo vivo disso.
 
 `addresses` **não está na tabela acima porque não está no mapa**. A entrada
 existia e foi removida pelo commit `42bc7ce` ("refactor(gateway): drop the dead
@@ -266,19 +295,26 @@ Os testes rodam **no host**, não dentro dos containers, e usam os bancos
 um projeto `uv` independente, com o seu próprio `pyproject.toml`, `alembic/` e
 `tests/`.
 
-Estado no fechamento da fase 1:
+Estado medido nesta árvore, no fim do bloco D da fase 2, com
+`uv run pytest -q --collect-only` em cada projeto (coleta, não execução — não
+toca em banco):
 
 | Projeto | Testes |
 |---|---|
-| `packages/edu-common` | 55 |
-| `api-gateway` | 31 |
-| `auth-users-service` | 42 |
-| `learning-service` | 56 |
-| `commerce-service` | 69 |
-| `chatbot-service` | 23 |
-| `notification-service` | 20 |
-| `analytics-service` | 26 |
-| **Total** | **322** |
+| `packages/edu-common` | 59 |
+| `api-gateway` | 36 |
+| `auth-users-service` | 65 |
+| `learning-service` | 78 |
+| `commerce-service` | 366 |
+| `chatbot-service` | 37 |
+| `notification-service` | 31 |
+| `analytics-service` | 34 |
+| **Total** | **706** |
+
+No fechamento da fase 1 esta tabela somava **322**; os blocos B, C e D mais que
+dobraram a suíte, e o `commerce-service` sozinho respondeu pela maior parte
+disso (69 → 366). A soma de 706 confere com o total que o portão do bloco D
+mediu rodando as oito suítes de verdade.
 
 A suíte do legacy é separada e continua sendo o critério de aceite da paridade
 da fase 2 — rode com `make back-test`.
