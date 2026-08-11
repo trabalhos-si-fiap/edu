@@ -241,7 +241,16 @@ make services-seed     # popula o catálogo do commerce (baixa as fotos no MinIO
 
 Em um volume totalmente novo, `make stack-up` sozinho já cria os bancos pelo
 `initdb.d` — mas rodar os dois primeiros alvos depois não faz mal: ambos são
-idempotentes.
+idempotentes. Isso deixou de ser teoria no portão do bloco D: depois de um
+`docker compose down -v` autorizado (com `pg_dumpall` conferido antes), o
+volume virgem subiu com `chatbot_db` e `chatbot_test` já criados, **sem ninguém
+rodar `make services-dbs`**. É a prova da armadilha de mount que a §11 descreve
+— o script novo estava de fato montado.
+
+> **Antes de `make services-migrate`, reconstrua a imagem do serviço que ganhou
+> `alembic/` nesta fase.** Veja a §11 — `stack-up` não passa `--build`, e o alvo
+> roda o Alembic **dentro do container**, onde uma imagem em cache não tem a
+> árvore de migrations.
 
 `make services-seed` é o terceiro alvo desse fluxo e **nunca foi executado** —
 foi escrito na fase 2b, e no `commerce_db` de dev a tabela `products` nem
@@ -289,6 +298,11 @@ com um `ValidationError` do pydantic — não numa assertion, o que torna o
 sintoma confuso para quem clonou o repositório agora. O alvo copia de cada
 `.env.example` e **nunca sobrescreve** um `.env` existente, então é seguro
 rodar de novo a qualquer momento.
+
+> **O reverso disso morde quem já tinha o repositório clonado.** "Nunca
+> sobrescreve" significa que um `.env` antigo, sem as variáveis que a fase 2d
+> acrescentou, sobrevive ao alvo — e `make services-test` estoura no import.
+> Veja a §11.
 
 Os testes rodam **no host**, não dentro dos containers, e usam os bancos
 `*_test` pelas portas publicadas — o stack precisa estar de pé. Cada projeto é
@@ -444,7 +458,10 @@ Regras:
 
 ## 11. Armadilhas conhecidas
 
-Três coisas que mordem e não são óbvias.
+Cinco coisas que mordem e não são óbvias. As duas últimas chegaram com a fase
+2d e valem para **quem já tinha o repositório ou as imagens**, não para um
+clone limpo — por isso passam despercebidas em CI e mordem só na máquina de
+quem estava trabalhando aqui antes.
 
 ### `make back-down` derruba a infra debaixo dos serviços novos
 
@@ -488,6 +505,82 @@ JWT_SECRET=qualquer-coisa docker compose down
 
 O trade-off é deliberado — falhar alto vale mais que subir um serviço com
 segredo vazio — mas o canto precisa ser conhecido.
+
+### Um `.env` de antes da fase 2d quebra `make services-test`, e `services-env` não conserta
+
+Quem clonou o repositório **depois** desta fase não vê nada disso: o
+`.env.example` do chatbot já traz `DATABASE_URL`, e `make services-env` copia o
+arquivo inteiro. O problema é de quem já tinha o repositório. O
+`chatbot-service/.env` de antes desta fase guardava **uma** variável,
+`JWT_SECRET`, e `app/config.py` passou a declarar `database_url: str` **sem
+default** de propósito (um default apontando para o banco do legacy seria pior
+que estourar). O `Makefile:183-191` só cria o `.env` que **não existe** — para
+um que existe ele imprime `mantido chatbot-service/.env` e não faz mais nada.
+
+Resultado: `make services-env` diz que está tudo certo e `make services-test`
+estoura no import, antes de qualquer teste. Reproduzido nesta árvore, pondo no
+lugar do `.env` atual um arquivo com a única linha
+`JWT_SECRET=pre-branch-placeholder` e rodando `uv run pytest -q` em
+`back-end/chatbot-service` (saída colada como veio, com **uma** edição: o
+prefixo absoluto do caminho do worktree virou `<repo>`):
+
+```
+ImportError while loading conftest '<repo>/back-end/chatbot-service/tests/conftest.py'.
+tests/conftest.py:28: in <module>
+    from app.config import settings
+app/config.py:53: in <module>
+    settings = Settings()
+               ^^^^^^^^^^
+.venv/lib/python3.14/site-packages/pydantic_settings/main.py:247: in __init__
+    super().__init__(**__pydantic_self__.__class__._settings_build_values(sources, init_kwargs))
+E   pydantic_core._pydantic_core.ValidationError: 1 validation error for Settings
+E   database_url
+E     Field required [type=missing, input_value={'jwt_secret': 'pre-branch-placeholder'}, input_type=dict]
+E       For further information visit https://errors.pydantic.dev/2.13/v/missing
+```
+
+O `.env` real foi restaurado logo em seguida, conferido pelo `md5sum` de antes
+e de depois, e a suíte voltou a `37 passed`.
+
+Correção, uma linha, no `.env` do serviço:
+
+```bash
+DATABASE_URL=postgresql+asyncpg://edu:edu@localhost:5433/chatbot_db
+```
+
+`DATABASE_URL_TEST` não precisa: tem default apontando para `chatbot_test`.
+**O caminho do compose não é afetado** — lá o `docker-compose.yml:307-308`
+injeta as duas por `environment`, e o `.env` do diretório do serviço nem é
+lido. Vale a mesma regra para qualquer fase futura: variável obrigatória nova
+significa que todo `.env` que já existe na máquina de alguém está incompleto, e
+o alvo de `.env` não vai avisar.
+
+### `make services-migrate` precisa de imagem reconstruída, e `stack-up` não reconstrói
+
+`Makefile:158` (`stack-up`) é `docker compose up -d`, **sem `--build`**. Numa
+máquina cujas imagens são anteriores a esta fase, o `stack-up` sobe o container
+do chatbot a partir do cache — uma imagem construída antes de a árvore
+`alembic/` existir. E `make services-migrate` roda `alembic upgrade head`
+**dentro do container** (`$(COMPOSE) exec -T $$s`, `Makefile:169-173`), não no
+host: sem a árvore lá dentro, o alvo não tem o que aplicar.
+
+Que a ausência do Alembic reprova o alvo está medido: no commit em que o
+chatbot entrou em `DB_SERVICES` mas ainda não tinha `alembic.ini`,
+`make services-migrate` saía com **1** na última iteração — o `|| exit 1` de
+`Makefile:172` garante isso. E no portão do bloco D a imagem do chatbot **foi**
+reconstruída de propósito antes da verificação de volume limpo, com o registro
+da época dizendo que sem o rebuild a verificação não teria significado nada.
+
+Regra prática: quando uma fase acrescenta `alembic/`, um router, ou qualquer
+arquivo novo a um serviço, reconstrua a imagem dele antes de rodar
+`services-migrate`. `stack-up` sozinho não faz isso.
+
+Sintoma vizinho e da mesma família, **anterior a esta fase**: a imagem do
+`commerce-service` no ar também é antiga. No portão do bloco D o
+`services-migrate` aplicou nela só a baseline `62926745dd94`, enquanto a árvore
+de código carrega treze revisões — o mesmo defeito de cache, num serviço em que
+o custo é maior. A cadeia pendente está listada em
+[`commerce-parity.md`](commerce-parity.md) §7, item 1.
 
 ---
 
