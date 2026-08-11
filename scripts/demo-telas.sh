@@ -11,6 +11,7 @@
 #   scripts/demo-telas.sh --skip-build    # reaproveita o APK já instalado
 #   scripts/demo-telas.sh --only admin    # uma tela só (separador|entregador|admin)
 #   scripts/demo-telas.sh --pausa 4       # mais lento, para gravar com calma
+#   scripts/demo-telas.sh --rapido        # corrida: sem pausas, esperas curtas
 #
 # Antes de gravar: deixe o celular desbloqueado, com rotação travada em
 # retrato e a barra de notificação limpa.
@@ -34,10 +35,25 @@ PAUSA=3
 PULAR_BUILD=0
 SOMENTE=""
 
+# Esperas em segundos. Não são enfeite: cada uma cobre um trabalho real do
+# app (abrir, autenticar pela rede, trocar de rota). Encurtar demais faz o
+# toque seguinte chegar antes da tela, e aí a guarda de foco aborta a
+# gravação. --rapido usa o piso que ainda passou aqui.
+ESPERA_ABRIR=12      # cold start do Flutter em modo debug
+ESPERA_LOGIN=8       # POST /auth/login + navegação para a tela do papel
+ESPERA_SAIR=5        # logout e volta para a tela de login
+ESPERA_ROLAGEM=2     # assentar a rolagem antes da próxima
+DURACAO_SWIPE=900    # ms; swipe rápido demais vira borrão na gravação
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --skip-build) PULAR_BUILD=1; shift ;;
     --pausa) PAUSA="$2"; shift 2 ;;
+    --rapido)
+      PAUSA=0
+      ESPERA_ABRIR=8; ESPERA_LOGIN=5; ESPERA_SAIR=3
+      ESPERA_ROLAGEM=1; DURACAO_SWIPE=450
+      shift ;;
     --only) SOMENTE="$2"; shift 2 ;;
     -h|--help) sed -n '2,${/^#/!q;p;}' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "opção desconhecida: $1" >&2; exit 2 ;;
@@ -205,8 +221,8 @@ fechar_teclado() {
 # inicial de quem está gravando.
 rolar() {
   exigir_app "rolagem"
-  adb -s "$DISPOSITIVO" shell input swipe "$(px 0.5)" "$(py "$1")" "$(px 0.5)" "$(py "$2")" 900
-  sleep 2
+  adb -s "$DISPOSITIVO" shell input swipe "$(px 0.5)" "$(py "$1")" "$(px 0.5)" "$(py "$2")" "$DURACAO_SWIPE"
+  sleep "$ESPERA_ROLAGEM"
 }
 rolar_baixo() { rolar 0.75 0.30; }
 rolar_cima()  { rolar 0.30 0.75; }
@@ -228,19 +244,19 @@ entrar_como() {
   toque 0.50 0.57 1 "campo de senha"
   digitar "$SENHA"
   fechar_teclado            # com o teclado fora, o formulário volta à posição
-  toque 0.50 0.65 8 "botão Entrar"
+  toque 0.50 0.65 "$ESPERA_LOGIN" "botão Entrar"
   exigir_app "a tela pós-login"
 }
 
 sair() {
-  toque 0.91 0.072 5 "logout na AppBar"
+  toque 0.91 0.072 "$ESPERA_SAIR" "logout na AppBar"
 }
 
 abrir_app_limpo() {
   adb -s "$DISPOSITIVO" shell am force-stop "$PACOTE"
   sleep 1
   adb -s "$DISPOSITIVO" shell am start -n "$ATIVIDADE" >/dev/null
-  sleep 12
+  sleep "$ESPERA_ABRIR"
   exigir_app "a abertura do app"
 }
 
