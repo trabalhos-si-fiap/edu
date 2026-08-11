@@ -31,7 +31,11 @@ class _OcorrenciaResolucaoScreenState extends State<OcorrenciaResolucaoScreen> {
   }
 
   void _carregar() {
-    setState(() => _ocorrenciaFuture = _api.fetchOcorrencia(widget.ocorrenciaId));
+    // Corpo em bloco, não em seta: `() => _x = umFuture` devolve o Future
+    // atribuído, e o `setState` derruba a tela ao ver um retorno não nulo.
+    setState(() {
+      _ocorrenciaFuture = _api.fetchOcorrencia(widget.ocorrenciaId);
+    });
   }
 
   Future<void> _resolver(String resolucao, {String? produtoEscolhidoId}) async {

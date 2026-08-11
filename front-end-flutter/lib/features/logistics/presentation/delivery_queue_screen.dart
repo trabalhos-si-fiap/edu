@@ -25,7 +25,11 @@ class _EntregadorFilaScreenState extends State<EntregadorFilaScreen> {
   }
 
   void _carregarFila() {
-    setState(() => _filaFuture = _api.fetchFilaEntrega());
+    // Corpo em bloco, não em seta: `() => _x = umFuture` devolve o Future
+    // atribuído, e o `setState` derruba a tela ao ver um retorno não nulo.
+    setState(() {
+      _filaFuture = _api.fetchFilaEntrega();
+    });
   }
 
   Future<void> _abrirPedido(Pedido pedido) async {

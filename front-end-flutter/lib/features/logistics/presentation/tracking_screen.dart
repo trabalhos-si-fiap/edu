@@ -24,7 +24,11 @@ class _EntregadorEmRotaScreenState extends State<EntregadorEmRotaScreen> {
   }
 
   void _carregarEntregas() {
-    setState(() => _entregasFuture = _api.fetchMinhasEntregas());
+    // Corpo em bloco, não em seta: `() => _x = umFuture` devolve o Future
+    // atribuído, e o `setState` derruba a tela ao ver um retorno não nulo.
+    setState(() {
+      _entregasFuture = _api.fetchMinhasEntregas();
+    });
   }
 
   Future<void> _confirmarEntregaComDialogo(Pedido pedido) async {

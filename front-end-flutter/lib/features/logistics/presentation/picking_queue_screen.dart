@@ -24,7 +24,11 @@ class _SeparadorFilaScreenState extends State<SeparadorFilaScreen> {
   }
 
   void _carregarFila() {
-    setState(() => _filaFuture = _api.fetchFilaSeparacao());
+    // Corpo em bloco, não em seta: `() => _x = umFuture` devolve o Future
+    // atribuído, e o `setState` derruba a tela ao ver um retorno não nulo.
+    setState(() {
+      _filaFuture = _api.fetchFilaSeparacao();
+    });
   }
 
   Future<void> _abrirPedido(Pedido pedido) async {

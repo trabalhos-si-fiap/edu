@@ -26,7 +26,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Future<void> _refresh() async {
-    setState(() => _future = _api.list());
+    // Corpo em bloco, não em seta: `() => _x = umFuture` devolve o Future
+    // atribuído, e o `setState` derruba a tela ao ver um retorno não nulo.
+    setState(() {
+      _future = _api.list();
+    });
     await _future.catchError((_) => <NotificationModel>[]);
   }
 
