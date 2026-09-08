@@ -10,6 +10,8 @@
 
 **Spec:** [`docs/superpowers/specs/2026-09-07-spec-a-corte-e-consolidacao-design.md`](../specs/2026-09-07-spec-a-corte-e-consolidacao-design.md)
 
+**Registro de execução:** [`2026-09-07-spec-a-corte-e-consolidacao-execution-record.md`](2026-09-07-spec-a-corte-e-consolidacao-execution-record.md) — o que aconteceu quando este plano foi executado: as dezoito decisões tomadas onde ele estava errado, as contagens medidas, e a dívida que ficou.
+
 ## Global Constraints
 
 Estas valem para **toda** task deste plano.
