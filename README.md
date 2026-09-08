@@ -220,7 +220,7 @@ estuda_app/
 │   ├── analytics-service/
 │   ├── docker-compose.yml   # Infra compartilhada + os sete servicos
 │   └── .env.example         # Contrato de variaveis (o .env nunca vai pro git)
-├── web-admin/                # Painel Angular (git subtree, historico preservado; nao funciona ainda — ver web-admin/README-STATUS.md)
+├── web-admin/               # Painel Angular (git subtree, historico preservado; nao funciona ainda — ver web-admin/README-STATUS.md)
 ├── Makefile                 # Comandos centralizados
 ├── CLAUDE.md                # Guidelines para AI/dev
 └── README.md                # Este arquivo
