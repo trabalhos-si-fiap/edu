@@ -29,7 +29,7 @@ recusa rodar sem ela.
 import asyncio
 import os
 
-from edu_common.security import hash_password
+from edu_common.security import MAX_PASSWORD_BYTES, hash_password
 from httpx import ASGITransport, AsyncClient
 from loguru import logger
 from sqlalchemy import select
@@ -74,6 +74,17 @@ def _validar_senha(senha: str) -> None:
             f"um caractere especial ({_SENHA_CARACTERES_ESPECIAIS}) — mesma "
             "regra de RegisterIn.senha_forte, porque a conta aluno@demo.edu "
             "passa por /auth/register"
+        )
+    if len(senha.encode("utf-8")) > MAX_PASSWORD_BYTES:
+        # Terceiro checque de `RegisterIn.senha_forte` (via
+        # `_validar_bytes_senha`, app/schemas/auth.py): o teto real é de
+        # BYTES, não caracteres, porque é o que `bcrypt`/`hash_password`
+        # aplicam. Sem isso aqui, uma senha grande passa pelos dois guards
+        # acima e só estoura dentro do bootstrap do admin, com um
+        # `ValueError` que não menciona `DEMO_ACCOUNTS_PASSWORD`.
+        raise ValueError(
+            f"DEMO_ACCOUNTS_PASSWORD não pode passar de {MAX_PASSWORD_BYTES} "
+            "bytes — mesmo limite de bcrypt que RegisterIn.senha_forte aplica"
         )
 
 
