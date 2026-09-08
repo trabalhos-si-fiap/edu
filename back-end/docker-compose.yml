@@ -1,5 +1,5 @@
-# Stack completo do backend: infra compartilhada + monolito legacy + os 7
-# serviços novos.
+# Stack completo do backend: infra compartilhada + os 7 serviços novos
+# (gateway + seis serviços de domínio).
 #
 # Este arquivo é um SUPERCONJUNTO ESTRITO de `legacy/docker-compose.yml`:
 # mesmo COMPOSE_PROJECT_NAME (do .env), mesmos nomes de volume e mesmos
@@ -11,9 +11,11 @@
 # `env_file: - .env` e a interpolação de ${VAR} apontam ambos para ele sem
 # nenhum flag extra, porque o project directory é esta pasta.
 #
-# Portas host: legacy em ${API_PORT_EXTERNAL} (8001 nesta máquina), gateway
-# em ${GATEWAY_PORT_EXTERNAL} (8100) e os seis serviços em 8101-8106. A faixa
-# 80xx está ocupada (8000 por outro projeto, 8001 pelo legacy).
+# Portas host: gateway em ${GATEWAY_PORT_EXTERNAL} (8100 nesta máquina) e os
+# seis serviços em 8101-8106. A faixa 80xx tem outros projetos nesta máquina
+# (8000 é de um deles) e o compose standalone do legacy, em
+# back-end/legacy/docker-compose.yml, ainda usa 8001 — nenhum dos dois é
+# afetado por este arquivo.
 
 # Bloco comum aos serviços novos. RABBITMQ_URL e as DATABASE_URL* são montadas
 # por interpolação para não hardcodar senha neste arquivo. Cada serviço
@@ -124,70 +126,7 @@ services:
       exit 0;
       "
 
-  # ── Monolito legacy — continua servindo o Flutter ──────────────────────
-  migrate:
-    build: ./legacy
-    command: uv run alembic upgrade head
-    env_file:
-      - .env
-    depends_on:
-      postgres:
-        condition: service_healthy
-    volumes:
-      - ./legacy:/app
-    restart: "no"
-
-  api:
-    build: ./legacy
-    command: granian --interface asgi --host 0.0.0.0 --port 8000 --reload app.main:app
-    env_file:
-      - .env
-    ports:
-      # Mesmo default do compose do legacy: 8001, nunca 8000. A faixa 80xx tem
-      # outros projetos nesta máquina e 8000 já é de um deles — cair nele seria
-      # colisão silenciosa, não erro.
-      - "${API_PORT_EXTERNAL:-8001}:8000"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
-    volumes:
-      - ./legacy:/app
-      # Firebase service account (read-only). Lives at the repo root, outside
-      # the build context, and is git-ignored — never bake it into the image.
-      - ../secrets:/app/secrets:ro
-    environment:
-      FIREBASE_CREDENTIALS_PATH: /app/secrets/edu-ia-29080-firebase-adminsdk-fbsvc-4b9cc9075d.json
-      # Sign presigned image URLs against the host LAN IP so physical devices can
-      # reach MinIO. Built from HOST_IP (exported by `make stack-up`); falls back
-      # to the Android-emulator alias when HOST_IP is unset.
-      R2_PUBLIC_ENDPOINT_URL: "http://${HOST_IP:-10.0.2.2}:9000"
-
-  worker:
-    build: ./legacy
-    command: celery -A app.core.celery_app.celery_app worker --loglevel=info
-    env_file:
-      - .env
-    depends_on:
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
-    volumes:
-      - ./legacy:/app
-      - ../secrets:/app/secrets:ro
-    environment:
-      FIREBASE_CREDENTIALS_PATH: /app/secrets/edu-ia-29080-firebase-adminsdk-fbsvc-4b9cc9075d.json
-      R2_PUBLIC_ENDPOINT_URL: "http://${HOST_IP:-10.0.2.2}:9000"
-
-  # ── Stack novo: gateway + 6 serviços ───────────────────────────────────
+  # ── Gateway + 6 serviços ────────────────────────────────────────────────
   api-gateway:
     build:
       context: .
