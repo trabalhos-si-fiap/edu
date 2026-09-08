@@ -1,5 +1,22 @@
 # Módulo Password Reset (Back-end)
 
+> **Documento histórico.** Descreve o fluxo de e-mail de reset de senha do
+> monolito `back-end/legacy/` — task Celery, camada de adapter de provedor
+> (Resend/console) e as variáveis de ambiente que a sustentavam — apagado na
+> spec A (2026-09-07).
+>
+> O OTP em si **sobrevive** em `auth-users-service`: o código de 6 dígitos é
+> gerado, hasheado e guardado
+> (`POST /auth/password-reset/{request,confirm}`, `app/routers/auth.py`), a
+> verificação roda em tempo constante, e o comportamento anti-enumeração
+> (`request` sempre responde 200, exista ou não o e-mail) se mantém. O que
+> **não** sobrevive é o envio: não há task Celery, não há adapter de
+> provedor, não há `EMAIL_*` configurado no serviço. A verdade atual está no
+> docstring da própria rota (`app/routers/auth.py:229-231`): "MVP: nenhum
+> provedor de e-mail/SMS está configurado ainda — o código de 6 dígitos não
+> sai daqui (não vai para log nem resposta). Plugar um provedor real antes de
+> produção."
+
 Recuperação de senha por **código de uso único (OTP de 6 dígitos)** enviado por e-mail. Estende o módulo `auth` e introduz uma **camada de adapter de e-mail** (`app/core/email/`) que desacopla o domínio do provedor (Resend em produção, console em dev/test).
 
 > Spec de design (o *porquê* das decisões): [`docs/superpowers/specs/2026-06-14-password-reset-email-design.md`](../superpowers/specs/2026-06-14-password-reset-email-design.md).
