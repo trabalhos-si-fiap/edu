@@ -1,9 +1,10 @@
 # Microserviços — arquitetura do backend
 
-> **Escopo deste documento:** descreve **o que existe hoje**, no fim da fase 1
-> da migração. Onde algo ainda não existe, está marcado com a fase em que
-> chega. O monolito continua sendo o backend que o app Flutter consome — veja
-> [start-here.md](start-here.md).
+> **Escopo deste documento:** descreve **o que existe hoje**, depois do corte
+> da spec A (2026-09-07), que apagou `back-end/legacy/`. Onde algo ainda não
+> existe, está marcado com a fase em que chega. O gateway é o backend que o
+> app Flutter consome hoje — veja [start-here.md](start-here.md) para o
+> registro histórico do monolito que ele substituiu.
 
 O plano completo da migração está em
 `docs/superpowers/specs/2026-08-02-microservices-migration-design.md`.
@@ -13,19 +14,17 @@ O plano completo da migração está em
 ## 1. Topologia
 
 A fase 1 colocou os sete serviços novos **ao lado** do monolito, não no lugar
-dele. Os dois stacks sobem juntos, no mesmo projeto Docker Compose (`edu`),
-compartilhando uma única instância de Postgres, Redis, RabbitMQ e MinIO.
+dele. A spec A (2026-09-07) completou o corte: apagou `back-end/legacy/` e
+apontou o app para o gateway. Hoje só a frota nova sobe, no mesmo projeto
+Docker Compose (`edu`), compartilhando uma única instância de Postgres, Redis,
+RabbitMQ e MinIO.
 
 ```
                      Flutter (hoje)
                            │
                            ▼
               ┌────────────────────────┐
-              │  legacy (monolito)     │  :8001   ← o app fala com este
-              └────────────────────────┘
-                           
-              ┌────────────────────────┐
-              │  api-gateway           │  :8100   ← proxy por prefixo de path
+              │  api-gateway           │  :8100   ← o app fala com este
               └───────────┬────────────┘
                           │
    ┌──────────┬───────────┼───────────┬──────────┬──────────┐
@@ -49,7 +48,6 @@ um valida o JWT sozinho, com o mesmo `JWT_SECRET`
 
 | Serviço | Porta host | Banco | Responsabilidade |
 |---|---|---|---|
-| `legacy` (monolito) | **8001** | `edu` | Backend de produção do app: auth, products, cart, orders, tracking, payment-methods, support, notifications, BFF, admin SQLAdmin, Celery |
 | `api-gateway` | **8100** | — | Proxy reverso por prefixo de path sob `/api`. Sem banco, sem eventos |
 | `auth-users-service` | **8101** | `auth_db` | Registro, login, refresh, reset de senha por OTP, perfil e endereços |
 | `learning-service` | **8102** | `learning_db` | Matérias, temas, subtemas, diagnóstico adaptativo, SM-2, embeddings, recomendação semântica |
@@ -71,17 +69,19 @@ muda. As URLs que o gateway usa entre containers são
 | RabbitMQ 4.2.3 | 5673 (AMQP), 15673 (painel) | 5672, 15672 |
 | MinIO | 9000 (API), 9001 (console) | 9000, 9001 |
 
-Um Postgres, vários bancos: `edu` (legacy) mais `auth_db`, `learning_db`,
-`commerce_db`, `chatbot_db`, `notification_db` e `analytics_db`, cada um com um
-`*_test` correspondente para as suítes. **Só o `api-gateway` não tem banco** — o
-`DATABASE_URL` dele é explicitamente zerado no compose para que a credencial do
-legacy não fique no ambiente de um container que não deveria alcançá-la.
+Um Postgres, vários bancos: `edu` (órfão — era do legacy, nenhum serviço novo
+o usa, mas o Postgres continua criando-o porque `POSTGRES_DB=edu` segue no
+`.env`) mais `auth_db`, `learning_db`, `commerce_db`, `chatbot_db`,
+`notification_db` e `analytics_db`, cada um com um `*_test` correspondente
+para as suítes. **Só o `api-gateway` não tem banco** — o `DATABASE_URL` dele é
+explicitamente zerado no compose para que a credencial do banco `edu` não
+fique no ambiente de um container que não deveria alcançá-la.
 
 O `chatbot-service` estava nessa mesma frase até a fase 2d e **saiu dela**: o
-módulo `support` deu banco a ele, e `back-end/docker-compose.yml:307-308`
+módulo `support` deu banco a ele, e `back-end/docker-compose.yml:246-247`
 preenche `DATABASE_URL` e `DATABASE_URL_TEST` com `chatbot_db` e `chatbot_test`
 — não mais com string vazia. A razão do zeramento continua valendo, e continua
-escrita no próprio compose (`:302-306`): ela agora vale só para o gateway, que
+escrita no próprio compose (`:241-245`): ela agora vale só para o gateway, que
 não fala com banco nenhum.
 
 ---
@@ -92,6 +92,10 @@ Tudo que chega em `/api/<prefixo>/...` é resolvido pelo primeiro segmento do
 path contra o `SERVICE_MAP` de `back-end/api-gateway/app/routing.py`. Prefixo
 não mapeado devolve 404 com uma mensagem explícita do próprio gateway; prefixo
 mapeado é repassado, e aí o 404 (se houver) vem do serviço de destino.
+
+> Todos os módulos foram portados. O monolito foi apagado na spec A
+> (2026-09-07); esta tabela deixou de ser um mapa de migração e passou a ser o
+> índice de qual serviço atende cada prefixo.
 
 | Prefixo | Serviço | Estado hoje |
 |---|---|---|
@@ -105,8 +109,8 @@ mapeado é repassado, e aí o 404 (se houver) vem do serviço de destino.
 | `reviews` | learning-service | OK |
 | `products` | commerce-service | OK — reconciliado com o Flutter na fase 2b |
 | `orders` | commerce-service | OK — ciclo completo, reconciliado na fase 2c |
-| `cart` | commerce-service | OK — portado na fase 2b |
-| `payment-methods` | commerce-service | OK — portado na fase 2b |
+| `cart` | commerce-service | OK — servido por `commerce-service` |
+| `payment-methods` | commerce-service | OK — servido por `commerce-service` |
 | `picking` | commerce-service | OK |
 | `delivery` | commerce-service | OK |
 | `occurrences` | commerce-service | OK |
@@ -114,7 +118,7 @@ mapeado é repassado, e aí o 404 (se houver) vem do serviço de destino.
 | `notifications` | notification-service | OK |
 | `analytics` | analytics-service | OK |
 | `chat` | chatbot-service | OK |
-| `support` | chatbot-service | OK — portado do legacy na fase 2d |
+| `support` | chatbot-service | OK — servido por `chatbot-service` |
 
 ### O que "404" quer dizer aqui
 
@@ -215,8 +219,8 @@ do seu produtor: o analytics-service lê `tema_id`/`dominio_tema` do evento que
 o learning-service publica com esses nomes. Renomear só do lado da resposta
 criaria duas grafias para o mesmo dado.
 
-Isso vira dívida na fase 4: quando o Flutter falar com o gateway, todo campo
-que ele consumir precisa estar em inglês. O corte acima **empurra** a tradução
+Isso é dívida aberta hoje: o Flutter já fala com o gateway, e todo campo que
+ele consumir precisa estar em inglês. O corte acima **empurra** a tradução
 para quando existir um cliente que a justifique — não a cancela.
 
 ---
@@ -267,7 +271,6 @@ duas vezes sem erro. Veja a §2.1 de
 Conferindo que subiu:
 
 ```bash
-curl -s localhost:8001/health   # legacy
 curl -s localhost:8100/health   # gateway
 curl -s localhost:8101/health   # ... até 8106
 ```
@@ -330,8 +333,10 @@ dobraram a suíte, e o `commerce-service` sozinho respondeu pela maior parte
 disso (69 → 366). A soma de 706 confere com o total que o portão do bloco D
 mediu rodando as oito suítes de verdade.
 
-A suíte do legacy é separada e continua sendo o critério de aceite da paridade
-da fase 2 — rode com `make back-test`.
+A suíte do legacy foi o critério de aceite da paridade da fase 2. Ela foi
+apagada junto com o monolito na spec A (2026-09-07); o resultado da medição
+contra ela ficou registrado em [`commerce-parity.md`](commerce-parity.md) e
+[`phase-2-debt.md`](phase-2-debt.md).
 
 ---
 
@@ -409,24 +414,19 @@ docker compose -f back-end/docker-compose.yml exec rabbitmq \
 
 ## 9. Portas — por que estas
 
-**O legacy fica onde o `.env` já manda.** A porta host dele é
-`API_PORT_EXTERNAL` do `back-end/.env` (**8001** nesta máquina). O app Flutter
-aponta para essa porta, e a fase 1 inteira foi feita sem tocar nessa variável:
-qualquer mudança ali quebra o app em uso.
+**O stack vive na faixa 81xx.** Gateway em `GATEWAY_PORT_EXTERNAL` (**8100**) e
+os seis serviços fixos em **8101-8106**. A faixa 80xx não estava disponível: a
+8000 pode estar ocupada por outro projeto na mesma máquina, e a colisão
+apareceria como *resultado errado*, não como erro.
 
-**O stack novo vive na faixa 81xx.** Gateway em `GATEWAY_PORT_EXTERNAL`
-(**8100**) e os seis serviços fixos em **8101-8106**. A faixa 80xx não estava
-disponível: a 8001 é do legacy e a 8000 pode estar ocupada por outro projeto na
-mesma máquina. Publicar um serviço novo em 80xx arriscaria colidir — e a
-colisão apareceria como *resultado errado*, não como erro, porque o container
-sobe normalmente e outra aplicação atende.
+**O app fala com o gateway.** `api_config.dart:33` aponta para 8100 desde o
+commit `7c6eb6a` (2026-08-05) — antes, portanto, do corte. A spec A apagou o
+monolito e removeu `migrate`, `api` e `worker` do compose; `API_PORT_EXTERNAL`
+deixou de ter uso.
 
-**O que muda na fase 4.** No desligamento, o Flutter passa a falar com o
-gateway, o `back-end/legacy/` é removido e a porta que o app usa deixa de
-apontar para o monolito. As portas 8101-8106 podem então deixar de ser
-publicadas: só o gateway precisa ser alcançável de fora, e os serviços passam a
-ser acessíveis apenas pela rede interna do compose, que já é como o gateway
-fala com eles hoje (`http://<serviço>:8000`).
+As portas 8101-8106 continuam publicadas para o host. Despublicá-las é ganho de
+produção — que este projeto não tem — e atrapalharia a depuração das specs B, C
+e D. Fica registrado como possível faxina futura, não como pendência.
 
 ---
 
@@ -458,22 +458,10 @@ Regras:
 
 ## 11. Armadilhas conhecidas
 
-Seis coisas que mordem e não são óbvias. Duas delas chegaram com a fase
+Cinco coisas que mordem e não são óbvias. Duas delas chegaram com a fase
 2d e valem para **quem já tinha o repositório ou as imagens**, não para um
 clone limpo — por isso passam despercebidas em CI e mordem só na máquina de
 quem estava trabalhando aqui antes.
-
-### `make back-down` derruba a infra debaixo dos serviços novos
-
-`back-down` roda o compose do legacy, que declara o **mesmo projeto** (`edu`) e
-os mesmos `container_name` da infra compartilhada. Ele para `postgres`, `redis`,
-`rabbitmq`, `minio`, `api`, `worker` e `migrate` — mas **não** para os sete
-containers novos, porque eles não estão declarados naquele arquivo. Resultado:
-gateway e serviços continuam de pé sem banco, sem broker e sem cache.
-
-Isso é inerente ao desenho de infra única e não é bug. Com o stack unificado no
-ar, use **`make stack-down`**. Se derrubou sem querer, `make stack-up` traz
-tudo de volta.
 
 ### `make stack-up` num volume existente não cria os bancos
 
@@ -482,11 +470,11 @@ existe — o caso de qualquer máquina que já rodava o legacy — os bancos por
 serviço e as migrations não aparecem sozinhos. Rode `make services-dbs` e
 `make services-migrate` depois do `stack-up`. Veja a §5.
 
-Detalhe relacionado: o compose unificado monta o `initdb.d` **script a script**,
-não a pasta inteira (não dá para montar duas pastas no mesmo destino). Um script
-novo em qualquer um dos dois `initdb.d` vira um no-op silencioso aqui, ainda que
-funcione no compose do legacy. Ao acrescentar um script, acrescente também a
-linha de mount.
+Detalhe relacionado: o compose monta o `initdb.d` **script a script**, não a
+pasta inteira (não dá para montar duas pastas no mesmo destino, e o compose do
+legacy que exigia isso não existe mais desde a spec A). Um script novo em
+`./postgres/initdb.d/` vira um no-op silencioso aqui até que a linha de mount
+dele seja acrescentada.
 
 ### `JWT_SECRET` ausente trava até o `down`
 
@@ -549,7 +537,7 @@ DATABASE_URL=postgresql+asyncpg://edu:edu@localhost:5433/chatbot_db
 ```
 
 `DATABASE_URL_TEST` não precisa: tem default apontando para `chatbot_test`.
-**O caminho do compose não é afetado** — lá o `docker-compose.yml:307-308`
+**O caminho do compose não é afetado** — lá o `docker-compose.yml:246-247`
 injeta as duas por `environment`, e o `.env` do diretório do serviço nem é
 lido. Vale a mesma regra para qualquer fase futura: variável obrigatória nova
 significa que todo `.env` que já existe na máquina de alguém está incompleto, e
@@ -614,7 +602,10 @@ argumentos certos e nunca vê o erro.
 |---|---|
 | **2** | Paridade do commerce: `products` com reviews e imagem, `cart`, `orders`, `payment-methods` e `tracking` portados do legacy; `support` para o chatbot-service; PKs UUID; o estado `CONFIRMADO`; reconciliação de contrato campo a campo |
 | **3** | E-mail real e rate limit no reset de senha; push FCM; Celery + Redis com primitivas atômicas; painel SQLAdmin; upload de imagem; idempotência dos consumidores de evento |
-| **4** | Flutter apontando para o gateway; remoção de `back-end/legacy/`; tradução dos campos de schema que passarem a ter cliente |
+| **4** (spec A, 2026-09-07) | Feito: Flutter apontando para o gateway e remoção de `back-end/legacy/`. Em aberto: tradução dos campos de schema que passarem a ter cliente (§4) |
 
-Até a fase 4, `back-end/legacy/` é **referência viva**: as suítes dele são a
-especificação executável da paridade que o commerce-service precisa reproduzir.
+Até a spec A (2026-09-07), `back-end/legacy/` foi **referência viva**: as
+suítes dele foram a especificação executável da paridade que o
+commerce-service precisou reproduzir. A spec A apagou o diretório; o resultado
+da comparação ficou registrado em [`commerce-parity.md`](commerce-parity.md) e
+[`phase-2-debt.md`](phase-2-debt.md).

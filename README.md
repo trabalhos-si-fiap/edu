@@ -52,14 +52,14 @@ Docs detalhados: [front-end-flutter/README.md](front-end-flutter/README.md)
 
 ### Backend (`back-end/`)
 
-API em **Python 3.12** com **FastAPI** (async), servida pelo **Granian**. A pasta abriga hoje **dois stacks lado a lado**: o monolito modular que serve o app, em `back-end/legacy/`, e os sete microservicos que vao substitui-lo.
+API em **Python 3.12** com **FastAPI** (async), servida pelo **Granian**,
+organizada em **sete microservicos** atras de um API gateway. O monolito
+modular que os precedeu, em `back-end/legacy/`, foi apagado na spec A
+(2026-09-07) — veja [docs/back-end/start-here.md](docs/back-end/start-here.md)
+para o registro historico.
 
 ```
 back-end/
-├── legacy/              # Monolito modular — backend de producao do app hoje
-│   ├── app/             # core/, bff/, modules/, main.py
-│   ├── alembic/
-│   └── tests/
 ├── packages/edu-common/ # JWT/auth + publisher/consumer RabbitMQ
 ├── api-gateway/         # Proxy por prefixo de path
 ├── auth-users-service/  # Auth, users, addresses, reset de senha
@@ -68,7 +68,7 @@ back-end/
 ├── chatbot-service/     # RAG (FAISS + Groq)
 ├── notification-service/# Notificacoes in-app + device tokens
 ├── analytics-service/   # Event log, metricas, anomalias
-└── docker-compose.yml   # Infra compartilhada + os dois stacks
+└── docker-compose.yml   # Infra compartilhada + os sete servicos
 ```
 
 **Infra**: PostgreSQL (banco), Redis (cache/locks), RabbitMQ (mensageria), Celery (tasks async), MinIO (object storage).
@@ -107,7 +107,7 @@ cd estuda_app
 # Copiar variaveis de ambiente
 cp back-end/.env.example back-end/.env
 
-# Subir toda a stack (infra + legacy + os 7 microservicos)
+# Subir toda a stack (infra + os 7 microservicos)
 make stack-up
 
 # Criar os bancos por servico e aplicar as migracoes
@@ -118,14 +118,10 @@ make services-migrate
 make stack-logs SVC=api-gateway
 ```
 
-A API do monolito, que e a que o app consome, fica em `http://localhost:8001`
-(porta `API_PORT_EXTERNAL` do `back-end/.env`). O gateway dos microservicos
-fica em `http://localhost:8100` e os servicos em 8101-8106 — veja
+A API que o app consome fica no gateway, em `http://localhost:8100` (porta
+`GATEWAY_PORT_EXTERNAL` do `back-end/.env`); os seis servicos de dominio
+ficam em 8101-8106 — veja
 [docs/back-end/microservices.md](docs/back-end/microservices.md).
-
-> Para mexer so no monolito, `make back-up` sobe a stack antiga sozinha. Nao
-> misture com `make stack-up`: os dois compartilham infra, e `make back-down`
-> derruba o Postgres/Redis/RabbitMQ debaixo dos servicos novos.
 
 ### 3. Setup do Frontend
 
@@ -144,10 +140,6 @@ make front-linux        # Linux desktop
 ### 4. Verificar tudo
 
 ```bash
-# Backend — monolito
-make back-test          # testes
-make back-lint          # linter
-
 # Backend — microservicos
 make services-test      # suite dos 8 projetos
 make services-lint      # ruff em cada projeto
@@ -178,27 +170,13 @@ Rode `make help` para ver todos. Resumo:
 
 | Comando | Descricao |
 |---------|-----------|
-| `make back-up` | Sobe a stack (postgres, redis, rabbitmq, api, worker) |
-| `make back-down` | Para a stack |
-| `make back-logs` | Logs da API (use `SVC=worker` para o worker) |
-| `make back-test` | Roda testes |
-| `make back-lint` | Roda ruff check |
-| `make back-format` | Roda ruff format |
-| `make back-migrate` | Aplica migracoes Alembic |
-| `make back-revision` | Cria nova migracao (`M="descricao"`) |
-| `make back-sh` | Shell dentro do container da API |
-| `make back-sync` | Sync deps no host (para IDE) |
-
-### Microservicos
-
-| Comando | Descricao |
-|---------|-----------|
-| `make stack-up` | Sobe o stack inteiro (legacy + microservicos) |
+| `make stack-up` | Sobe o stack inteiro (infra + microservicos) |
 | `make stack-down` | Para o stack inteiro |
 | `make stack-logs` | Logs de um servico (`SVC=analytics-service`) |
 | `make services-dbs` | Cria os bancos por servico num volume existente |
 | `make services-migrate` | Aplica as migracoes de cada servico com banco |
 | `make services-seed` | Popula o catalogo do commerce (nunca executado — veja `docs/back-end/phase-2-debt.md`) |
+| `make services-seed-demo` | Semeia as quatro contas de demonstracao (exige `DEMO_ACCOUNTS_PASSWORD`) |
 | `make services-env` | Cria cada `.env` a partir do `.env.example` (obrigatorio num clone limpo) |
 | `make services-test` | Roda a suite dos 8 projetos |
 | `make services-lint` | Roda ruff em cada projeto |
@@ -213,8 +191,7 @@ Portas publicadas no host. A porta interna de todo container de API e 8000.
 | Camada | Tecnologia | Porta |
 |--------|-----------|-------|
 | App mobile | Flutter/Dart | - |
-| API do monolito (legacy) | FastAPI + Granian | 8001 |
-| API Gateway | FastAPI | 8100 |
+| API Gateway | FastAPI + Granian | 8100 |
 | Microservicos (6) | FastAPI | 8101-8106 |
 | Banco de dados | PostgreSQL 17 | 5433 |
 | Cache / Locks | Redis 8 | 6380 |
@@ -233,12 +210,7 @@ estuda_app/
 │   ├── assets/              # Imagens
 │   ├── docs/                # Docs do frontend
 │   └── pubspec.yaml
-├── back-end/                # Backend Python (dois stacks lado a lado)
-│   ├── legacy/              # Monolito modular — serve o app hoje
-│   │   ├── app/             # Codigo da aplicacao
-│   │   ├── alembic/         # Migracoes de banco
-│   │   ├── tests/           # Testes
-│   │   └── pyproject.toml
+├── back-end/                # Backend Python (sete microservicos)
 │   ├── packages/edu-common/ # JWT/auth + eventos RabbitMQ
 │   ├── api-gateway/         # Proxy por prefixo de path
 │   ├── auth-users-service/  # Um projeto uv por servico:
@@ -247,7 +219,7 @@ estuda_app/
 │   ├── chatbot-service/
 │   ├── notification-service/
 │   ├── analytics-service/
-│   ├── docker-compose.yml   # Infra compartilhada + os dois stacks
+│   ├── docker-compose.yml   # Infra compartilhada + os sete servicos
 │   └── .env.example         # Contrato de variaveis (o .env nunca vai pro git)
 ├── Makefile                 # Comandos centralizados
 ├── CLAUDE.md                # Guidelines para AI/dev

@@ -30,17 +30,15 @@ flutter pub get          # baixa as dependências do pubspec
 O app precisa da API rodando. Na raiz do repositório:
 
 ```bash
-make back-up             # sobe postgres, redis, rabbitmq, api, worker
-make back-migrate        # aplica as migrações do banco (primeira vez)
-make back-seed           # (opcional) popula o catálogo de produtos
+make stack-up            # sobe infra + os 7 microserviços
+make services-dbs        # cria os bancos por serviço (volume existente)
+make services-migrate    # aplica as migrações de cada serviço
 ```
 
-A API fica publicada na porta `API_PORT_EXTERNAL` do `back-end/.env` — hoje
-**8001** (`http://localhost:8001`). Confira os logs com `make back-logs`.
-
-> O app continua falando com o monolito. O stack de microserviços sobe ao lado
-> dele (`make stack-up`, gateway em `:8100`) e ainda não serve o app — veja
-> [microservices.md](../docs/back-end/microservices.md).
+A API fica publicada no gateway, na porta `GATEWAY_PORT_EXTERNAL` do
+`back-end/.env` — hoje **8100** (`http://localhost:8100`). Confira os logs com
+`make stack-logs SVC=api-gateway`. Detalhes da arquitetura de microsserviços:
+[microservices.md](../docs/back-end/microservices.md).
 
 ### 3. Configure o Firebase
 
@@ -63,29 +61,29 @@ lendo a porta do `back-end/.env`:
 
 | Plataforma | API_BASE_URL | Comando |
 |---|---|---|
-| **Emulador Android** | `http://10.0.2.2:8001/api` | `make front` ou `flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8001/api` |
-| **Simulador iOS** | `http://localhost:8001/api` | `flutter run -d <sim> --dart-define=API_BASE_URL=http://localhost:8001/api` |
-| **Dispositivo físico (Wi-Fi)** | `http://SEU_IP_LAN:8001/api` | `make front` (auto-detecta o IP da LAN) |
-| **Dispositivo USB (Android)** | `http://localhost:8001/api` via `adb reverse` | `make front-device` |
-| **Chrome / Web** | `http://localhost:8001/api` | `flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:8001/api` |
-| **Desktop (macOS/Linux)** | `http://localhost:8001/api` | `flutter run -d macos` / `make front-linux` |
+| **Emulador Android** | `http://10.0.2.2:8100/api` | `make front` ou `flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8100/api` |
+| **Simulador iOS** | `http://localhost:8100/api` | `flutter run -d <sim> --dart-define=API_BASE_URL=http://localhost:8100/api` |
+| **Dispositivo físico (Wi-Fi)** | `http://SEU_IP_LAN:8100/api` | `make front` (auto-detecta o IP da LAN) |
+| **Dispositivo USB (Android)** | `http://localhost:8100/api` via `adb reverse` | `make front-device` |
+| **Chrome / Web** | `http://localhost:8100/api` | `flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:8100/api` |
+| **Desktop (macOS/Linux)** | `http://localhost:8100/api` | `flutter run -d macos` / `make front-linux` |
 
 > O default embutido no `ApiConfig.baseUrl`
 > ([api_config.dart](lib/core/network/api_config.dart)) é
-> `http://10.0.2.2:8001/api` — o alias do **emulador Android** para o host, na
+> `http://10.0.2.2:8100/api` — o alias do **emulador Android** para o host, na
 > porta certa. Um `flutter run` sem `--dart-define` só funciona nesse alvo; em
 > qualquer outro passe o `--dart-define` da tabela acima ou use `make front`,
 > que monta a URL sozinho.
 >
-> A porta tem que bater com a `API_PORT_EXTERNAL` do `back-end/.env` — **8001**
-> nesta máquina. Guia detalhado de iOS (simulador, device, troubleshooting):
-> [running_ios.md](../docs/front-end/running_ios.md).
+> A porta tem que bater com a `GATEWAY_PORT_EXTERNAL` do `back-end/.env` —
+> **8100** nesta máquina. Guia detalhado de iOS (simulador, device,
+> troubleshooting): [running_ios.md](../docs/front-end/running_ios.md).
 
 #### Atalhos do Makefile (raiz do projeto)
 
 ```bash
 make front            # roda em device/emulador (auto-detecta IP da LAN p/ Wi-Fi)
-make front-device     # roda em celular USB (adb reverse → localhost:8001)
+make front-device     # roda em celular USB (adb reverse → localhost:8100)
 make front-web        # roda no Chrome
 make front-linux      # roda no Linux desktop
 make front-devices    # lista devices/emuladores disponíveis
@@ -101,7 +99,7 @@ e `flutter run -d <id>` seleciona um.
 
 | Sintoma | Causa | Correção |
 |---|---|---|
-| "Não foi possível conectar ao servidor" no login/cadastro | `API_BASE_URL` errado para a plataforma | Use a tabela acima; confirme `make back-up` |
+| "Não foi possível conectar ao servidor" no login/cadastro | `API_BASE_URL` errado para a plataforma | Use a tabela acima; confirme `make stack-up` |
 | App não abre a Home após login | (corrigido) push token bloqueava a navegação | `syncToken()` é best-effort — veja [messaging_service.dart](lib/features/notifications/data/messaging_service.dart) |
 | Erro de build: `firebase_options.dart` não encontrado | Firebase não configurado | Rode `flutterfire configure` — [firebase_setup.md](../docs/front-end/firebase_setup.md) |
 | `APNS token has not been received` (iOS) | Simulador iOS não tem APNS | Esperado e ignorado; use device físico para push real |

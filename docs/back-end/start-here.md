@@ -1,15 +1,12 @@
 # Start Here — Back-end Edu
 
-> **Nota:** este documento descreve o monolito modular, que vive em
-> `back-end/legacy/` e continua servindo o app na porta definida por
-> `API_PORT_EXTERNAL` no `back-end/.env`. A arquitetura
-> de microserviços que vai substituí-lo está em
-> [microservices.md](microservices.md). A migração está descrita em
-> `docs/superpowers/specs/2026-08-02-microservices-migration-design.md`.
+> **Documento histórico.** Descreve o monolito `back-end/legacy/`, apagado na
+> spec A (2026-09-07). Nada aqui descreve o sistema em funcionamento. Para a
+> arquitetura atual, veja [`microservices.md`](microservices.md).
 >
-> Os caminhos citados abaixo são relativos a `back-end/legacy/`: onde se lê
-> `app/modules/...`, o caminho completo no repositório é
-> `back-end/legacy/app/modules/...`.
+> Fica no repositório porque a spec B porta regras de negócio usando o
+> comportamento do monolito como referência, e porque é registro acadêmico da
+> evolução do projeto.
 
 Guia de onboarding do back-end do **Edu - Estuda App**. Leia inteiro antes de escrever código; a arquitetura tem uma restrição central (preparar para virar microserviços) que condiciona quase todas as decisões.
 

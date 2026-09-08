@@ -2,7 +2,7 @@
 
 Documento do **portão** da fase 2b: mede se o `commerce-service` é réplica do
 monolito (`back-end/legacy/`) nas rotas de catálogo, reviews, carrinho e formas
-de pagamento, para que a fase 4 seja uma troca de `API_BASE_URL` no app
+de pagamento, para que a fase 4 fosse uma troca de `API_BASE_URL` no app
 Flutter.
 
 As seções 1 a 8 são o portão do **bloco B**. A **§9 é o portão do bloco C**
@@ -240,10 +240,10 @@ a mesma exceção no mesmo 404 `"Product not found"`
 (`legacy/app/modules/products/routes.py:130-131` × `app/routers/produtos.py`),
 comparados **por leitura**. Nenhum código de produção foi alterado.
 
-Uma diferença real nessa mesma rota, que a leitura expôs e que a fase 4 precisa
-saber: o POST do commerce chama `get_me` no auth-service **antes** de tocar o
-banco, então ele tem um **503** que o legacy não consegue produzir. O 404 é
-idêntico; o caminho de falha do auth não é.
+Uma diferença real nessa mesma rota, que a leitura expôs e que a fase 4
+precisou saber: o POST do commerce chama `get_me` no auth-service **antes** de
+tocar o banco, então ele tem um **503** que o legacy não consegue produzir.
+O 404 é idêntico; o caminho de falha do auth não é.
 
 ---
 
