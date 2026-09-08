@@ -4,9 +4,10 @@ App mobile educacional construido com Flutter, parte do ecossistema Edu IA.
 
 ## Como Rodar
 
-Resumo: **(1)** instale o toolchain, **(2)** suba o backend, **(3)** gere a
-config do Firebase, **(4)** rode o app apontando o `API_BASE_URL` certo para a
-sua plataforma. Os passos abaixo detalham cada um.
+Resumo: **(1)** instale o toolchain, **(2)** suba o backend, **(3)** rode o
+app apontando o `API_BASE_URL` certo para a sua plataforma. Os passos abaixo
+detalham cada um. Não há passo de configuração de credenciais: a spec A tirou
+o Firebase do app, então o projeto compila de um clone limpo.
 
 ### 1. Pré-requisitos
 
@@ -14,7 +15,6 @@ sua plataforma. Os passos abaixo detalham cada um.
 |---|---|---|
 | **Flutter SDK** | Build do app (todas as plataformas) | <https://flutter.dev/setup> — depois rode `flutter doctor` |
 | **Docker + Docker Compose** | Backend local (API, Postgres, Redis, RabbitMQ) | <https://docs.docker.com/get-docker/> |
-| **Firebase/FlutterFire CLI** | Notificações push (FCM) | Veja [firebase_setup.md](../docs/front-end/firebase_setup.md) |
 | Xcode + CocoaPods | Rodar no **iOS/macOS** (apenas macOS) | `xcode-select --install`; `sudo gem install cocoapods` |
 | Android SDK / Android Studio | Rodar no **Android** | Vem com o Android Studio; `flutter doctor` valida |
 
@@ -40,20 +40,7 @@ A API fica publicada no gateway, na porta `GATEWAY_PORT_EXTERNAL` do
 `make stack-logs SVC=api-gateway`. Detalhes da arquitetura de microsserviços:
 [microservices.md](../docs/back-end/microservices.md).
 
-### 3. Configure o Firebase
-
-A config do Firebase (com API keys) **não é versionada** — gere a sua antes do
-primeiro run. Resumo:
-
-```bash
-cd front-end-flutter
-flutterfire configure --platforms=android,ios,macos
-```
-
-Passo a passo completo, alternativa manual e templates `*.example` em
-[firebase_setup.md](../docs/front-end/firebase_setup.md).
-
-### 4. Rode o app
+### 3. Rode o app
 
 ⚠️ **O endereço da API muda por plataforma.** Passe o endereço certo via
 `--dart-define=API_BASE_URL=...`, ou use `make front`, que monta a URL sozinho
@@ -100,9 +87,6 @@ e `flutter run -d <id>` seleciona um.
 | Sintoma | Causa | Correção |
 |---|---|---|
 | "Não foi possível conectar ao servidor" no login/cadastro | `API_BASE_URL` errado para a plataforma | Use a tabela acima; confirme `make stack-up` |
-| App não abre a Home após login | (corrigido) push token bloqueava a navegação | `syncToken()` é best-effort — veja [messaging_service.dart](lib/features/notifications/data/messaging_service.dart) |
-| Erro de build: `firebase_options.dart` não encontrado | Firebase não configurado | Rode `flutterfire configure` — [firebase_setup.md](../docs/front-end/firebase_setup.md) |
-| `APNS token has not been received` (iOS) | Simulador iOS não tem APNS | Esperado e ignorado; use device físico para push real |
 | Erros de CocoaPods (iOS/macOS) | CocoaPods ausente/desatualizado | `sudo gem install cocoapods`; `cd ios && pod install` |
 
 ## Estrutura do Projeto
@@ -136,8 +120,7 @@ lib/
 │   │       └── order_picking_screen.dart       # Separacao de pedido na rota
 │   ├── notifications/
 │   │   ├── data/
-│   │   │   ├── messaging_service.dart   # Ciclo FCM: permissao, token, foreground
-│   │   │   └── notifications_api.dart   # Registro de device + GET /notifications
+│   │   │   └── notifications_api.dart   # GET /notifications (as do aluno)
 │   │   ├── domain/
 │   │   │   └── notification_model.dart  # Modelo da notificacao
 │   │   └── presentation/
@@ -234,7 +217,6 @@ Navegacao via `Navigator` com rotas nomeadas definidas em `main.dart`:
 - [Arquitetura e Guidelines](../docs/front-end/archtecture.md) -- Padroes de codigo, arquitetura feature-first, convencoes
 - [Guia de Estilo Visual](../docs/front-end/visual_guide.md) -- Padroes de UI, componentes reutilizaveis, layout
 - [Modulo Marketplace](../docs/front-end/marketplace.md) -- Loja, produto, carrinho e pagamento (modelos, stores, telas)
-- [Setup do Firebase](../docs/front-end/firebase_setup.md) -- Config do FCM, templates `*.example`, chaves fora do git
 - [Rodando no iOS](../docs/front-end/running_ios.md) -- Simulador/device, `API_BASE_URL` por plataforma, troubleshooting
 
 ## Dependencias

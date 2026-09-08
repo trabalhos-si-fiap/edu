@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../core/theme/app_colors.dart';
-import '../../notifications/data/messaging_service.dart';
 import '../data/auth_api.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -73,9 +72,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
         educationLevel: _selectedEducation!,
         password: _passwordController.text,
       );
-      // A JWT now exists; register this device for push notifications.
-      // Best-effort: never block navigation on it.
-      await MessagingService().syncToken();
       if (!mounted) return;
       Navigator.pushReplacementNamed(
         context,

@@ -18,9 +18,14 @@ class NotificationsException implements Exception {
   String toString() => message;
 }
 
-/// Client for the notifications backend: registering/unregistering this
-/// device's FCM token (best-effort, requires a stored access token) and
-/// fetching the user's notification history.
+/// Client for the notifications backend: fetching the user's notification
+/// history, and registering/unregistering a device token.
+///
+/// `registerDevice`/`unregisterDevice` ficaram **sem chamador** na spec A,
+/// que tirou o Firebase do app — não há mais de onde tirar um token FCM. Os
+/// dois endpoints continuam de pé e testados no `notification-service`, e os
+/// métodos ficam aqui porque a spec C, ao ligar push de verdade, precisa
+/// exatamente deles. Apagá-los agora seria reescrevê-los depois.
 class NotificationsApi {
   NotificationsApi({http.Client? client, TokenStore? tokenStore})
     : _client = client ?? appAuthClient,

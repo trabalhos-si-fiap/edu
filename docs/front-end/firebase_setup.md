@@ -1,6 +1,24 @@
 # Firebase Setup (Flutter)
 
-O app usa **Firebase Cloud Messaging (FCM)** para notificações push. A
+> **Documento histórico.** A spec A (2026-09-08) removeu o Firebase do app:
+> as dependências `firebase_core` e `firebase_messaging`, o
+> `MessagingService`, o plugin Gradle `com.google.gms.google-services` e os
+> templates `*.example`. **Nada aqui é necessário para compilar ou rodar o
+> app**, e um clone limpo não precisa de nenhuma credencial.
+>
+> O motivo não foi o cliente e sim o servidor: quem *enviava* o push era o
+> monolito (`app/core/firebase.py` mais uma task Celery), apagado na mesma
+> spec. O `notification-service` que sobreviveu apenas **guarda** o token do
+> dispositivo — `device_token.py:11-14` diz isso em texto — então o app pedia
+> permissão e registrava um token para o qual nada nunca enviava. O que o
+> aluno vê continua vindo de `GET /notifications`, lido do Postgres.
+>
+> Fica no repositório porque a spec C planeja ligar push de verdade, e este
+> é o registro de como o lado do cliente estava montado. O projeto Firebase
+> `edu-ia-29080` continua existindo; `flutterfire configure` regenera a
+> configuração quando for a hora.
+
+O app usava **Firebase Cloud Messaging (FCM)** para notificações push. A
 configuração do Firebase é **por projeto** e contém API keys, então os arquivos
 gerados **não são versionados** — cada desenvolvedor/ambiente gera os seus a
 partir do seu próprio projeto Firebase.

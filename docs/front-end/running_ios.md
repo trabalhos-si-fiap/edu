@@ -1,7 +1,7 @@
 # Rodando o app no iOS (simulador e dispositivo)
 
-Guia para rodar o frontend Flutter no iOS. Para a configuração do Firebase
-(necessária antes do primeiro run), veja [firebase_setup.md](firebase_setup.md).
+Guia para rodar o frontend Flutter no iOS. Não há credencial a configurar
+antes do primeiro run: a spec A tirou o Firebase do app.
 
 ## Pré-requisitos
 
@@ -11,7 +11,6 @@ Guia para rodar o frontend Flutter no iOS. Para a configuração do Firebase
 - **Flutter** no PATH (`flutter doctor` deve passar em icons toolchain e Xcode).
 - Backend rodando localmente (`make stack-up`) — veja
   [back-end/microservices](../back-end/microservices.md).
-- Config do Firebase gerada — veja [firebase_setup.md](firebase_setup.md).
 
 ## A pegadinha do endereço da API
 
@@ -79,7 +78,7 @@ Descubra seu IP da LAN com `ipconfig getifaddr en0`. O gateway já escuta em
 O simulador iOS **não recebe token APNS**, então o registro de push é pulado
 (você verá `MessagingService.syncToken skipped: ...` no log) — isso é esperado
 e **não impede** login/cadastro nem a navegação. Para testar push real, use um
-dispositivo físico (veja [firebase_setup.md](firebase_setup.md)).
+dispositivo físico.
 
 ## Troubleshooting
 
@@ -88,5 +87,4 @@ dispositivo físico (veja [firebase_setup.md](firebase_setup.md)).
 | "Não foi possível conectar ao servidor" no login/cadastro | API_BASE_URL errado (porta/host) | Use `--dart-define=API_BASE_URL=http://localhost:8100/api` e confira `make stack-up` |
 | App trava após login (não abre a Home) | exceção não tratada no pós-login | Já corrigido: `syncToken()` é best-effort. Veja [messaging_service.dart](../../front-end-flutter/lib/features/notifications/data/messaging_service.dart) |
 | `APNS token has not been received` | simulador iOS sem APNS | Esperado; ignorado pelo app. Use device físico para push real |
-| Erro de build do Firebase / `firebase_options.dart` não encontrado | config não gerada | Rode `flutterfire configure` — veja [firebase_setup.md](firebase_setup.md) |
 | `CocoaPods not installed` / erros de pod | CocoaPods ausente/desatualizado | `sudo gem install cocoapods` e `cd ios && pod install` |

@@ -5,7 +5,6 @@ import '../../../core/utils/jwt_utils.dart';
 import '../../logistics/presentation/picking_queue_screen.dart';
 import '../../logistics/presentation/delivery_queue_screen.dart';
 import '../../admin/presentation/admin_dashboard_screen.dart';
-import '../../notifications/data/messaging_service.dart';
 import '../data/auth_api.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -66,9 +65,6 @@ class _LoginScreenState extends State<LoginScreen> {
     });
     try {
       await _authApi.login(email: email, password: password);
-      // Now that a JWT exists, register this device for push notifications.
-      // Best-effort: never block navigation on it.
-      await MessagingService().syncToken();
       if (!mounted) return;
       await _redirecionarPorPapel();
     } on AuthException catch (e) {

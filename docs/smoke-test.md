@@ -186,7 +186,7 @@ entrega; cada um é lacuna conhecida com dono.
 
 | Comportamento | Por quê | Dono |
 |---|---|---|
-| Push não chega no celular | O notification-service só guarda o token do dispositivo; não há integração com o Firebase Admin SDK (`device_token.py:11-14`). As notificações existem **na tela do app**, não como push do sistema. | fase 3 |
+| Não existe push no celular | O Firebase saiu do app na spec A, porque quem enviava era o monolito. O `notification-service` só guardava o token (`device_token.py:11-14`) e nada enviava para ele. As notificações existem **na tela do app**, lidas de `GET /notifications`. | spec C |
 | "Esqueci minha senha" não manda e-mail | O OTP é gerado, hasheado e guardado, e a resposta é sempre 200 — mas não existe provedor de e-mail configurado (`auth.py:229-231`). O remetente morreu com o monolito. | não agendado |
 | Sem notificação ao confirmar pagamento, coletar ou entregar | `admin.py` e `entrega.py` não publicam evento nenhum. Só `separacao.py` (fim da separação) e as rotas de ocorrência publicam. | spec C |
 | `order.created` e `order.occurrence_resolved` não geram nada | São publicados, mas nenhuma fila está ligada a essas routing keys. | spec C |

@@ -10,14 +10,11 @@ import 'package:edu_ia/features/order_tracking/presentation/order_tracking_scree
 import 'package:edu_ia/features/quiz/presentation/quiz_screen.dart';
 import 'package:edu_ia/features/quiz/presentation/quiz_subjets_screen.dart';
 import 'package:edu_ia/features/review/presentation/review_screen.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'core/network/app_http.dart';
 import 'core/theme/app_theme.dart';
 import 'features/cart/data/cart_store.dart';
-import 'features/notifications/data/messaging_service.dart';
 import 'features/auth/presentation/login_screen.dart';
 import 'features/auth/presentation/register_screen.dart';
 import 'features/auth/presentation/forgot_password_screen.dart';
@@ -27,7 +24,6 @@ import 'features/profile/presentation/profile_screen.dart';
 import 'features/profile/presentation/addresses_screen.dart';
 import 'features/profile/presentation/address_form_screen.dart';
 import 'features/support/presentation/support_screen.dart';
-import 'firebase_options.dart';
 
 // NOTA: as rotas nomeadas '/logistics', '/logistics-dashboard' e
 // '/logistics-picking' (e as telas LogisticsLoginScreen,
@@ -39,14 +35,14 @@ import 'firebase_options.dart';
 // `_redirecionarPorPapel()` em login_screen.dart. Os três arquivos antigos
 // podem ser deletados do projeto; ver STATUS.md.
 
-Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
-
-  FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+// Sem Firebase: o envio de push morreu junto com o monolito na spec A, e o
+// notification-service que sobreviveu apenas GUARDA o token do dispositivo —
+// nada envia para ele (`device_token.py`). As notificações do aluno chegam por
+// `GET /notifications`, lidas do Postgres pela notifications_screen. Manter a
+// dependência custava a compilação num clone limpo, porque
+// `firebase_options.dart` é git-ignored. A spec C reintroduz push com um
+// backend capaz de enviar.
+void main() {
   runApp(const MyApp());
 }
 
@@ -58,13 +54,6 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  @override
-  void initState() {
-    super.initState();
-    // Permission + foreground display + token-refresh wiring, set up once.
-    MessagingService().init();
-  }
-
   @override
   Widget build(BuildContext context) {
     return MultiProvider(

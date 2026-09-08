@@ -5,8 +5,6 @@ plugins {
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
-    // Firebase (FCM) — must come after the Android/Flutter plugins above.
-    id("com.google.gms.google-services")
 }
 
 // Google Maps SDK key, kept out of git in android/secrets.properties. Injected
@@ -38,7 +36,9 @@ android {
         applicationId = "br.com.fiap.estuda_app"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        // Firebase Cloud Messaging requires at least API 23.
+        // O piso de 23 entrou por exigência do Firebase Cloud Messaging, que
+        // saiu do app na spec A. Fica: baixar o minSdk agora não ganha nada
+        // (API 23 é de 2015) e mexer nele reabre teste em device antigo.
         minSdk = maxOf(23, flutter.minSdkVersion)
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode

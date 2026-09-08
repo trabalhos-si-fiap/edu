@@ -11,7 +11,7 @@ App educacional com Flutter (frontend) e Python + FastAPI (backend em microservi
 | | [docs/front-end/visual_guide.md](docs/front-end/visual_guide.md) | Paleta de cores, componentes, espacamento |
 | | [docs/front-end/marketplace.md](docs/front-end/marketplace.md) | Modulo marketplace: loja, produto, carrinho, pagamento |
 | | [docs/front-end/order_tracking.md](docs/front-end/order_tracking.md) | Modulo order tracking: rastreio, mapa com rota (Google Maps) |
-| | [docs/front-end/firebase_setup.md](docs/front-end/firebase_setup.md) | Setup do Firebase (FCM), templates de config, chaves fora do git |
+| | [docs/front-end/firebase_setup.md](docs/front-end/firebase_setup.md) | Documento histórico: FCM saiu do app na spec A; nenhuma credencial é necessária para compilar |
 | | [docs/front-end/running_ios.md](docs/front-end/running_ios.md) | Rodar no iOS (simulador/device), API_BASE_URL por plataforma |
 | **Entrega** | [docs/smoke-test.md](docs/smoke-test.md) | Roteiro manual de ponta a ponta pelos quatro perfis, com as lacunas conhecidas que nao sao bug |
 | **Backend** | [docs/back-end/microservices.md](docs/back-end/microservices.md) | Arquitetura de microservicos: gateway, servicos, edu-common, como subir e testar |
