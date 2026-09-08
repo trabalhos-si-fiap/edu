@@ -71,7 +71,7 @@ back-end/
 └── docker-compose.yml   # Infra compartilhada + os sete servicos
 ```
 
-**Infra**: PostgreSQL (banco), Redis (cache/locks), RabbitMQ (mensageria), Celery (tasks async), MinIO (object storage).
+**Infra**: PostgreSQL (banco), Redis (cache/locks), RabbitMQ (barramento de eventos), MinIO (object storage).
 
 Detalhes da arquitetura de microservicos: [docs/back-end/microservices.md](docs/back-end/microservices.md).
 
@@ -197,7 +197,6 @@ Portas publicadas no host. A porta interna de todo container de API e 8000.
 | Cache / Locks | Redis 8 | 6380 |
 | Mensageria | RabbitMQ 4 | 5673 (AMQP), 15673 (UI) |
 | Object storage | MinIO | 9000 (API), 9001 (console) |
-| Tasks async | Celery 5 | - |
 
 ---
 

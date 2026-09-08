@@ -33,8 +33,7 @@ App educacional com Flutter (frontend) e Python + FastAPI (backend em microservi
 - **SQLAlchemy 2.x** — ORM (async, estilo 2.0 com `select()`)
 - **Alembic** — migrações de banco
 - **PostgreSQL** — banco de dados principal
-- **Celery** — tarefas assíncronas
-- **RabbitMQ** — message broker para Celery
+- **RabbitMQ** — barramento de eventos para a coreografia entre microservicos
 - **Redis** — cache, rate limiting e locks distribuídos
 
 ### Tooling
