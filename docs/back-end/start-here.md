@@ -7,6 +7,9 @@
 > Fica no repositório porque a spec B porta regras de negócio usando o
 > comportamento do monolito como referência, e porque é registro acadêmico da
 > evolução do projeto.
+>
+> Os caminhos citados abaixo eram relativos a `back-end/legacy/`: onde se lê
+> `app/modules/...`, o caminho completo era `back-end/legacy/app/modules/...`.
 
 Guia de onboarding do back-end do **Edu - Estuda App**. Leia inteiro antes de escrever código; a arquitetura tem uma restrição central (preparar para virar microserviços) que condiciona quase todas as decisões.
 

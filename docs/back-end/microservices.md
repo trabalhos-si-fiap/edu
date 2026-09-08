@@ -155,12 +155,12 @@ prefixo mapeado e vazio. `addresses` é o exemplo vivo disso.
 existia e foi removida pelo commit `42bc7ce` ("refactor(gateway): drop the dead
 addresses entry from SERVICE_MAP"), ancestral do HEAD desta branch:
 `grep -c addresses back-end/api-gateway/app/routing.py` devolve `0`. Ninguém
-serve `/addresses` — tanto o legacy quanto o auth-users-service montam os
-endereços sob **`/auth/addresses`**
-(`APIRouter(prefix="/auth/addresses")`, em
-`back-end/auth-users-service/app/routers/addresses.py:12` e
-`back-end/legacy/app/modules/addresses/routes.py:14`), que roteia pelo prefixo
-`auth`; o app Flutter também chama `/auth/addresses`
+serve `/addresses` — o auth-users-service monta os endereços sob
+**`/auth/addresses`** (`APIRouter(prefix="/auth/addresses")`, em
+`back-end/auth-users-service/app/routers/addresses.py:12`), que roteia pelo
+prefixo `auth`; o legacy fazia o mesmo antes de ser apagado na spec A
+(`app/modules/addresses/routes.py:14` do monolito, caminho que não existe mais
+nesta árvore). O app Flutter também chama `/auth/addresses`
 (`front-end-flutter/lib/features/profile/data/addresses_api.dart:33`).
 Um `/api/addresses/...` que chegue hoje cai no 404 do próprio gateway, e é isso
 que `api-gateway/tests/test_routing.py:49` trava —
@@ -230,7 +230,7 @@ para quando existir um cliente que a justifique — não a cancela.
 Tudo a partir da raiz do repositório.
 
 ```bash
-make stack-up          # sobe infra + legacy + gateway + os 6 serviços
+make stack-up          # sobe infra + gateway + os 6 serviços
 ```
 
 Numa base **já existente** (o caso normal em máquina de dev), os bancos por
@@ -344,8 +344,9 @@ contra ela ficou registrado em [`commerce-parity.md`](commerce-parity.md) e
 
 Pacote compartilhado em `back-end/packages/edu-common`, consumido pelos
 serviços como path dependency editável via `[tool.uv.sources]`. **Não é um uv
-workspace**: o `auth-users-service` fixa uma versão de `bcrypt` incompatível
-com a do legacy, e num workspace o lock é único.
+workspace**: quando o legacy ainda existia, o `auth-users-service` fixava uma
+versão de `bcrypt` incompatível com a dele, e num workspace o lock seria
+único. A decisão não foi revisitada depois do corte.
 
 Ele carrega **só o que é sensível a segurança e a contrato de evento**:
 
@@ -434,10 +435,9 @@ e D. Fica registrado como possível faxina futura, não como pendência.
 
 **Nenhum `.env` vai para o repositório. O `.env.example` é o contrato.**
 
-Existe **um** `.env` para os dois stacks, em `back-end/.env`, ao lado do
-`docker-compose.yml` unificado. Além dele, cada serviço tem o seu próprio
-`.env.example` para quem quiser rodar o serviço direto no host, fora do
-compose.
+Existe **um** `.env`, em `back-end/.env`, ao lado do `docker-compose.yml`.
+Além dele, cada serviço tem o seu próprio `.env.example` para quem quiser
+rodar o serviço direto no host, fora do compose.
 
 ```bash
 cp back-end/.env.example back-end/.env    # e preencha os valores

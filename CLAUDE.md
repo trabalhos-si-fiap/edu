@@ -17,7 +17,7 @@ App educacional com Flutter (frontend) e Python + FastAPI (backend em microservi
 | | [docs/back-end/start-here.md](docs/back-end/start-here.md) | Documento histórico: setup e padrões do monolito, apagado na spec A |
 | | [docs/back-end/password-reset.md](docs/back-end/password-reset.md) | Modulo password reset: OTP por e-mail, adapter de provedor (Resend/console) |
 | | [docs/back-end/demo-accounts.md](docs/back-end/demo-accounts.md) | Contas fixas de apresentação, uma por papel; senha via DEMO_ACCOUNTS_PASSWORD |
-| | [docs/back-end/admin-panel.md](docs/back-end/admin-panel.md) | Painel admin web (SQLAdmin): CRUD dos modelos em /admin, login via auth_users + is_admin |
+| | [docs/back-end/admin-panel.md](docs/back-end/admin-panel.md) | Documento histórico: painel SQLAdmin do monolito, apagado na spec A |
 | | [docs/back-end/commerce-parity.md](docs/back-end/commerce-parity.md) | Paridade commerce-service x legacy: contagem portada, asserções adaptadas, divergências deliberadas, o que falta no corte |
 | | [docs/back-end/phase-2-debt.md](docs/back-end/phase-2-debt.md) | Dívida técnica registrada da fase 2: o que foi adiado de propósito, onde está, e o que morde primeiro no dia do corte |
 
