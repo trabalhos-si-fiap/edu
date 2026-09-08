@@ -151,7 +151,7 @@ back-sync: ## Sync deps on host (for IDE support)
 SERVICES := packages/edu-common api-gateway auth-users-service learning-service commerce-service chatbot-service notification-service analytics-service
 DB_SERVICES := auth-users-service learning-service commerce-service notification-service analytics-service chatbot-service
 
-.PHONY: stack-up stack-down stack-logs services-env services-dbs services-migrate services-seed services-test services-lint services-sync
+.PHONY: stack-up stack-down stack-logs services-env services-dbs services-migrate services-seed services-seed-demo services-test services-lint services-sync
 
 stack-up: ## Start the whole backend stack (legacy + microservices)
 	@echo "→ R2_PUBLIC_ENDPOINT_URL host: $(if $(HOST_IP),$(HOST_IP),10.0.2.2 (emulator fallback — set HOST_IP for physical devices))"
@@ -174,6 +174,12 @@ services-migrate: ## Apply alembic migrations on every service that has a databa
 
 services-seed: ## Seed the commerce catalog (idempotent; downloads photos into MinIO)
 	cd $(BACK_ROOT) && $(COMPOSE) exec -T commerce-service uv run python -m app.seeds.products
+
+services-seed-demo: ## Seed the four demo accounts (needs DEMO_ACCOUNTS_PASSWORD)
+	@test -n "$(DEMO_ACCOUNTS_PASSWORD)" || \
+	  { echo "defina DEMO_ACCOUNTS_PASSWORD antes de rodar"; exit 1; }
+	cd $(BACK_ROOT) && DEMO_ACCOUNTS_PASSWORD='$(DEMO_ACCOUNTS_PASSWORD)' $(COMPOSE) \
+	  exec -T auth-users-service uv run python -m app.seeds.demo_accounts
 
 # Cada serviço lê o .env do próprio diretório quando roda no host (fora do
 # compose, que injeta tudo por environment). Os campos obrigatórios não têm
