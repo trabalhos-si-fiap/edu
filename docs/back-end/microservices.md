@@ -318,7 +318,8 @@ make services-sync                  # uv sync em cada projeto, para o IDE
 Três passos deste corte são do usuário — apagar as filas antigas do
 RabbitMQ, rodar os dois seeds, arquivar o repositório 2 — e a ordem entre os
 dois primeiros é **load-bearing**: invertê-la descarta os dois eventos que o
-seed de demonstração existe para publicar, sem erro visível.
+seed de demonstração existe para publicar, sem erro visível, e também derruba
+`make services-migrate` um passo antes disso.
 
 Numa máquina cujo broker e imagens são anteriores à spec A, a sequência
 completa é:
@@ -327,19 +328,19 @@ completa é:
 make stack-rebuild                                     # 1. reconstrói as sete imagens
 make stack-up                                          # 2. sobe infra + gateway + serviços
 make services-dbs                                      # 3. cria os bancos que faltarem
-make services-migrate                                  # 4. aplica alembic upgrade head
 
-# 5. apague as sete filas antigas — veja a lista completa e o comando na
+# 4. apague as sete filas antigas — veja a lista completa e o comando na
 #    §11, "Uma fila declarada antes da DLX não aceita a nova declaração"
 
 docker compose -f back-end/docker-compose.yml restart \
-  notification-service learning-service analytics-service   # 6. reinicia os três consumidores
+  notification-service learning-service analytics-service   # 5. reinicia os três consumidores
 
+make services-migrate                                  # 6. aplica alembic upgrade head
 make services-seed                                     # 7. catálogo do commerce
 make services-seed-demo DEMO_ACCOUNTS_PASSWORD='...'   # 8. as quatro contas fixas
 ```
 
-**Os passos 5 e 6 têm que vir antes do 8, nessa ordem.**
+**Os passos 4 e 5 têm que vir antes do 6 e do 8, nessa ordem.**
 `notification-service`, `learning-service` e `analytics-service` sobem com
 `start_consumer()` dentro do `lifespan`, sem `except`
 (`notification-service/app/main.py:10-13`,
@@ -347,21 +348,32 @@ make services-seed-demo DEMO_ACCOUNTS_PASSWORD='...'   # 8. as quatro contas fix
 `analytics-service/app/main.py:10-13`): redeclarar uma fila antiga (sem
 `arguments`) com `x-dead-letter-exchange` novo é fatal —
 `PRECONDITION_FAILED - inequivalent arg 'x-dead-letter-exchange'` — e o
-serviço não sobe até a fila ser apagada. `auth-users-service` só **publica**,
-não tem fila: ele sobe mesmo com os três consumidores fora do ar, e `make
+serviço não sobe até a fila ser apagada, entrando em loop de restart
+(`restart: unless-stopped`).
+
+Isso morde o passo 6 antes mesmo de chegar no 8. `DB_SERVICES`
+(`Makefile:86`) lista `learning-service` em **segundo** lugar, e o loop de
+`services-migrate` (`Makefile:107-110`) tem `|| exit 1`: o primeiro `docker
+compose exec` que cai num container em restart loop aborta o alvo inteiro, e
+`commerce-service`, `notification-service`, `analytics-service` e
+`chatbot-service` nunca chegam a ser migrados. O operador vê um erro de
+Docker/Alembic nomeando `learning-service`, sem nada que explique o motivo —
+a mesma classe de falha de ordem confusa que este runbook existe para
+eliminar, só que um passo antes. `auth-users-service` só **publica**, não tem
+fila: ele sobe mesmo com os três consumidores fora do ar, e `make
 services-seed-demo` **roda** normalmente nesse estado.
 
-Se o passo 8 rodar com o 5/6 pendente, `student.created` e `staff.created`
+Se o passo 8 rodar com o 4/5 pendente, `student.created` e `staff.created`
 são publicados e roteiam para as filas antigas (`learning.student_created`,
 `analytics.event_log`), que ninguém está consumindo — apagar essas filas
 depois, para destravar os três serviços, destrói as mensagens que estavam
 nelas. O seed é idempotente (`demo_accounts.py:94-97`): uma segunda passada
 devolve 0 contas criadas e **não republica nada**. Recuperar significa apagar
 à mão as quatro linhas `@demo.edu` de `auth_db.users` e rodar `make
-services-seed-demo` de novo, dessa vez com os passos 5 e 6 já feitos.
+services-seed-demo` de novo, dessa vez com os passos 4 e 5 já feitos.
 
 Um broker que nunca rodou a versão anterior (stack novo, volume novo) não
-tem passo 5/6: as filas já nascem com `x-dead-letter-exchange` e o
+tem passo 4/5: as filas já nascem com `x-dead-letter-exchange` e o
 `PRECONDITION_FAILED` nunca aparece.
 
 ---
