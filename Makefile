@@ -85,9 +85,12 @@ front-test: ## Run Flutter tests
 SERVICES := packages/edu-common api-gateway auth-users-service learning-service commerce-service chatbot-service notification-service analytics-service
 DB_SERVICES := auth-users-service learning-service commerce-service notification-service analytics-service chatbot-service
 
-.PHONY: stack-up stack-down stack-logs services-env services-dbs services-migrate services-seed services-seed-demo services-test services-lint services-sync
+.PHONY: stack-up stack-rebuild stack-down stack-logs services-env services-dbs services-migrate services-seed services-seed-demo services-test services-lint services-sync
 
-stack-up: ## Start the whole backend stack
+stack-rebuild: ## Rebuild every service image (needed after pulling code changes — see docs/back-end/microservices.md §5)
+	cd $(BACK_ROOT) && $(COMPOSE) build
+
+stack-up: ## Start the whole backend stack (run stack-rebuild first if the images may be stale)
 	@echo "→ R2_PUBLIC_ENDPOINT_URL host: $(if $(HOST_IP),$(HOST_IP),10.0.2.2 (emulator fallback — set HOST_IP for physical devices))"
 	cd $(BACK_ROOT) && HOST_IP=$(HOST_IP) $(COMPOSE) up -d
 
