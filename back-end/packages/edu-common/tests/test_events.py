@@ -111,10 +111,19 @@ async def test_consumer_binds_every_routing_key_to_one_queue(fake_aio_pika):
 
     await consumer.bind("analytics.event_log", ["order.created", "order.status_changed"], handler)
 
-    fake_aio_pika.channel.declare_queue.assert_awaited_once_with(
-        "analytics.event_log", durable=True
-    )
-    bound = [call.kwargs["routing_key"] for call in fake_aio_pika.queue.bind.await_args_list]
+    work_queue_calls = [
+        call
+        for call in fake_aio_pika.channel.declare_queue.await_args_list
+        if call.args[0] == "analytics.event_log"
+    ]
+    assert len(work_queue_calls) == 1
+    assert work_queue_calls[0].kwargs["durable"] is True
+
+    bound = [
+        call.kwargs["routing_key"]
+        for call in fake_aio_pika.queue.bind.await_args_list
+        if "routing_key" in call.kwargs
+    ]
     assert bound == ["order.created", "order.status_changed"]
     fake_aio_pika.queue.consume.assert_awaited_once_with(handler)
 
@@ -139,12 +148,22 @@ async def test_consumer_binds_multiple_queues_each_with_a_single_routing_key(fak
     for queue_name, routing_keys in bindings:
         await consumer.bind(queue_name, routing_keys, handler)
 
-    declared_names = [call.args[0] for call in fake_aio_pika.channel.declare_queue.await_args_list]
+    work_queue_names = {"notification.order_created", "notification.order_status_changed"}
+    work_queue_calls = [
+        call
+        for call in fake_aio_pika.channel.declare_queue.await_args_list
+        if call.args[0] in work_queue_names
+    ]
+    declared_names = [call.args[0] for call in work_queue_calls]
     assert declared_names == ["notification.order_created", "notification.order_status_changed"]
-    for call in fake_aio_pika.channel.declare_queue.await_args_list:
+    for call in work_queue_calls:
         assert call.kwargs["durable"] is True
 
-    bound_keys = [call.kwargs["routing_key"] for call in fake_aio_pika.queue.bind.await_args_list]
+    bound_keys = [
+        call.kwargs["routing_key"]
+        for call in fake_aio_pika.queue.bind.await_args_list
+        if "routing_key" in call.kwargs
+    ]
     assert bound_keys == ["order.created", "order.status_changed"]
     assert fake_aio_pika.queue.consume.await_count == 2
 
@@ -157,3 +176,50 @@ async def test_consumer_bind_before_connect_raises(fake_aio_pika):
 
     with pytest.raises(RuntimeError, match="not connected"):
         await consumer.bind("q", ["k"], handler)
+
+
+async def test_consumer_declares_a_durable_fanout_dead_letter_exchange(fake_aio_pika):
+    """Sem DLX declarada, `requeue=False` DESCARTA a mensagem em silêncio.
+
+    Fanout e não topic: a fila morta recebe tudo, venha de qual routing key
+    vier. A chave original sobrevive no header `x-death`, então nada de
+    diagnóstico se perde ao unificar o destino.
+    """
+    consumer = EventConsumer(URL, EXCHANGE)
+    await consumer.connect()
+
+    chamadas = fake_aio_pika.channel.declare_exchange.await_args_list
+    nomes = [c.args[0] for c in chamadas]
+    assert f"{EXCHANGE}.dlx" in nomes, f"DLX não declarada; declaradas: {nomes}"
+
+    dlx = next(c for c in chamadas if c.args[0] == f"{EXCHANGE}.dlx")
+    assert dlx.args[1] == aio_pika.ExchangeType.FANOUT
+    assert dlx.kwargs["durable"] is True
+
+
+async def test_consumer_declares_a_durable_dead_letter_queue(fake_aio_pika):
+    consumer = EventConsumer(URL, EXCHANGE)
+    await consumer.connect()
+
+    chamadas = fake_aio_pika.channel.declare_queue.await_args_list
+    nomes = [c.args[0] for c in chamadas]
+    assert f"{EXCHANGE}.dead" in nomes, f"fila morta não declarada; declaradas: {nomes}"
+
+    morta = next(c for c in chamadas if c.args[0] == f"{EXCHANGE}.dead")
+    assert morta.kwargs["durable"] is True
+
+
+async def test_bound_queues_point_at_the_dead_letter_exchange(fake_aio_pika):
+    """A fila de trabalho precisa APONTAR para a DLX; declarar a DLX sozinha
+    não redireciona nada."""
+    consumer = EventConsumer(URL, EXCHANGE)
+    await consumer.connect()
+    await consumer.bind("notification.order_status_changed", ["order.status_changed"], AsyncMock())
+
+    trabalho = next(
+        c
+        for c in fake_aio_pika.channel.declare_queue.await_args_list
+        if c.args[0] == "notification.order_status_changed"
+    )
+    assert trabalho.kwargs["arguments"] == {"x-dead-letter-exchange": f"{EXCHANGE}.dlx"}
+    assert trabalho.kwargs["durable"] is True

@@ -7,7 +7,7 @@ discutido, e adiado com justificativa. O que estava errado e barato foi
 corrigido na hora e não aparece neste documento.
 
 **Para que serve:** a fase 4 (o corte — apontar o app para o gateway e desligar
-o monolito) precisa saber o que ainda não está pronto. Comece pela seção
+o monolito) precisou saber o que ainda não estava pronto. Comece pela seção
 [§1](#1-o-que-morde-primeiro-no-dia-do-corte): são os sete itens que mudam de
 "incômodo" para "incidente" exatamente no dia em que a frota subir junto pela
 primeira vez.
@@ -55,6 +55,21 @@ Sete itens. Os quatro primeiros têm detalhe nas seções abaixo; o quinto está
 | 6 | [`/support` não tem teto de linhas](#92-o-rabo-de-linhas-sem-teto-em-support) | É o único item do bloco D que **piora com tráfego real**, e o corte é quando o tráfego real chega. |
 | 7 | [Aluno desativado mantém o suporte por até 60 minutos](#93-aluno-desativado-continua-com-acesso-ao-suporte-por-até-60-minutos) | Divergência de comportamento contra o módulo que está sendo substituído, e ela nasce no instante em que o `support` novo entra no ar. |
 
+> **Triagem da spec A (2026-09-07).** O corte aconteceu. Três destes sete
+> foram corrigidos antes dele:
+>
+> - Idempotência do seed — lock consultivo em `seed_products`, com teste de
+>   corrida.
+> - Dead-letter exchange — declarada no `EventConsumer` do `edu-common`, vale
+>   para os sete consumidores.
+> - Título de notificação — passou a usar os 8 primeiros caracteres em
+>   maiúsculas, a mesma regra do `idCurto` do app.
+>
+> Os outros quatro seguem abertos, por decisão e não por esquecimento:
+> `put_object` antes do commit, o deadlock em formas de pagamento, `/support`
+> sem teto de linhas, e o acesso do aluno desativado ao suporte. Nenhum
+> aparece numa demonstração; todos aparecem em produção.
+
 ---
 
 ## 2. Seed do catálogo
@@ -66,8 +81,12 @@ código que nunca rodou fora da suíte.
 
 ### 2.1 A idempotência do seed é read-then-write
 
-**Onde:** `back-end/commerce-service/app/seeds/products.py:262` (a leitura) e
-`:312` (o único `commit()`); `back-end/commerce-service/app/models/produto.py:59`.
+> **Corrigido na spec A:** `pg_advisory_xact_lock` em torno de
+> `seed_products` — ver §1 acima e `microservices.md` §5. O restante desta
+> seção é o registro histórico do problema tal como foi encontrado.
+
+**Onde:** `back-end/commerce-service/app/seeds/products.py:274` (a leitura) e
+`:324` (o único `commit()`); `back-end/commerce-service/app/models/produto.py:59`.
 
 **O que é:** `seed_products` monta um dicionário `existing` com os produtos já
 gravados, decide item a item quem falta, e só então comita. Entre a leitura e a
@@ -879,10 +898,11 @@ virar teste, que é o argumento mais forte a favor dela.
 
 **O que é:** cada um dos quatro blocos da fase 2 produziu a sua própria lista
 de asserções adaptadas e de carve-outs. Ninguém as juntou num inventário só, e
-a fase 4 precisa **de um**, não de quatro — é dela a pergunta "o que exatamente
-o app deixa de ter quando o monolito sair do ar". A revisão do portão do bloco
-D marcou isto como fora do escopo do portão, o que está certo, e não atribuiu
-dono, o que deixa o item órfão.
+a fase 4 precisou **de um**, não de quatro — era dela a pergunta "o que
+exatamente o app deixou de ter quando o monolito saiu do ar". A revisão do
+portão do bloco D marcou isto como fora do escopo do portão, o que está certo,
+e não atribuiu dono, o que deixou o item órfão — e continua órfão depois do
+corte: o inventário consolidado não foi feito em nenhuma task deste plano.
 
 **O que não pode se perder no caminho** — os três carve-outs declarados de fase
 3, hoje registrados na §9.5 do [`commerce-parity.md`](commerce-parity.md):

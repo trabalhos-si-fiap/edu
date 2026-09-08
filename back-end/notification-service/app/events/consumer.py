@@ -19,6 +19,17 @@ NOMES_SUBTEMA_FALLBACK = "seu conteúdo"
 _consumer = EventConsumer(settings.rabbitmq_url, settings.exchange_name)
 
 
+def _id_curto(pedido_id: str) -> str:
+    """Mesma regra do `idCurto` do app (order.dart:146): 8 primeiros
+    caracteres em maiúsculas.
+
+    `pedido_id` virou UUID na fase 2 e os títulos passaram a mostrar 36
+    caracteres hexadecimais. Truncar aqui, com a MESMA regra do cliente,
+    mantém push e tela exibindo o mesmo identificador.
+    """
+    return pedido_id[:8].upper() if len(pedido_id) > 8 else pedido_id.upper()
+
+
 async def handle_revision_scheduled(message: aio_pika.abc.AbstractIncomingMessage) -> None:
     async with message.process():
         payload = json.loads(message.body)
@@ -108,7 +119,7 @@ async def handle_order_status_changed(message: aio_pika.abc.AbstractIncomingMess
             db.add(
                 Notificacao(
                     aluno_id=payload["aluno_id"],
-                    titulo=f"Pedido #{payload['pedido_id']}",
+                    titulo=f"Pedido #{_id_curto(payload['pedido_id'])}",
                     descricao=mensagens.get(pedido_status, f"Status atualizado: {pedido_status}"),
                     tipo="order_status",
                     pedido_id=payload["pedido_id"],
@@ -133,7 +144,7 @@ async def handle_stock_issue(message: aio_pika.abc.AbstractIncomingMessage) -> N
             db.add(
                 Notificacao(
                     aluno_id=payload["aluno_id"],
-                    titulo=f"Pedido #{payload['pedido_id']}: item em falta",
+                    titulo=f"Pedido #{_id_curto(payload['pedido_id'])}: item em falta",
                     descricao=descricao,
                     tipo="order_status",
                     pedido_id=payload["pedido_id"],
@@ -150,7 +161,7 @@ async def handle_delivery_delayed(message: aio_pika.abc.AbstractIncomingMessage)
             db.add(
                 Notificacao(
                     aluno_id=payload["aluno_id"],
-                    titulo=f"Pedido #{payload['pedido_id']}: atraso na entrega",
+                    titulo=f"Pedido #{_id_curto(payload['pedido_id'])}: atraso na entrega",
                     descricao=(
                         f"{payload.get('motivo', 'Houve um imprevisto na entrega')}. "
                         "Toque para aceitar a nova data ou cancelar o pedido."

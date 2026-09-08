@@ -1,5 +1,16 @@
 # Painel Admin Web (SQLAdmin)
 
+> **Documento histórico.** Descreve o painel SQLAdmin do monolito
+> `back-end/legacy/`, apagado na spec A (2026-09-07). Nenhum serviço da frota
+> atual expõe um painel equivalente — a tabela de fases do
+> [`microservices.md`](microservices.md#12-o-que-ainda-não-está-aqui) §12
+> lista "painel SQLAdmin" como trabalho da fase 3, ainda não construído. O que
+> existe hoje sob `/api/admin/*` no `commerce-service`
+> (`app/routers/admin.py`) é uma API JSON com autorização por papel
+> (`requer_papel("admin")`) para um punhado de operações de pedido/estoque —
+> sem UI, sem login por formulário e sem CRUD genérico dos 12 modelos abaixo.
+> Não é o mesmo recurso que este documento descreve.
+
 Painel administrativo web, no estilo do Django admin, para **gerenciar e
 visualizar** os modelos da aplicação a partir do navegador. É uma ferramenta
 interna de operadores — não faz parte do contrato do app mobile.

@@ -1,21 +1,7 @@
 FRONT_DIR = front-end-flutter
 BACK_ROOT = back-end
-BACK_DIR = back-end/legacy
 COMPOSE = docker compose
 ADB = adb
-
-# There is ONE .env for both stacks, at back-end/.env.
-#
-# Compose resolves `env_file:` relative to the compose file, but resolves
-# ${VAR} interpolation from the project directory. The legacy compose lives in
-# back-end/legacy/, so its interpolation looks for back-end/legacy/.env — which
-# does not exist. Without --env-file, ${API_PORT_EXTERNAL:-8001} falls back to
-# its literal default and the project name falls back to `legacy`, which would
-# create a SECOND set of volumes and present an empty database as if the data
-# were gone. Both are pinned in the legacy compose now, but the flag stays:
-# it is what keeps the value coming from the real .env instead of a default.
-# The unified compose in back-end/ needs no flag: the .env is already beside it.
-BACK_ENV_FILE = ../.env
 
 # Resolve the Flutter binary in an environment-agnostic way:
 #   1. honor an explicit override (env var or `make front FLUTTER=/path/to/flutter`)
@@ -31,16 +17,16 @@ FLUTTER ?= $(shell \
 	done)
 FLUTTER := $(or $(FLUTTER),flutter)
 
-# Host port the legacy API is published on — the port the Flutter app talks to.
-# Read from $(BACK_ROOT)/.env (API_PORT_EXTERNAL), which is 8001 both in the
-# working .env and in .env.example. Override with: make front API_PORT=8001
+# Host port the API Gateway is published on — the port the Flutter app talks
+# to. Read from $(BACK_ROOT)/.env (GATEWAY_PORT_EXTERNAL), which is 8100 both
+# in the working .env and in .env.example. Override with: make front API_PORT=8100
 #
 # The literal below is only reached when back-end/.env is missing entirely. It
-# is 8001 to match both composes. Never make it 8000: another project on this
-# machine holds that port, so falling back to it would reach a different
+# is 8100 to match the compose default. Never make it 8000: another project on
+# this machine holds that port, so falling back to it would reach a different
 # backend and return wrong data instead of failing to connect.
-API_PORT := $(shell sed -n 's/^API_PORT_EXTERNAL=//p' $(BACK_ROOT)/.env 2>/dev/null | tr -d '[:space:]')
-API_PORT := $(or $(API_PORT),8001)
+API_PORT := $(shell sed -n 's/^GATEWAY_PORT_EXTERNAL=//p' $(BACK_ROOT)/.env 2>/dev/null | tr -d '[:space:]')
+API_PORT := $(or $(API_PORT),8100)
 
 # Host LAN IP, auto-detected for the current OS (Linux or macOS). Every target
 # on the same Wi-Fi — physical iPhone/Android, iOS simulator, Android emulator,
@@ -91,69 +77,20 @@ front-clean: ## Clean build artifacts
 front-test: ## Run Flutter tests
 	cd $(FRONT_DIR) && $(FLUTTER) test
 
-# ── Backend ───────────────────────────────────────────────
-
-.PHONY: back-up back-down back-logs back-sh back-test back-test-host back-test-e2e back-lint back-format back-migrate back-seed back-revision back-sync
-
-back-up: ## Start backend stack (postgres, redis, rabbitmq, api, worker)
-	@echo "→ R2_PUBLIC_ENDPOINT_URL host: $(if $(HOST_IP),$(HOST_IP),10.0.2.2 (emulator fallback — set HOST_IP for physical devices))"
-	cd $(BACK_DIR) && HOST_IP=$(HOST_IP) $(COMPOSE) --env-file $(BACK_ENV_FILE) up -d
-
-back-down: ## Stop backend stack
-	cd $(BACK_DIR) && $(COMPOSE) --env-file $(BACK_ENV_FILE) down
-
-back-logs: ## Tail backend api logs (use SVC=worker for worker)
-	cd $(BACK_DIR) && $(COMPOSE) --env-file $(BACK_ENV_FILE) logs -f $(or $(SVC),api)
-
-back-sh: ## Open shell inside api container
-	cd $(BACK_DIR) && $(COMPOSE) --env-file $(BACK_ENV_FILE) exec api bash
-
-back-test: ## Run backend unit + integration tests inside the container (excludes e2e)
-	cd $(BACK_DIR) && $(COMPOSE) --env-file $(BACK_ENV_FILE) exec api uv run pytest
-
-back-test-host: ## Run backend tests on the host (points DB/Redis/MinIO at the exposed ports; stack must be up)
-	cd $(BACK_DIR) && \
-		DATABASE_URL_TEST="postgresql+asyncpg://edu:edu@localhost:5433/edu_test" \
-		REDIS_URL_TEST="redis://:edu@localhost:6380/15" \
-		R2_ENDPOINT_URL="http://localhost:9000" \
-		uv run pytest $(ARGS)
-
-back-test-e2e: ## Run e2e tests against the live stack (stack must be up via back-up)
-	cd $(BACK_DIR) && $(COMPOSE) --env-file $(BACK_ENV_FILE) exec -e E2E_BASE_URL=http://localhost:8000 api uv run pytest -m e2e tests/e2e/
-
-back-lint: ## Run ruff check
-	cd $(BACK_DIR) && $(COMPOSE) --env-file $(BACK_ENV_FILE) exec api uv run ruff check .
-
-back-format: ## Run ruff format
-	cd $(BACK_DIR) && $(COMPOSE) --env-file $(BACK_ENV_FILE) exec api uv run ruff format .
-
-back-migrate: ## Apply alembic migrations
-	cd $(BACK_DIR) && $(COMPOSE) --env-file $(BACK_ENV_FILE) exec api uv run alembic upgrade head
-
-back-seed: ## Seed the products catalog (idempotent)
-	cd $(BACK_DIR) && $(COMPOSE) --env-file $(BACK_ENV_FILE) exec api uv run python -m app.seeds.products
-
-back-revision: ## Create new alembic revision (use M="message")
-	cd $(BACK_DIR) && $(COMPOSE) --env-file $(BACK_ENV_FILE) exec api uv run alembic revision --autogenerate -m "$(M)"
-
-back-sync: ## Sync deps on host (for IDE support)
-	cd $(BACK_DIR) && uv sync
-
 # ── Microservices stack ───────────────────────────────────
 #
-# The unified compose in back-end/ starts the legacy stack AND the seven new
-# services against the same Postgres/Redis/RabbitMQ/MinIO, under the same
-# project name, so it reuses the volumes the legacy already has.
-#
-# Host ports: legacy on API_PORT_EXTERNAL (8001 here), gateway on
-# GATEWAY_PORT_EXTERNAL (8100), the six services fixed on 8101-8106.
+# Host ports: gateway on GATEWAY_PORT_EXTERNAL (8100 here), the six services
+# fixed on 8101-8106.
 
 SERVICES := packages/edu-common api-gateway auth-users-service learning-service commerce-service chatbot-service notification-service analytics-service
 DB_SERVICES := auth-users-service learning-service commerce-service notification-service analytics-service chatbot-service
 
-.PHONY: stack-up stack-down stack-logs services-env services-dbs services-migrate services-seed services-test services-lint services-sync
+.PHONY: stack-up stack-rebuild stack-down stack-logs services-env services-dbs services-migrate services-seed services-seed-demo services-test services-lint services-sync
 
-stack-up: ## Start the whole backend stack (legacy + microservices)
+stack-rebuild: ## Rebuild every service image (needed after pulling code changes — see docs/back-end/microservices.md §5)
+	cd $(BACK_ROOT) && $(COMPOSE) build
+
+stack-up: ## Start the whole backend stack (run stack-rebuild first if the images may be stale)
 	@echo "→ R2_PUBLIC_ENDPOINT_URL host: $(if $(HOST_IP),$(HOST_IP),10.0.2.2 (emulator fallback — set HOST_IP for physical devices))"
 	cd $(BACK_ROOT) && HOST_IP=$(HOST_IP) $(COMPOSE) up -d
 
@@ -174,6 +111,13 @@ services-migrate: ## Apply alembic migrations on every service that has a databa
 
 services-seed: ## Seed the commerce catalog (idempotent; downloads photos into MinIO)
 	cd $(BACK_ROOT) && $(COMPOSE) exec -T commerce-service uv run python -m app.seeds.products
+
+services-seed-demo: ## Seed the four demo accounts (needs DEMO_ACCOUNTS_PASSWORD)
+	@test -n "$(DEMO_ACCOUNTS_PASSWORD)" || \
+	  { echo "defina DEMO_ACCOUNTS_PASSWORD antes de rodar"; exit 1; }
+	@cd $(BACK_ROOT) && $(COMPOSE) exec -T \
+	  -e DEMO_ACCOUNTS_PASSWORD='$(DEMO_ACCOUNTS_PASSWORD)' \
+	  auth-users-service uv run python -m app.seeds.demo_accounts
 
 # Cada serviço lê o .env do próprio diretório quando roda no host (fora do
 # compose, que injeta tudo por environment). Os campos obrigatórios não têm

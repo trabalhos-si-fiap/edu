@@ -13,6 +13,10 @@ dependencies = [
     "pydantic-settings>=2.6.0",
     "aio-pika>=9.4.2",
     "loguru>=0.7.2",
+    # app/seeds/demo_accounts.py drives the app's own routes through
+    # ASGITransport at runtime (not just in tests) — same reason
+    # commerce-service's app/seeds/products.py lists it as a main dependency.
+    "httpx>=0.28.0",
 ]
 
 [dependency-groups]
@@ -21,7 +25,6 @@ dev = [
     "pytest-asyncio>=0.25.0",
     "pytest-cov>=6.0.0",
     "ruff>=0.8.0",
-    "httpx>=0.28.0",
 ]
 
 [tool.uv.sources]

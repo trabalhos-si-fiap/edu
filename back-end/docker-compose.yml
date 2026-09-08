@@ -1,24 +1,26 @@
-# Stack completo do backend: infra compartilhada + monolito legacy + os 7
-# serviços novos.
+# Stack completo do backend: infra compartilhada + os 7 serviços novos
+# (gateway + seis serviços de domínio).
 #
-# Este arquivo é um SUPERCONJUNTO ESTRITO de `legacy/docker-compose.yml`:
-# mesmo COMPOSE_PROJECT_NAME (do .env), mesmos nomes de volume e mesmos
-# container_name. É o que faz `make stack-up` reaproveitar o volume de
-# Postgres que o legacy já usa, em vez de criar um segundo e fazer o banco
-# do legacy "sumir".
+# Até a spec A (2026-09-07) este arquivo era um SUPERCONJUNTO ESTRITO de
+# `legacy/docker-compose.yml`: mesmo COMPOSE_PROJECT_NAME (do .env), mesmos
+# nomes de volume e mesmos container_name, para que `make stack-up`
+# reaproveitasse o volume de Postgres que o legacy já usava, em vez de criar
+# um segundo. A spec A apagou `back-end/legacy/` e o compose que vinha com
+# ele; os nomes de volume/projeto ficaram como estavam, sem motivo para mudar.
 #
 # O `.env` é único e fica ao lado deste arquivo, em `back-end/.env`. Aqui
 # `env_file: - .env` e a interpolação de ${VAR} apontam ambos para ele sem
 # nenhum flag extra, porque o project directory é esta pasta.
 #
-# Portas host: legacy em ${API_PORT_EXTERNAL} (8001 nesta máquina), gateway
-# em ${GATEWAY_PORT_EXTERNAL} (8100) e os seis serviços em 8101-8106. A faixa
-# 80xx está ocupada (8000 por outro projeto, 8001 pelo legacy).
+# Portas host: gateway em ${GATEWAY_PORT_EXTERNAL} (8100 nesta máquina) e os
+# seis serviços em 8101-8106. A faixa 80xx tem outros projetos nesta máquina
+# (8000 é de um deles) — nenhum é afetado por este arquivo.
 
 # Bloco comum aos serviços novos. RABBITMQ_URL e as DATABASE_URL* são montadas
 # por interpolação para não hardcodar senha neste arquivo. Cada serviço
-# sobrescreve DATABASE_URL/DATABASE_URL_TEST com o SEU banco — sem isso o valor
-# do legacy vaza do .env compartilhado para dentro do container.
+# sobrescreve DATABASE_URL/DATABASE_URL_TEST com o SEU banco — sem isso o
+# valor do banco `edu` (órfão, herdado do legacy) vaza do .env compartilhado
+# para dentro do container.
 x-service-env: &service-env
   RABBITMQ_URL: amqp://${RABBITMQ_USER:-edu}:${RABBITMQ_PASSWORD:-edu}@rabbitmq:5672/
   EXCHANGE_NAME: ${EXCHANGE_NAME:-edu.events}
@@ -45,10 +47,9 @@ services:
       # pastas no mesmo destino. O prefixo numérico define a ordem.
       #
       # ATENÇÃO: por ser script a script e não pasta inteira, um arquivo novo
-      # em qualquer um dos dois initdb.d NÃO passa a rodar sozinho — ele vira
-      # um no-op silencioso aqui, ainda que funcione no compose do legacy, que
-      # monta a pasta toda. Ao acrescentar um script, acrescente a linha aqui.
-      - ./legacy/postgres/initdb.d/init_test_db.sh:/docker-entrypoint-initdb.d/00-init_test_db.sh:ro
+      # em `./postgres/initdb.d/` NÃO passa a rodar sozinho — ele vira um
+      # no-op silencioso até que a linha de mount dele seja acrescentada aqui.
+      - ./postgres/initdb.d/00-init_test_db.sh:/docker-entrypoint-initdb.d/00-init_test_db.sh:ro
       - ./postgres/initdb.d/10-create-service-databases.sh:/docker-entrypoint-initdb.d/10-create-service-databases.sh:ro
     env_file:
       - .env
@@ -124,70 +125,7 @@ services:
       exit 0;
       "
 
-  # ── Monolito legacy — continua servindo o Flutter ──────────────────────
-  migrate:
-    build: ./legacy
-    command: uv run alembic upgrade head
-    env_file:
-      - .env
-    depends_on:
-      postgres:
-        condition: service_healthy
-    volumes:
-      - ./legacy:/app
-    restart: "no"
-
-  api:
-    build: ./legacy
-    command: granian --interface asgi --host 0.0.0.0 --port 8000 --reload app.main:app
-    env_file:
-      - .env
-    ports:
-      # Mesmo default do compose do legacy: 8001, nunca 8000. A faixa 80xx tem
-      # outros projetos nesta máquina e 8000 já é de um deles — cair nele seria
-      # colisão silenciosa, não erro.
-      - "${API_PORT_EXTERNAL:-8001}:8000"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
-    volumes:
-      - ./legacy:/app
-      # Firebase service account (read-only). Lives at the repo root, outside
-      # the build context, and is git-ignored — never bake it into the image.
-      - ../secrets:/app/secrets:ro
-    environment:
-      FIREBASE_CREDENTIALS_PATH: /app/secrets/edu-ia-29080-firebase-adminsdk-fbsvc-4b9cc9075d.json
-      # Sign presigned image URLs against the host LAN IP so physical devices can
-      # reach MinIO. Built from HOST_IP (exported by `make stack-up`); falls back
-      # to the Android-emulator alias when HOST_IP is unset.
-      R2_PUBLIC_ENDPOINT_URL: "http://${HOST_IP:-10.0.2.2}:9000"
-
-  worker:
-    build: ./legacy
-    command: celery -A app.core.celery_app.celery_app worker --loglevel=info
-    env_file:
-      - .env
-    depends_on:
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
-    volumes:
-      - ./legacy:/app
-      - ../secrets:/app/secrets:ro
-    environment:
-      FIREBASE_CREDENTIALS_PATH: /app/secrets/edu-ia-29080-firebase-adminsdk-fbsvc-4b9cc9075d.json
-      R2_PUBLIC_ENDPOINT_URL: "http://${HOST_IP:-10.0.2.2}:9000"
-
-  # ── Stack novo: gateway + 6 serviços ───────────────────────────────────
+  # ── Gateway + 6 serviços ────────────────────────────────────────────────
   api-gateway:
     build:
       context: .
@@ -198,9 +136,10 @@ services:
     ports:
       - "${GATEWAY_PORT_EXTERNAL:-8100}:8000"
     environment:
-      # O .env compartilhado é o do legacy e define DATABASE_URL apontando para
-      # o banco dele. O gateway não tem banco: zerar evita que a credencial do
-      # legacy fique no ambiente de um container que não deveria alcançá-lo.
+      # O .env compartilhado herdou do legacy um DATABASE_URL apontando para o
+      # banco `edu` (órfão desde a spec A — nenhum serviço novo o usa). O
+      # gateway não tem banco: zerar evita que essa credencial fique no
+      # ambiente de um container que não deveria alcançá-la.
       DATABASE_URL: ""
       DATABASE_URL_TEST: ""
       # As URLs internas usam o hostname do compose e a porta 8000 INTERNA do
@@ -263,16 +202,16 @@ services:
       <<: *service-env
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/commerce_db
       DATABASE_URL_TEST: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/commerce_test
-      # O .env do legacy chama a chave do Maps de GOOGLE_MAPS_API_PLATAFORM; o
-      # commerce-service lê GOOGLE_MAPS_API_KEY. Ligar as duas evita ter a mesma
-      # chave duas vezes no .env. Hoje o campo é inerte no commerce (nenhum
-      # código o lê) — o rastreio com rota chega na fase 2.
+      # O .env herdou do legacy o nome GOOGLE_MAPS_API_PLATAFORM para a chave
+      # do Maps; o commerce-service lê GOOGLE_MAPS_API_KEY. Ligar as duas
+      # evita ter a mesma chave duas vezes no .env. `app/services/rastreio.py`
+      # usa este campo para chamar a Directions API em `GET /orders/{id}/route`.
       GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_PLATAFORM:-}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       REDIS_URL_TEST: redis://:${REDIS_PASSWORD}@redis:6379/14
       R2_ENDPOINT_URL: http://minio:9000
       # Assina a URL presignada contra o IP LAN do host, para o aparelho
-      # físico alcançar o MinIO. Mesma linha que `api` e `worker` já têm.
+      # físico alcançar o MinIO.
       R2_PUBLIC_ENDPOINT_URL: "http://${HOST_IP:-10.0.2.2}:9000"
       # Chamada serviço-a-serviço para app/services/auth_client.py (nome do
       # autor da review, hoje; endereço de entrega, a partir do bloco C).
@@ -301,9 +240,9 @@ services:
     environment:
       # O chatbot ganhou banco na fase 2 (módulo `support`). Antes destas
       # duas linhas serem preenchidas, elas eram zeradas de propósito, pelo
-      # mesmo motivo do gateway: o `.env` compartilhado traz a URL do legacy,
-      # e um serviço sem banco não pode herdá-la por acidente. Continua sem
-      # publicar nem consumir eventos.
+      # mesmo motivo do gateway: o `.env` compartilhado herdou a URL do
+      # banco `edu` do legacy, e um serviço sem banco não pode herdá-la por
+      # acidente. Continua sem publicar nem consumir eventos.
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/chatbot_db
       DATABASE_URL_TEST: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/chatbot_test
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET não definido em back-end/.env}
