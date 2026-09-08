@@ -229,6 +229,35 @@ para quando existir um cliente que a justifique — não a cancela.
 
 Tudo a partir da raiz do repositório.
 
+> **Depois desta fase, reconstrua as imagens antes do primeiro `stack-up`.**
+> `stack-up` roda `docker compose up -d`, sem `--build`, e nenhum serviço
+> monta o código-fonte por bind mount — a imagem carrega só o que foi
+> copiado no `docker build`. Numa máquina cujas imagens são anteriores à
+> spec A, cinco serviços mudam de comportamento sem que o rebuild aconteça:
+> `auth-users-service` (seed de contas de demo, módulo novo),
+> `commerce-service` (lock consultivo no seed do catálogo) e
+> `notification-service` (título curto do pedido, dead-letter exchange) por
+> código próprio; `learning-service` e `analytics-service` porque redeclaram
+> fila com `x-dead-letter-exchange` através do `EventConsumer` do
+> `edu-common`. As sete imagens do stack vendorizam `edu-common` (`COPY
+> packages/edu-common` no Dockerfile de cada uma), então o rebuild vale para
+> todas, não só essas cinco. Sem ele:
+>
+> - `make services-seed-demo` estoura com `ModuleNotFoundError: No module
+>   named 'app.seeds'` — o módulo não está na imagem em cache.
+> - `make services-seed` roda o seed **antigo**, sem o lock consultivo — a
+>   corrida fica reaberta bem na primeira execução real do alvo.
+> - A dead-letter exchange fica inerte: os consumidores continuam
+>   declarando fila sem `arguments`.
+> - `idCurto` fica inerte: o título do push mantém o UUID de 36 caracteres.
+>
+> ```bash
+> make stack-rebuild     # docker compose build — reconstrói as sete imagens
+> ```
+>
+> Um clone limpo, sem imagem nenhuma ainda, não precisa disso: o primeiro
+> `stack-up` já builda a partir do zero.
+
 ```bash
 make stack-up          # sobe infra + gateway + os 6 serviços
 ```
@@ -262,11 +291,12 @@ existe ainda (`to_regclass('public.products')` devolve vazio). A idempotência
 **sequencial** dele é medida — `seed_products` rodado duas vezes na mesma
 sessão insere o catálogo e depois insere zero
 (`tests/test_products_seed.py::TestProductsSeed::test_is_idempotent`, verde).
-O que **não** é medido, e é a dívida de verdade, é a idempotência
-**concorrente**: o seed lê o que já existe e só então grava, e `products.name`
-tem índice sem `unique`, então duas execuções simultâneas inserem o catálogo
-duas vezes sem erro. Veja a §2.1 de
-[`phase-2-debt.md`](phase-2-debt.md) antes de rodá-lo pela primeira vez.
+A idempotência **concorrente** — duas execuções simultâneas inserindo o
+catálogo em duplicidade, porque `products.name` tem índice sem `unique` — era
+a dívida de verdade e foi fechada na spec A: `seed_products` agora abre a
+transação com `pg_advisory_xact_lock`
+(`back-end/commerce-service/app/seeds/products.py:245-251,271-273`), coberto
+por `tests/test_products_seed.py::test_concurrent_seeds_do_not_duplicate`.
 
 Conferindo que subiu:
 
@@ -282,6 +312,57 @@ make stack-down                     # derruba o stack inteiro
 make stack-logs SVC=analytics-service   # logs de um serviço (default: api-gateway)
 make services-sync                  # uv sync em cada projeto, para o IDE
 ```
+
+### Runbook de corte desta fase (broker e imagens antigos)
+
+Três passos deste corte são do usuário — apagar as filas antigas do
+RabbitMQ, rodar os dois seeds, arquivar o repositório 2 — e a ordem entre os
+dois primeiros é **load-bearing**: invertê-la descarta os dois eventos que o
+seed de demonstração existe para publicar, sem erro visível.
+
+Numa máquina cujo broker e imagens são anteriores à spec A, a sequência
+completa é:
+
+```bash
+make stack-rebuild                                     # 1. reconstrói as sete imagens
+make stack-up                                          # 2. sobe infra + gateway + serviços
+make services-dbs                                      # 3. cria os bancos que faltarem
+make services-migrate                                  # 4. aplica alembic upgrade head
+
+# 5. apague as sete filas antigas — veja a lista completa e o comando na
+#    §11, "Uma fila declarada antes da DLX não aceita a nova declaração"
+
+docker compose -f back-end/docker-compose.yml restart \
+  notification-service learning-service analytics-service   # 6. reinicia os três consumidores
+
+make services-seed                                     # 7. catálogo do commerce
+make services-seed-demo DEMO_ACCOUNTS_PASSWORD='...'   # 8. as quatro contas fixas
+```
+
+**Os passos 5 e 6 têm que vir antes do 8, nessa ordem.**
+`notification-service`, `learning-service` e `analytics-service` sobem com
+`start_consumer()` dentro do `lifespan`, sem `except`
+(`notification-service/app/main.py:10-13`,
+`learning-service/app/main.py:12-19`,
+`analytics-service/app/main.py:10-13`): redeclarar uma fila antiga (sem
+`arguments`) com `x-dead-letter-exchange` novo é fatal —
+`PRECONDITION_FAILED - inequivalent arg 'x-dead-letter-exchange'` — e o
+serviço não sobe até a fila ser apagada. `auth-users-service` só **publica**,
+não tem fila: ele sobe mesmo com os três consumidores fora do ar, e `make
+services-seed-demo` **roda** normalmente nesse estado.
+
+Se o passo 8 rodar com o 5/6 pendente, `student.created` e `staff.created`
+são publicados e roteiam para as filas antigas (`learning.student_created`,
+`analytics.event_log`), que ninguém está consumindo — apagar essas filas
+depois, para destravar os três serviços, destrói as mensagens que estavam
+nelas. O seed é idempotente (`demo_accounts.py:94-97`): uma segunda passada
+devolve 0 contas criadas e **não republica nada**. Recuperar significa apagar
+à mão as quatro linhas `@demo.edu` de `auth_db.users` e rodar `make
+services-seed-demo` de novo, dessa vez com os passos 5 e 6 já feitos.
+
+Um broker que nunca rodou a versão anterior (stack novo, volume novo) não
+tem passo 5/6: as filas já nascem com `x-dead-letter-exchange` e o
+`PRECONDITION_FAILED` nunca aparece.
 
 ---
 
@@ -578,21 +659,30 @@ sem `arguments`. A partir da spec A elas são declaradas com
 argumentos diferentes: `PRECONDITION_FAILED - inequivalent arg
 'x-dead-letter-exchange'`, e o serviço não sobe.
 
-Num broker que já rodou a versão anterior, apague as filas antigas **uma vez**
-antes de subir a frota nova:
+Num broker que já rodou a versão anterior, apague as filas antigas **uma
+vez**, com a infra (Postgres, Redis, RabbitMQ) já de pé e antes de subir os
+três serviços consumidores — veja a ordem completa na §5, "Runbook de corte
+desta fase":
 
 ```bash
 docker compose -f back-end/docker-compose.yml exec rabbitmq \
   rabbitmqctl delete_queue notification.revision_scheduled
 # repetir para: notification.diagnostic_completed,
 # notification.order_status_changed, notification.stock_issue,
-# notification.delivery_delayed, e as filas do analytics e do learning
+# notification.delivery_delayed, learning.student_created,
+# analytics.event_log
 ```
 
 Só quem tem broker antigo precisa disso. Um broker limpo declara já com os
 argumentos certos e nunca vê o erro.
 
 > **Atenção — passo do usuário.** O comando acima age no stack vivo. Quem executa este plano **não** o roda: registra a instrução e avisa o usuário. Ele decide quando aplicar.
+
+A fila morta em si (`edu.events.dead`,
+`back-end/packages/edu-common/src/edu_common/events.py:96-101`) não tem
+TTL, não tem `max-length`, não tem consumidor e não tem alarme — é um ralo que
+ninguém esvazia. Um handler falhando persistentemente enche essa fila sem
+limite.
 
 ---
 
