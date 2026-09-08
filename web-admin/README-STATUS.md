@@ -3,6 +3,14 @@
 Veio de `trabalhos-si-fiap/mobile_hybrid_app`, pasta `web-angular/`, trazido
 por `git subtree` na spec A (2026-09-07) com o histórico preservado.
 
+**Para ver a autoria original:** `git log -- web-admin/src/...` mostra pouca
+coisa — os arquivos viviam em `web-angular/src/...` no repositório 2, e o
+commit do subtree os moveu um nível acima, então o `git log` filtrado pelo
+caminho novo não enxerga o histórico anterior à mudança de caminho. `git
+blame` atravessa a mudança normalmente, e `git shortlog -sn
+14af3a34dcc1e983d720d78fc5ed82c2a9ac65d7` lista os autores originais do
+painel.
+
 ## Não funciona ainda
 
 Os serviços Angular apontam para `localhost:8080/api/v1` — a API Java, que a
