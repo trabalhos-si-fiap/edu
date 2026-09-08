@@ -81,8 +81,12 @@ código que nunca rodou fora da suíte.
 
 ### 2.1 A idempotência do seed é read-then-write
 
-**Onde:** `back-end/commerce-service/app/seeds/products.py:262` (a leitura) e
-`:312` (o único `commit()`); `back-end/commerce-service/app/models/produto.py:59`.
+> **Corrigido na spec A:** `pg_advisory_xact_lock` em torno de
+> `seed_products` — ver §1 acima e `microservices.md` §5. O restante desta
+> seção é o registro histórico do problema tal como foi encontrado.
+
+**Onde:** `back-end/commerce-service/app/seeds/products.py:274` (a leitura) e
+`:324` (o único `commit()`); `back-end/commerce-service/app/models/produto.py:59`.
 
 **O que é:** `seed_products` monta um dicionário `existing` com os produtos já
 gravados, decide item a item quem falta, e só então comita. Entre a leitura e a
