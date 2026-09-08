@@ -14,7 +14,14 @@ usuário na hora. Criadas por
 **A senha não está aqui, nem no código.** Ela vem de `DEMO_ACCOUNTS_PASSWORD`,
 e o seed recusa rodar sem ela — precisa ter ao menos 8 caracteres e um
 caractere especial, a mesma regra que `/auth/register` já exige de qualquer
-cadastro. Defina no `back-end/.env` (git-ignored) antes de semear.
+cadastro.
+
+`DEMO_ACCOUNTS_PASSWORD` não está em nenhum `docker-compose.yml` nem
+`.env.example` — o container não a recebe sozinho. `docker compose exec` NÃO
+repassa o ambiente de quem chama; o processo executado só enxerga o ambiente
+com que o container nasceu (`env_file`) mais o que vier explícito em `-e`. Por
+isso o comando abaixo passa a senha com `-e`, na hora do `exec` — é a única
+forma que funciona sem recriar o container.
 
 ## Como o seed cria cada conta
 
@@ -41,10 +48,13 @@ aluno de demonstração diferente de todo aluno de verdade.
 ## Rodar
 
 ```bash
-DEMO_ACCOUNTS_PASSWORD='...' \
-  docker compose -f back-end/docker-compose.yml exec -T auth-users-service \
-  uv run python -m app.seeds.demo_accounts
+docker compose -f back-end/docker-compose.yml exec -T \
+  -e DEMO_ACCOUNTS_PASSWORD='...' \
+  auth-users-service uv run python -m app.seeds.demo_accounts
 ```
+
+(ou `make services-seed-demo DEMO_ACCOUNTS_PASSWORD='...'`, que roda o mesmo
+comando.)
 
 Idempotente: rodar duas vezes não duplica nada e devolve zero contas criadas
 na segunda passada. A checagem de quem já existe roda uma vez, no início —

@@ -178,8 +178,9 @@ services-seed: ## Seed the commerce catalog (idempotent; downloads photos into M
 services-seed-demo: ## Seed the four demo accounts (needs DEMO_ACCOUNTS_PASSWORD)
 	@test -n "$(DEMO_ACCOUNTS_PASSWORD)" || \
 	  { echo "defina DEMO_ACCOUNTS_PASSWORD antes de rodar"; exit 1; }
-	cd $(BACK_ROOT) && DEMO_ACCOUNTS_PASSWORD='$(DEMO_ACCOUNTS_PASSWORD)' $(COMPOSE) \
-	  exec -T auth-users-service uv run python -m app.seeds.demo_accounts
+	cd $(BACK_ROOT) && $(COMPOSE) exec -T \
+	  -e DEMO_ACCOUNTS_PASSWORD='$(DEMO_ACCOUNTS_PASSWORD)' \
+	  auth-users-service uv run python -m app.seeds.demo_accounts
 
 # Cada serviço lê o .env do próprio diretório quando roda no host (fora do
 # compose, que injeta tudo por environment). Os campos obrigatórios não têm
