@@ -29,3 +29,8 @@ front-end-flutter/firebase.json
 front-end-flutter/android/app/google-services.json
 **/GoogleService-Info.plist
 !**/GoogleService-Info.plist.example
+
+# web-admin (Angular)
+web-admin/node_modules/
+web-admin/dist/
+web-admin/.angular/

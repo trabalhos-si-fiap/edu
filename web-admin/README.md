@@ -1,124 +1,59 @@
-# Edu Admin 📚
+# WebAngular
 
-Monorepo acadêmico de um sistema de gestão educacional e operacional,
-composto por três aplicações que conversam entre si via API REST:
+This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 22.1.5.
 
-| Pasta          | Aplicação                          | Stack                          |
-| -------------- | ----------------------------------- | ------------------------------- |
-| `api/`         | Backend REST                        | Java + Spring Boot               |
-| `web-angular/` | Painel administrativo (web)         | Angular                          |
-| `mobile-flutter/` | App mobile                       | Flutter                          |
+## Development server
 
-O backend concentra as regras de negócio e é consumido tanto pelo painel web
-quanto pelo app mobile via HTTP/JSON.
-
-## 🧩 Módulos de negócio
-
-* 🔐 Autenticação (login + JWT)
-* 📦 Produtos
-* 📊 Estoque
-* 🚚 Transportadoras
-* ⚠️ Ocorrências
-* 📈 Dashboard (métricas agregadas)
-
-## 📁 Estrutura do repositório
-
-```text
-.
-├── api/             # Backend Spring Boot (regras de negócio, persistência, Swagger/OpenAPI)
-├── web-angular/     # Painel administrativo web (dashboard, produtos/estoque, transportadoras, ocorrências)
-└── mobile-flutter/  # App mobile (autenticação, admin, logística, notificações)
-```
-
-Cada pasta tem seu próprio README com instruções específicas:
-
-* [`api/README.md`](./api/README.md) e [`api/ARCHITECTURE.md`](./api/ARCHITECTURE.md)
-* [`web-angular/README.md`](./web-angular/README.md)
-* [`mobile-flutter/README.md`](./mobile-flutter/README.md)
-
-## 🛠️ Tecnologias
-
-**Backend (`api/`)**
-* Java, Spring Boot, Spring Data JPA / Hibernate
-* Maven
-* H2 (desenvolvimento) / PostgreSQL (produção)
-* Flyway
-* Docker / Docker Compose
-* Swagger / OpenAPI
-
-**Web (`web-angular/`)**
-* Angular 22 (standalone), TypeScript, RxJS
-* Vitest (testes unitários)
-
-**Mobile (`mobile-flutter/`)**
-* Flutter / Dart
-* `http` para consumo da API
-* `flutter_secure_storage` para armazenamento seguro do JWT
-* `url_launcher` para abrir o painel web a partir do app
-
-## 🚀 Como rodar o projeto
-
-Clone o repositório:
+To start a local development server, run:
 
 ```bash
-git clone https://github.com/trabalhos-si-fiap/mobile_hybrid_app.git
-cd mobile_hybrid_app
+ng serve
 ```
 
-### 1. Backend (`api/`)
+Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
+
+## Code scaffolding
+
+Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
 
 ```bash
-cd api
-cp .env.example .env   # Windows: copy .env.example .env
+ng generate component component-name
 ```
 
-Edite o `.env` se necessário e rode com H2 (sem Docker):
+For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
 
 ```bash
-./mvnw spring-boot:run          # Windows: .\mvnw.cmd spring-boot:run
+ng generate --help
 ```
 
-Ou com PostgreSQL:
+## Building
+
+To build the project run:
 
 ```bash
-docker compose up -d
-./mvnw spring-boot:run -Dspring-boot.run.profiles=postgres
+ng build
 ```
 
-A API sobe em `http://localhost:8080/api/v1`, com Swagger em
-`/swagger-ui.html` e o contrato OpenAPI em
-`src/main/resources/static/openapi.yaml`.
+This will compile your project and store the build artifacts in the `dist/` directory. By default, the production build optimizes your application for performance and speed.
 
-### 2. Painel web (`web-angular/`)
+## Running unit tests
+
+To execute unit tests with the [Vitest](https://vitest.dev/) test runner, use the following command:
 
 ```bash
-cd web-angular
-npm install
-npm start
+ng test
 ```
 
-Acesse `http://localhost:4200`. O proxy em `proxy.conf.json` já aponta as
-chamadas de API para o backend local.
+## Running end-to-end tests
 
-### 3. App mobile (`mobile-flutter/`)
+For end-to-end (e2e) testing, run:
 
 ```bash
-cd mobile-flutter
-flutter pub get
-flutter run
+ng e2e
 ```
 
-Certifique-se de que a API esteja rodando e acessível pelo dispositivo/emulador
-escolhido (ver configuração de host em `lib/core/network`).
+Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
 
-## 📚 Documentação da API
+## Additional Resources
 
-Com o backend em execução:
-
-* **Swagger UI:** `http://localhost:8080/api/v1/swagger-ui.html`
-* **OpenAPI:** `http://localhost:8080/api/v1/openapi.yaml`
-* **Base URL:** `http://localhost:8080/api/v1`
-
-> O Swagger/OpenAPI contém a documentação completa dos endpoints e é o
-> contrato usado tanto pelo cliente Angular quanto pelo Flutter durante o
-> desenvolvimento.
+For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
