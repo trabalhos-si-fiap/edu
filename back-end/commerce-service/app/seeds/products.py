@@ -36,7 +36,7 @@ from typing import TYPE_CHECKING
 
 import httpx
 from loguru import logger
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -242,6 +242,15 @@ SEED_PRODUCTS: list[dict] = [
 ]
 
 
+# Identificador arbitrário e fixo deste seed. `pg_advisory_xact_lock` é um
+# lock consultivo de TRANSAÇÃO: ele é liberado sozinho no commit do fim da
+# função, então não há caminho de erro que o deixe preso. O seed é manual e
+# não tem requisito de paralelismo — serializar as execuções é mais barato
+# que um UNIQUE em `products.name`, que exigiria migration numa cadeia cujo
+# `downgrade()` levanta exceção de propósito.
+_SEED_LOCK_ID = 8150724
+
+
 async def seed_products(
     session: AsyncSession,
     *,
@@ -259,6 +268,9 @@ async def seed_products(
     on boot); any superseded object key is deleted best-effort. A download
     failure is logged and leaves the product's current image untouched.
     """
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(:lock_id)"), {"lock_id": _SEED_LOCK_ID}
+    )
     existing = {p.name: p for p in (await session.execute(select(Product))).scalars().all()}
 
     async def _apply_image(product: Product, index: int, photo_url: str | None) -> None:

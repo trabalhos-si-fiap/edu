@@ -11,6 +11,7 @@ Duas adaptações, ambas medidas:
    CRC de cada chunk, IHDR e IDAT descomprimido. Prova mais, não menos.
 """
 
+import asyncio
 import struct
 import zlib
 
@@ -291,3 +292,29 @@ async def test_seed_download_failure_keeps_existing_image(
 
     await db_session.refresh(product)
     assert product.image_url == before
+
+
+async def test_concurrent_seeds_do_not_duplicate(test_session_factory):
+    """Duas execuções simultâneas do seed inserem o catálogo UMA vez.
+
+    A idempotência sequencial já é coberta por
+    `TestProductsSeed::test_is_idempotent`. Esta aqui cobre o caso que o dia
+    do corte cria pela primeira vez: `seed_products` lê o conjunto existente
+    e só comita depois, e `Product.name` é índice, não UNIQUE — sem nada
+    segurando o intervalo entre a leitura e a escrita, as duas execuções
+    inserem o catálogo inteiro cada uma.
+    """
+
+    async def _seed() -> int:
+        async with test_session_factory() as session:
+            return await seed_products(session)
+
+    await asyncio.gather(_seed(), _seed())
+
+    async with test_session_factory() as session:
+        nomes = (await session.execute(select(Product.name))).scalars().all()
+
+    assert len(nomes) == len(SEED_PRODUCTS), (
+        f"esperado {len(SEED_PRODUCTS)} produtos, encontrado {len(nomes)}"
+    )
+    assert len(set(nomes)) == len(nomes), "há nomes duplicados no catálogo"
