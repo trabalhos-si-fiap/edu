@@ -45,3 +45,13 @@ async def test_seed_never_stores_the_password_in_clear(client, db_session):
 async def test_seed_refuses_an_empty_password(client, db_session):
     with pytest.raises(ValueError, match="DEMO_ACCOUNTS_PASSWORD"):
         await seed_demo_accounts(client, db_session, "")
+
+
+async def test_seed_refuses_a_password_under_eight_characters(client, db_session):
+    with pytest.raises(ValueError, match="8 caracteres"):
+        await seed_demo_accounts(client, db_session, "curta!1")
+
+
+async def test_seed_refuses_a_password_without_a_special_character(client, db_session):
+    with pytest.raises(ValueError, match="caractere especial"):
+        await seed_demo_accounts(client, db_session, "senhalonguesemespecial")
