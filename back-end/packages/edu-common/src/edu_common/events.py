@@ -67,9 +67,42 @@ class EventPublisher(_RabbitConnection):
 
 
 class EventConsumer(_RabbitConnection):
+    """Consumidor com dead-letter exchange sempre ligada.
+
+    Os handlers usam `async with message.process():` sem `except`. Nesse modo
+    o aio_pika faz ACK no sucesso e reject com `requeue=False` na exceção — e
+    reject sem DLX declarada DESCARTA a mensagem, sem log e sem rastro. Foi
+    esse caminho que engoliu notificações em silêncio na fase 2.
+
+    A DLX é fanout, não topic: a fila morta recolhe tudo, de qualquer routing
+    key, e a chave original continua legível no header `x-death` de cada
+    mensagem. Um destino só é um lugar só para drenar.
+    """
+
+    DEAD_LETTER_SUFFIX = ".dlx"
+    DEAD_QUEUE_SUFFIX = ".dead"
+
+    @property
+    def _dead_letter_exchange_name(self) -> str:
+        return f"{self._exchange_name}{self.DEAD_LETTER_SUFFIX}"
+
+    async def connect(self) -> None:
+        await super().connect()
+        if self._channel is None:  # pragma: no cover — super() garante
+            raise RuntimeError("EventConsumer.connect: canal não abriu")
+
+        dlx = await self._channel.declare_exchange(
+            self._dead_letter_exchange_name, aio_pika.ExchangeType.FANOUT, durable=True
+        )
+        dead_queue = await self._channel.declare_queue(
+            f"{self._exchange_name}{self.DEAD_QUEUE_SUFFIX}", durable=True
+        )
+        await dead_queue.bind(dlx)
+        logger.info("Fila morta {} ligada a {}", dead_queue, self._dead_letter_exchange_name)
+
     async def bind(self, queue_name: str, routing_keys: list[str], handler: Handler) -> None:
-        """Declara `queue_name` (durável) e liga cada routing key em `routing_keys`
-        a ela antes de começar a consumir.
+        """Declara `queue_name` (durável, com dead-letter) e liga cada routing
+        key em `routing_keys` a ela antes de começar a consumir.
 
         Uma lista com um único elemento e chamadas repetidas com nomes de fila
         distintos são o mesmo caminho de código — funciona tanto para o
@@ -78,7 +111,11 @@ class EventConsumer(_RabbitConnection):
         """
         if self._channel is None or self._exchange is None:
             raise RuntimeError("EventConsumer not connected — call connect() first")
-        queue = await self._channel.declare_queue(queue_name, durable=True)
+        queue = await self._channel.declare_queue(
+            queue_name,
+            durable=True,
+            arguments={"x-dead-letter-exchange": self._dead_letter_exchange_name},
+        )
         for routing_key in routing_keys:
             await queue.bind(self._exchange, routing_key=routing_key)
         await queue.consume(handler)

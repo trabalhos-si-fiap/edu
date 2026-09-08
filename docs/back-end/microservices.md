@@ -458,7 +458,7 @@ Regras:
 
 ## 11. Armadilhas conhecidas
 
-Cinco coisas que mordem e não são óbvias. As duas últimas chegaram com a fase
+Seis coisas que mordem e não são óbvias. Duas delas chegaram com a fase
 2d e valem para **quem já tinha o repositório ou as imagens**, não para um
 clone limpo — por isso passam despercebidas em CI e mordem só na máquina de
 quem estava trabalhando aqui antes.
@@ -581,6 +581,30 @@ Sintoma vizinho e da mesma família, **anterior a esta fase**: a imagem do
 de código carrega treze revisões — o mesmo defeito de cache, num serviço em que
 o custo é maior. A cadeia pendente está listada em
 [`commerce-parity.md`](commerce-parity.md) §7, item 1.
+
+### Uma fila declarada antes da DLX não aceita a nova declaração
+
+As cinco filas do notification, a do analytics e a do learning foram criadas
+sem `arguments`. A partir da spec A elas são declaradas com
+`x-dead-letter-exchange`, e o RabbitMQ **recusa** uma redeclaração com
+argumentos diferentes: `PRECONDITION_FAILED - inequivalent arg
+'x-dead-letter-exchange'`, e o serviço não sobe.
+
+Num broker que já rodou a versão anterior, apague as filas antigas **uma vez**
+antes de subir a frota nova:
+
+```bash
+docker compose -f back-end/docker-compose.yml exec rabbitmq \
+  rabbitmqctl delete_queue notification.revision_scheduled
+# repetir para: notification.diagnostic_completed,
+# notification.order_status_changed, notification.stock_issue,
+# notification.delivery_delayed, e as filas do analytics e do learning
+```
+
+Só quem tem broker antigo precisa disso. Um broker limpo declara já com os
+argumentos certos e nunca vê o erro.
+
+> **Atenção — passo do usuário.** O comando acima age no stack vivo. Quem executa este plano **não** o roda: registra a instrução e avisa o usuário. Ele decide quando aplicar.
 
 ---
 
