@@ -7,9 +7,21 @@ from edu_common.contracts import DiagnosticCompleted
 from sqlalchemy import select
 
 from app.events import consumer as consumer_module
+from app.events.consumer import _id_curto
 from app.models.notificacao import Notificacao
 
 STUDENT_ID = "00000000-0000-0000-0000-000000000001"
+
+
+def test_id_curto_matches_the_flutter_rule():
+    """Mesma regra de `idCurto` em order.dart:146 — 8 primeiros caracteres,
+    maiúsculas. Push e tela precisam exibir o MESMO identificador, senão o
+    aluno não consegue casar a notificação com o pedido que está vendo."""
+    assert _id_curto("0198f3a1-2b4c-7d8e-9f01-234567890abc") == "0198F3A1"
+
+
+def test_id_curto_leaves_a_short_id_alone():
+    assert _id_curto("abc123") == "ABC123"
 
 
 def fake_message(payload: dict) -> MagicMock:
@@ -168,6 +180,27 @@ async def test_order_status_changed_creates_a_notification(
     assert "entrega" in stored[0].descricao.lower()
 
 
+async def test_order_status_changed_title_uses_the_short_id(
+    db_session, test_session_factory, monkeypatch
+):
+    """O título do push precisa mostrar o MESMO identificador curto que a
+    tela já exibe (`idCurto` em order.dart:146) — não os 36 caracteres do
+    UUID. A coluna `pedido_id` continua com o UUID inteiro; só o título é
+    truncado."""
+    monkeypatch.setattr(consumer_module, "async_session", test_session_factory)
+    pedido_id = "0198f3a1-2b4c-7d8e-9f01-234567890abc"
+
+    await consumer_module.handle_order_status_changed(
+        fake_message({"aluno_id": STUDENT_ID, "pedido_id": pedido_id, "status": "EM_TRANSITO"})
+    )
+
+    stored = (await db_session.execute(select(Notificacao))).scalars().all()
+    assert len(stored) == 1
+    assert stored[0].titulo == "Pedido #0198F3A1"
+    assert pedido_id not in stored[0].titulo
+    assert str(stored[0].pedido_id) == pedido_id
+
+
 async def test_order_status_changed_confirmado_creates_no_notification(
     db_session, test_session_factory, monkeypatch
 ):
@@ -248,6 +281,30 @@ async def test_stock_issue_creates_a_notification_with_pedido_and_ocorrencia(
     assert stored[0].tipo == "order_status"
 
 
+async def test_stock_issue_title_uses_the_short_id(db_session, test_session_factory, monkeypatch):
+    """Mesma regra de truncamento do título de `handle_order_status_changed`
+    — a coluna `pedido_id` continua com o UUID inteiro."""
+    monkeypatch.setattr(consumer_module, "async_session", test_session_factory)
+    pedido_id = "0198f3a1-2b4c-7d8e-9f01-234567890abc"
+
+    await consumer_module.handle_stock_issue(
+        fake_message(
+            {
+                "aluno_id": STUDENT_ID,
+                "pedido_id": pedido_id,
+                "ocorrencia_id": 9,
+                "produtos_sugeridos": [],
+            }
+        )
+    )
+
+    stored = (await db_session.execute(select(Notificacao))).scalars().all()
+    assert len(stored) == 1
+    assert stored[0].titulo == "Pedido #0198F3A1: item em falta"
+    assert pedido_id not in stored[0].titulo
+    assert str(stored[0].pedido_id) == pedido_id
+
+
 async def test_delivery_delayed_creates_a_notification_with_pedido_and_ocorrencia(
     db_session, test_session_factory, monkeypatch
 ):
@@ -270,6 +327,32 @@ async def test_delivery_delayed_creates_a_notification_with_pedido_and_ocorrenci
     assert str(stored[0].pedido_id) == pedido_id
     assert stored[0].ocorrencia_id == 11
     assert "Trânsito intenso" in stored[0].descricao
+
+
+async def test_delivery_delayed_title_uses_the_short_id(
+    db_session, test_session_factory, monkeypatch
+):
+    """Mesma regra de truncamento do título de `handle_order_status_changed`
+    — a coluna `pedido_id` continua com o UUID inteiro."""
+    monkeypatch.setattr(consumer_module, "async_session", test_session_factory)
+    pedido_id = "0198f3a1-2b4c-7d8e-9f01-234567890abc"
+
+    await consumer_module.handle_delivery_delayed(
+        fake_message(
+            {
+                "aluno_id": STUDENT_ID,
+                "pedido_id": pedido_id,
+                "ocorrencia_id": 11,
+                "motivo": "Trânsito intenso",
+            }
+        )
+    )
+
+    stored = (await db_session.execute(select(Notificacao))).scalars().all()
+    assert len(stored) == 1
+    assert stored[0].titulo == "Pedido #0198F3A1: atraso na entrega"
+    assert pedido_id not in stored[0].titulo
+    assert str(stored[0].pedido_id) == pedido_id
 
 
 async def test_every_binding_points_to_a_real_handler():
