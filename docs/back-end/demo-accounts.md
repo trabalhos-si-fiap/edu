@@ -56,6 +56,11 @@ docker compose -f back-end/docker-compose.yml exec -T \
 (ou `make services-seed-demo DEMO_ACCOUNTS_PASSWORD='...'`, que roda o mesmo
 comando.)
 
+Em ambos os casos a senha fica brevemente visível na saída de `ps` do host
+enquanto o `exec` roda — inerente a passar segredo por `-e` na linha de
+comando, não um vazamento de log. Aceitável para uma senha de demonstração;
+não é assim que uma senha de produção deveria circular.
+
 Idempotente: rodar duas vezes não duplica nada e devolve zero contas criadas
 na segunda passada. A checagem de quem já existe roda uma vez, no início —
 o seed não depende do 409 de e-mail duplicado das rotas para isso.
