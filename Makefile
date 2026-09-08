@@ -112,7 +112,7 @@ services-seed: ## Seed the commerce catalog (idempotent; downloads photos into M
 services-seed-demo: ## Seed the four demo accounts (needs DEMO_ACCOUNTS_PASSWORD)
 	@test -n "$(DEMO_ACCOUNTS_PASSWORD)" || \
 	  { echo "defina DEMO_ACCOUNTS_PASSWORD antes de rodar"; exit 1; }
-	cd $(BACK_ROOT) && $(COMPOSE) exec -T \
+	@cd $(BACK_ROOT) && $(COMPOSE) exec -T \
 	  -e DEMO_ACCOUNTS_PASSWORD='$(DEMO_ACCOUNTS_PASSWORD)' \
 	  auth-users-service uv run python -m app.seeds.demo_accounts
 
