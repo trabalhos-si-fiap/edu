@@ -3,7 +3,6 @@ from datetime import UTC, datetime
 
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -319,16 +318,7 @@ async def confirmar_pagamento(
     except OrderNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Pedido não encontrado") from exc
 
-    try:
-        codigo = gerar_codigo_pagamento(pedido.id, pedido.payment_method)
-    except Exception as exc:  # BLE001 não está entre as regras habilitadas aqui
-        # 502 com mensagem GENÉRICA: o detalhe interno não vaza. E o cliente
-        # NUNCA monta o payload como recurso alternativo — seria reintroduzir
-        # o mock que esta spec remove.
-        logger.exception("falha ao montar o código de pagamento do pedido {}", pedido.id)
-        raise HTTPException(
-            status.HTTP_502_BAD_GATEWAY, "Não foi possível emitir o código de pagamento"
-        ) from exc
+    codigo = gerar_codigo_pagamento(pedido.id, pedido.payment_method)
 
     return PagamentoConfirmadoOut(
         order_id=pedido.id, payment_method=pedido.payment_method, payment_code=codigo

@@ -131,17 +131,6 @@ class CarrinhoOrigemMistaError(Exception):
     )
 
 
-class CodigoPagamentoError(Exception):
-    """Falha ao montar o código copia-e-cola de PIX/boleto
-    (`app/services/codigos_pagamento.py`). Não deveria acontecer — a
-    derivação é determinística e não depende de rede nem de banco —, mas o
-    router traduz em 502 genérico mesmo assim, sem ecoar `str(exc)`: o
-    detalhe interno não é assunto do aluno.
-
-    Sufixo `Error` por N818.
-    """
-
-
 class SkuDuplicadoError(Exception):
     """Já existe produto com este `sku`. O router traduz em 409.
 
