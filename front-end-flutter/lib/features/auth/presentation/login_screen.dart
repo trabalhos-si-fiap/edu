@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/network/token_store.dart';
+import '../../../core/session/session_manager.dart';
+import '../../../core/session/session_switcher.dart';
 import '../../../core/utils/jwt_utils.dart';
-import '../../logistics/presentation/picking_queue_screen.dart';
-import '../../logistics/presentation/delivery_queue_screen.dart';
-import '../../admin/presentation/admin_dashboard_screen.dart';
 import '../data/auth_api.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -76,41 +75,22 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   /// Lê o claim `role` do access token recém-salvo e decide para onde
-  /// navegar. Separador e entregador têm seu próprio ponto de entrada;
-  /// aluno segue para a home de sempre.
+  /// navegar, via `irParaTelaDoPapel` (compartilhada com o
+  /// `SessionSwitcher`, que leva ao mesmo lugar quando troca de sessão).
+  /// Separador e entregador têm seu próprio ponto de entrada; aluno segue
+  /// para a home de sempre.
   Future<void> _redirecionarPorPapel() async {
     final accessToken = await _tokenStore.readAccessToken();
     final role = accessToken != null ? extrairRoleDoToken(accessToken) : null;
 
+    if (SessionManager.habilitado && role != null) {
+      final nome = await _authApi.currentDisplayName();
+      await SessionManager().guardarSessaoAtual(papel: role, nome: nome ?? role);
+    }
+
     if (!mounted) return;
 
-    switch (role) {
-      case 'separador':
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const SeparadorFilaScreen()),
-        );
-        break;
-      case 'entregador':
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const EntregadorFilaScreen()),
-        );
-        break;
-      case 'admin':
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const AdminDashboardScreen()),
-        );
-        break;
-      case 'student':
-      default:
-        Navigator.pushReplacementNamed(
-          context,
-          '/home',
-          arguments: {'justLoggedIn': true},
-        );
-    }
+    await irParaTelaDoPapel(context, role);
   }
 
   @override
@@ -206,10 +186,10 @@ class _Header extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 60, 24, 40),
-      child: const Column(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
+          const Text(
             'Edu IA',
             style: TextStyle(
               fontSize: 16,
@@ -217,8 +197,8 @@ class _Header extends StatelessWidget {
               color: AppColors.textPrimary,
             ),
           ),
-          SizedBox(height: 32),
-          Center(
+          const SizedBox(height: 32),
+          const Center(
             child: Column(
               children: [
                 Text(
@@ -243,6 +223,9 @@ class _Header extends StatelessWidget {
               ],
             ),
           ),
+          // Some no build normal: SessionManager.habilitado é uma constante
+          // de compilação falsa fora de `make front-demo`.
+          if (SessionManager.habilitado) const SessionSwitcher(),
         ],
       ),
     );
