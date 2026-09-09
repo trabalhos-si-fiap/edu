@@ -149,6 +149,25 @@ class _LoginScreenState extends State<LoginScreen> {
             // com RBAC unificado, separador/entregador entram por este
             // mesmo formulário e são redirecionados automaticamente
             // (ver _redirecionarPorPapel). Ver STATUS.md para detalhes.
+            //
+            // O carregamento é diferente: quem opera não tem credencial de
+            // funcionário (é o próprio ponto de entrada), e o token de
+            // sessão dele não tem refresh — quando expira (12h),
+            // AuthHttpClient cai aqui sem conseguir renovar. Sem este botão
+            // o entregador ficaria preso num formulário de e-mail e senha
+            // que ele não tem.
+            GestureDetector(
+              onTap: () => Navigator.pushNamed(context, '/shipment-login'),
+              child: const Text(
+                'Entrar com código de carregamento',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: AppColors.purple,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
           ],
           ),
         ),

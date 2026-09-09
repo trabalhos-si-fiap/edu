@@ -1,3 +1,4 @@
+import 'package:edu_ia/features/logistics/presentation/shipment_login_screen.dart';
 import 'package:edu_ia/features/marketplace/presentation/add_payment_method_screen.dart';
 import 'package:edu_ia/features/marketplace/presentation/checkout_screen.dart';
 import 'package:edu_ia/features/marketplace/presentation/order_details_screen.dart';
@@ -71,6 +72,7 @@ class _MyAppState extends State<MyApp> {
           '/register': (_) => const RegisterScreen(),
           '/forgot-password': (_) => ForgotPasswordScreen(),
           '/reset-password': (_) => ResetPasswordScreen(),
+          '/shipment-login': (_) => const ShipmentLoginScreen(),
           '/home': (_) => const HomeScreen(),
           '/profile': (_) => const ProfileScreen(),
           '/addresses': (_) => const AddressesScreen(),

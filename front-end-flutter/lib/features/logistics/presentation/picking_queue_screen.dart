@@ -46,6 +46,7 @@ class _SeparadorFilaScreenState extends State<SeparadorFilaScreen> {
     return LogisticsScaffold(
       titulo: 'Fila de Separação',
       showLogout: true,
+      showNotifications: true,
       body: RefreshIndicator(
         onRefresh: () async => _carregarFila(),
         child: FutureBuilder<List<Pedido>>(

@@ -8,7 +8,24 @@ import 'tracking_screen.dart';
 import 'widgets/logistics_scaffold.dart';
 
 class EntregadorFilaScreen extends StatefulWidget {
-  const EntregadorFilaScreen({super.key});
+  const EntregadorFilaScreen({
+    super.key,
+    this.codigoCarregamento,
+    this.origemRotulo,
+  });
+
+  /// Preenchidos só quando a sessão veio do login por código de
+  /// carregamento (`ShipmentLoginScreen`), a partir da resposta de
+  /// `POST /shipments/login` — usados apenas para exibição no cabeçalho
+  /// ("Lote X — Y"). A lista de pedidos sempre vem de `/delivery/queue`, já
+  /// filtrada pelo backend a partir do `sub` do token (task 5); nenhuma
+  /// lógica de filtro entra no cliente.
+  ///
+  /// Guardados como campo do widget (passados pela navegação), não num
+  /// singleton global: a tela é recriada a cada login e o valor não precisa
+  /// sobreviver além da sessão atual.
+  final String? codigoCarregamento;
+  final String? origemRotulo;
 
   @override
   State<EntregadorFilaScreen> createState() => _EntregadorFilaScreenState();
@@ -47,11 +64,19 @@ class _EntregadorFilaScreenState extends State<EntregadorFilaScreen> {
     );
   }
 
+  String get _titulo {
+    final codigo = widget.codigoCarregamento;
+    final origem = widget.origemRotulo;
+    if (codigo != null && origem != null) return 'Lote $codigo — $origem';
+    return 'Fila de Coleta';
+  }
+
   @override
   Widget build(BuildContext context) {
     return LogisticsScaffold(
-      titulo: 'Fila de Coleta',
+      titulo: _titulo,
       showLogout: true,
+      showNotifications: true,
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _abrirEmRota,
         backgroundColor: AppColors.purple,
