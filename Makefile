@@ -109,8 +109,9 @@ services-migrate: ## Apply alembic migrations on every service that has a databa
 		(cd $(BACK_ROOT) && $(COMPOSE) exec -T $$s uv run alembic upgrade head) || exit 1; \
 	done
 
-services-seed: ## Seed the commerce catalog (idempotent; downloads photos into MinIO)
+services-seed: ## Seed the commerce catalog and partners (idempotent; downloads photos into MinIO)
 	cd $(BACK_ROOT) && $(COMPOSE) exec -T commerce-service uv run python -m app.seeds.products
+	cd $(BACK_ROOT) && $(COMPOSE) exec -T commerce-service uv run python -m app.seeds.parceiros
 
 services-seed-demo: ## Seed the four demo accounts (needs DEMO_ACCOUNTS_PASSWORD)
 	@test -n "$(DEMO_ACCOUNTS_PASSWORD)" || \
