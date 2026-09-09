@@ -77,7 +77,7 @@ class RouteUnavailableError(Exception):
 
 class ParceiroNotFoundError(Exception):
     """Nenhum parceiro (`Fornecedor`) com o id dado. O router traduz em 404
-    "Partner not found".
+    "Parceiro não encontrado".
 
     Sufixo `Error` por N818, como todas as outras deste módulo.
     """
@@ -85,7 +85,7 @@ class ParceiroNotFoundError(Exception):
 
 class EstoqueNotFoundError(Exception):
     """Não há linha de estoque para o produto (ou id de estoque) pedido. O
-    router traduz em 404 "Stock record not found".
+    router traduz em 404 "Registro de estoque não encontrado".
 
     Sufixo `Error` por N818.
     """
@@ -105,7 +105,7 @@ class EstoqueNegativoError(Exception):
 
 class TransportadoraNotFoundError(Exception):
     """Nenhuma transportadora com o id dado. O router traduz em 404
-    "Carrier not found".
+    "Transportadora não encontrada".
 
     Sufixo `Error` por N818.
     """

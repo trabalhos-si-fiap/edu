@@ -351,3 +351,39 @@ async def test_a_product_stocked_by_two_suppliers_still_resolves_to_one_row(clie
     await db_session.refresh(estoque_b)
     assert estoque_a.quantidade == 6
     assert estoque_b.quantidade == 7
+
+
+# ── Revisão final de branch, finding 8 ─────────────────────────────────────
+
+
+async def test_both_stock_doors_refuse_a_missing_record_in_the_same_language(client, db_session):
+    """Duas portas do MESMO núcleo respondiam em idiomas diferentes:
+    `POST /products/{id}/stock-adjustments` dizia "Stock record not found" e
+    `PATCH /admin/inventory/{id}/adjust` dizia "Registro de estoque não
+    encontrado". As duas sentenças chegam ao mesmo usuário brasileiro, pelas
+    mesmas duas telas do painel.
+
+    Português é o idioma das mensagens exibíveis desta superfície — é o que a
+    mensagem mais escrutinada da branch (`CarrinhoOrigemMistaError.MENSAGEM`)
+    já usa e o que os dois clientes mostram."""
+    produto, _estoque = await _seed(db_session)
+    outro = Product(name="Sem estoque", type="mobiliario", price=Decimal("10.00"), sku="SEM-1")
+    db_session.add(outro)
+    await db_session.commit()
+    await db_session.refresh(outro)
+    assert produto.id != outro.id
+
+    porta_delta = await client.post(
+        f"/products/{outro.id}/stock-adjustments",
+        json={"delta": 5, "motivo": "Recebimento de lote"},
+        headers=headers_for("admin"),
+    )
+    porta_absoluta = await client.patch(
+        "/admin/inventory/999999/adjust?quantidade=5&motivo=recontagem",
+        headers=headers_for("admin"),
+    )
+
+    assert porta_delta.status_code == 404
+    assert porta_absoluta.status_code == 404
+    assert porta_delta.json()["detail"] == porta_absoluta.json()["detail"]
+    assert porta_delta.json()["detail"] == "Registro de estoque não encontrado"

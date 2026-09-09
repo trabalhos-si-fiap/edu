@@ -20,7 +20,7 @@ from app.services import parceiros as services
 
 router = APIRouter(prefix="/partners", tags=["partners"])
 
-_NOT_FOUND = HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Partner not found")
+_NOT_FOUND = HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Parceiro não encontrado")
 
 
 @router.get("", response_model=ParceiroList)

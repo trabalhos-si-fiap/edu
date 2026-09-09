@@ -118,7 +118,7 @@ async def criar_produto(
         product = await services.criar_produto(db, payload)
     except ParceiroNotFoundError as exc:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Partner not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Parceiro não encontrado"
         ) from exc
     except SkuDuplicadoError as exc:
         raise HTTPException(
@@ -159,7 +159,7 @@ async def ajustar_estoque(
         )
     except EstoqueNotFoundError as exc:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Stock record not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Registro de estoque não encontrado"
         ) from exc
     except EstoqueNegativoError as exc:
         raise HTTPException(
@@ -183,7 +183,7 @@ async def listar_ajustes_estoque(
         )
     except EstoqueNotFoundError as exc:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Stock record not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Registro de estoque não encontrado"
         ) from exc
     return EstoqueAjusteList(
         items=[EstoqueAjusteOut.model_validate(a) for a in items],

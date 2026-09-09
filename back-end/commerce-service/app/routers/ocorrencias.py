@@ -106,7 +106,7 @@ async def abrir_ocorrencia_transportadora(
 
     transportadora = await db.get(Carrier, payload.transportadora_id)
     if not transportadora:
-        raise HTTPException(404, "Carrier not found")
+        raise HTTPException(404, "Transportadora não encontrada")
 
     ocorrencia = Ocorrencia(
         pedido_id=pedido.id,

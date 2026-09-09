@@ -23,7 +23,9 @@ from app.services import transportadoras as services
 
 router = APIRouter(prefix="/carriers", tags=["carriers"])
 
-_NOT_FOUND = HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carrier not found")
+_NOT_FOUND = HTTPException(
+    status_code=status.HTTP_404_NOT_FOUND, detail="Transportadora não encontrada"
+)
 
 
 @router.get("", response_model=TransportadoraList)
