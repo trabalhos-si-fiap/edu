@@ -21,6 +21,8 @@ SERVICE_MAP: dict[str, str] = {
     "delivery": "commerce",
     "occurrences": "commerce",
     "admin": "commerce",
+    "partners": "commerce",
+    "carriers": "commerce",
     "notifications": "notification",
     "analytics": "analytics",
     "chat": "chatbot",

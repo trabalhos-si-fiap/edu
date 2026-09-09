@@ -73,3 +73,11 @@ class RouteUnavailableError(Exception):
     (`ruff` N818) — o legacy (`app/modules/tracking/exceptions.py`) chama
     `RouteUnavailable`.
     """
+
+
+class ParceiroNotFoundError(Exception):
+    """Nenhum parceiro (`Fornecedor`) com o id dado. O router traduz em 404
+    "Partner not found".
+
+    Sufixo `Error` por N818, como todas as outras deste módulo.
+    """

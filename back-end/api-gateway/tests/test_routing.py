@@ -76,3 +76,13 @@ def test_no_portuguese_paths_remain_in_the_public_contract():
         "revisoes",
     }
     assert portuguese.isdisjoint(SERVICE_MAP.keys())
+
+
+def test_partners_and_carriers_route_to_commerce():
+    """Sem estas duas entradas o painel Angular recebe 404 do gateway e o
+    erro parece vir do próprio Angular. `products`, `orders`, `cart`,
+    `occurrences` e `admin` já estavam mapeados."""
+    from app.routing import SERVICE_MAP
+
+    assert SERVICE_MAP["partners"] == "commerce"
+    assert SERVICE_MAP["carriers"] == "commerce"
