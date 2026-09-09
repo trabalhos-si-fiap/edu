@@ -9,7 +9,7 @@ from sqlalchemy.orm import selectinload
 from app.exceptions import EmptyCartError, OrderNotFoundError
 from app.models.carrinho import Cart, CartItem
 from app.models.pedido import Order, OrderItem, PedidoStatusHistorico
-from app.models.produto import Product
+from app.models.produto import Estoque, Fornecedor, Product
 from app.services.status_pedido import StatusPedido
 
 
@@ -95,6 +95,50 @@ async def criar_pedido_do_carrinho(
         .all()
     }
 
+    # Origem de expedição: resolvida aqui, uma vez, e CONGELADA no pedido.
+    # A spec C lê `orders.origem_*` para simular a rota e não recalcula — o
+    # estoque pode mudar de fornecedor depois que o pedido saiu.
+    #
+    # Um único caminho de código responde "de onde este pedido sai", porque a
+    # regra de origem única do carrinho (`services/carrinho.py`) garante que
+    # todo item aqui é do mesmo fornecedor. Basta olhar o primeiro que tiver
+    # um.
+    #
+    # Correção ao brief da task 9: `Estoque` tem `uq_produto_fornecedor` na
+    # PAR (produto_id, fornecedor_id), não em `produto_id` sozinho — um
+    # produto com mais de um fornecedor gera mais de uma linha aqui. A
+    # literal do brief montava `vinculos` com um dict comprehension SEM
+    # `order_by`, então a ÚLTIMA linha devolvida pela query (ordem do plano,
+    # não determinística) vencia. `order_by(Estoque.id)` + `setdefault` (a
+    # PRIMEIRA linha, a de menor `Estoque.id`, vence) alinha esta função com
+    # as outras três que já resolvem "o fornecedor de um produto" pelo mesmo
+    # critério: `app/services/estoque.py::obter_estoque_do_produto` e
+    # `app/services/carrinho.py::_fornecedor_do_produto`/`_origem_do_carrinho`.
+    # Sem isso, o mesmo produto podia resolver para um parceiro no carrinho e
+    # outro no pedido — o `supplier_id` e a origem gravados seriam do
+    # fornecedor ERRADO, num registro histórico que a spec C lê para montar a
+    # rota. Ver
+    # test_the_order_agrees_with_fornecedor_do_produto_for_a_two_supplier_product.
+    vinculos: dict[uuid.UUID, int] = {}
+    for row in (
+        await db.execute(
+            select(Estoque.produto_id, Estoque.fornecedor_id)
+            .where(Estoque.produto_id.in_([i.product_id for i in cart_items]))
+            .order_by(Estoque.id)
+        )
+    ).all():
+        vinculos.setdefault(row.produto_id, row.fornecedor_id)
+    # Seguro por dict insertion order: com o `order_by(Estoque.id)` acima, a
+    # ordem de iteração de `vinculos.values()` agora é determinística (a
+    # ordem em que os produtos do carrinho apareceram na query, cada um já
+    # resolvido para sua linha de menor `Estoque.id`) — não mais "ordem do
+    # plano". O primeiro valor não-`None` é o fornecedor do primeiro produto
+    # do carrinho que tem estoque, e a regra de origem única do carrinho
+    # (task 8) garante que qualquer outro item com fornecedor resolveria
+    # para o MESMO fornecedor de qualquer forma.
+    fornecedor_id = next((f for f in vinculos.values() if f is not None), None)
+    fornecedor = await db.get(Fornecedor, fornecedor_id) if fornecedor_id else None
+
     order = Order(
         user_id=user_id,
         status=StatusPedido.CRIADO.value,
@@ -108,6 +152,9 @@ async def criar_pedido_do_carrinho(
         ship_neighborhood=address["neighborhood"] if address else None,
         ship_city=address["city"] if address else None,
         ship_state=address["state"] if address else None,
+        origem_rotulo=fornecedor.origem_rotulo if fornecedor else None,
+        origem_lat=fornecedor.origem_lat if fornecedor else None,
+        origem_lng=fornecedor.origem_lng if fornecedor else None,
     )
 
     total = Decimal("0.00")
@@ -125,6 +172,12 @@ async def criar_pedido_do_carrinho(
                 image_url=product.image_url,
                 rating_avg=float(product.rating_avg),
                 rating_count=product.rating_count,
+                # `supplier_id` existia desde a fase 2 e nunca era escrito —
+                # o comentário do model registrava a omissão. Aqui ele passa
+                # a ser preenchido: a separação precisa saber de qual
+                # fornecedor o item veio, item a item, mesmo com a regra de
+                # origem única em vigor (um pedido antigo pode ser misto).
+                supplier_id=vinculos.get(product.id),
             )
         )
 
