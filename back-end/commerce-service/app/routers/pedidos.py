@@ -9,7 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.events.publisher import publish_event
-from app.exceptions import CartProductNotFoundError, EmptyCartError, OrderNotFoundError
+from app.exceptions import (
+    CarrinhoOrigemMistaError,
+    CartProductNotFoundError,
+    EmptyCartError,
+    OrderNotFoundError,
+)
 from app.models.pedido import Order, PedidoStatusHistorico
 from app.redis_client import get_redis
 from app.schemas.carrinho import QUANTIDADE_MAXIMA, CartItemIn, CartOut
@@ -240,6 +245,16 @@ async def recomprar(
     produto é a primeira coisa que ela faz —, então o `continue` abaixo não
     deixa a sessão em estado sujo.
 
+    A OUTRA recusa de `adicionar_item` é `CarrinhoOrigemMistaError` (regra de
+    origem única, spec B): o carrinho de hoje já tem item de um parceiro e a
+    recompra traz item de outro. Ela NÃO é pulada como o produto fora de
+    catálogo — pular deixaria a recompra "dar certo" repondo só parte do
+    pedido, sem nada dizer por quê. Vira 409 com a mesma sentença de
+    `POST /cart/items` (`app/routers/carrinho.py`), para o cliente exibir a
+    mensagem do servidor em vez de inventar uma. `adicionar_item` também
+    levanta esta ANTES de escrever o item recusado, mas a recompra não é
+    atômica: os itens já repostos antes da recusa ficam no carrinho.
+
     NÃO É IDEMPOTENTE (achado 4 do code review): chamar esta rota duas
     vezes para o MESMO pedido soma os itens duas vezes, não reconhece que
     já rodou — `adicionar_item` INCREMENTA a quantidade existente do item
@@ -279,6 +294,10 @@ async def recomprar(
             )
         except CartProductNotFoundError:
             continue
+        except CarrinhoOrigemMistaError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail=CarrinhoOrigemMistaError.MENSAGEM
+            ) from exc
 
     if cart is None:
         # Nenhum produto do pedido existe mais — devolve o carrinho atual.

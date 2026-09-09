@@ -332,3 +332,52 @@ async def test_origem_do_carrinho_agrees_with_fornecedor_do_produto_for_the_same
 
     origem = await _origem_do_carrinho(db_session, cart.id)
     assert origem == canonical
+
+
+# ── Revisão final de branch, finding 3 ─────────────────────────────────────
+#
+# `POST /orders/{id}/rebuy` é o SEGUNDO chamador de
+# `cart_services.adicionar_item`, e capturava só `CartProductNotFoundError`.
+# A regra de origem única (task 8) levanta `CarrinhoOrigemMistaError` do mesmo
+# ponto — que escapava sem handler, 500 onde `POST /cart/items` devolve 409.
+#
+# A suíte herdada não via isto porque `test_orders_parity.py` monta carrinho e
+# pedido a partir de produtos SEM linha de estoque — um estado que o seed da
+# spec B torna impossível em produção. Este teste é o mínimo que exercita o
+# caminho com estoque real, sem tocar nas fixtures de paridade.
+
+
+async def test_rebuying_into_a_cart_of_another_partner_is_409_not_500(client, db_session):
+    from app.models.pedido import Order, OrderItem
+
+    edu = await _parceiro(db_session, "Edu")
+    leroy = await _parceiro(db_session, "Leroy Merlin")
+    apostila = await _produto(db_session, nome="Apostila", fornecedor=edu)
+    luminaria = await _produto(db_session, nome="Luminária", fornecedor=leroy)
+
+    # Pedido passado de ORIGEM ÚNICA — nada de exótico, o caso comum.
+    pedido = Order(user_id=uuid.UUID(_ALUNO), status="CRIADO", total=Decimal("10.00"))
+    db_session.add(pedido)
+    await db_session.commit()
+    await db_session.refresh(pedido)
+    db_session.add(
+        OrderItem(
+            order_id=pedido.id,
+            product_id=apostila.id,
+            product_name=apostila.name,
+            unit_price=Decimal("10.00"),
+            quantity=1,
+        )
+    )
+    await db_session.commit()
+
+    # O carrinho de hoje já tem item de OUTRO parceiro.
+    atual = await client.post(
+        "/cart/items", json={"product_id": str(luminaria.id), "quantity": 1}, headers=headers_for()
+    )
+    assert atual.status_code == 201
+
+    response = await client.post(f"/orders/{pedido.id}/rebuy", headers=headers_for())
+
+    assert response.status_code == 409
+    assert "outro parceiro" in response.json()["detail"]
