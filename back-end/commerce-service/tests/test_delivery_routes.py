@@ -235,3 +235,48 @@ async def test_delivery_mine_actually_applies_limit_and_offset(client, db_sessio
     assert len(last_body) == total - 50
 
     assert {row["id"] for row in first_body}.isdisjoint({row["id"] for row in last_body})
+
+
+# ── Fix round 1 (reviewer, Important): a fábrica `ator_de_entrega` devolve
+# cada rota ao conjunto de papéis de usuário que ela já tinha ANTES desta
+# task — admin só em `queue`, nunca em `collect`/`deliver`/`mine`. ─────────
+
+
+async def test_admin_is_refused_on_collect(client, db_session):
+    """Antes desta spec, `PATCH /delivery/{id}/collect` era
+    `requer_papel("entregador")` só — admin nunca pôde reivindicar um
+    pedido por aqui (o caminho de admin é
+    `/admin/orders/{id}/assign-deliverer`). Um token admin passando por
+    `ator_de_entrega("entregador")` não pode reabrir essa porta."""
+    pedido = await _seed_pedido(db_session, StatusPedido.AGUARDANDO_COLETA.value)
+
+    response = await client.patch(
+        f"/delivery/{pedido.id}/collect", headers=headers_for("admin", ADMIN)
+    )
+
+    assert response.status_code == 403
+
+
+async def test_admin_is_refused_on_deliver(client, db_session):
+    """Mesma razão de `test_admin_is_refused_on_collect`:
+    `PATCH /delivery/{id}/deliver` também excluía admin antes desta task."""
+    pedido = await _seed_pedido(
+        db_session, StatusPedido.EM_TRANSITO.value, entregador_id=DELIVERER_A
+    )
+
+    response = await client.patch(
+        f"/delivery/{pedido.id}/deliver", headers=headers_for("admin", ADMIN)
+    )
+
+    assert response.status_code == 403
+
+
+async def test_admin_is_still_accepted_on_queue(client, db_session):
+    """`GET /delivery/queue` sempre aceitou admin (`requer_papel("entregador",
+    "admin")`, antes desta spec) — prova que o fix devolveu cada rota ao seu
+    conjunto original, em vez de banir admin de todo `/delivery`."""
+    await _seed_pedido(db_session, StatusPedido.AGUARDANDO_COLETA.value)
+
+    response = await client.get("/delivery/queue", headers=headers_for("admin", ADMIN))
+
+    assert response.status_code == 200

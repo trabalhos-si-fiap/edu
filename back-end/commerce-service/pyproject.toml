@@ -63,6 +63,10 @@ extend-immutable-calls = [
     "fastapi.Security",
     "fastapi.Query",
     "app.dependencies.requer_papel",
+    # Task 5 fix round 1: `ator_de_entrega` é fábrica igual a `requer_papel`
+    # acima, e pelo mesmo motivo — `Depends(ator_de_entrega("entregador"))`
+    # é chamada inline por design nas quatro rotas de `/delivery`.
+    "app.dependencies.ator_de_entrega",
 ]
 
 [tool.pytest.ini_options]

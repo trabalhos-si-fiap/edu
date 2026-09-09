@@ -47,7 +47,7 @@ async def login_carregamento(
     """Rota PÚBLICA por construção — é o ponto de entrada de quem ainda não
     tem credencial nenhuma, como `POST /auth/login`. A autorização que ela
     concede é estreita: um token de escopo de UM carregamento (ver
-    `app/dependencies.py::ator_entrega`), nunca um papel da frota.
+    `app/dependencies.py::ator_de_entrega`), nunca um papel da frota.
     """
     try:
         carregamento = await services.autenticar_carregamento(

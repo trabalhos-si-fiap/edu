@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import PAPEL_CARREGAMENTO, AtorEntrega, ator_entrega
+from app.dependencies import PAPEL_CARREGAMENTO, AtorEntrega, ator_de_entrega
 from app.models.pedido import Order
 from app.routers.separacao import transicionar_pedido
 from app.schemas.pedido import PedidoStaffOut
@@ -21,7 +21,7 @@ router = APIRouter(prefix="/delivery", tags=["delivery"])
 async def fila_entrega(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    ator: AtorEntrega = Depends(ator_entrega),
+    ator: AtorEntrega = Depends(ator_de_entrega("entregador", "admin")),
     db: AsyncSession = Depends(get_db),
 ):
     if ator.tipo == PAPEL_CARREGAMENTO:
@@ -42,7 +42,7 @@ async def fila_entrega(
 async def minhas_entregas(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    ator: AtorEntrega = Depends(ator_entrega),
+    ator: AtorEntrega = Depends(ator_de_entrega("entregador")),
     db: AsyncSession = Depends(get_db),
 ):
     if ator.tipo == PAPEL_CARREGAMENTO:
@@ -64,7 +64,7 @@ async def minhas_entregas(
 @router.patch("/{pedido_id}/collect", response_model=PedidoStaffOut)
 async def confirmar_coleta(
     pedido_id: uuid.UUID,
-    ator: AtorEntrega = Depends(ator_entrega),
+    ator: AtorEntrega = Depends(ator_de_entrega("entregador")),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -152,7 +152,7 @@ async def confirmar_coleta(
 @router.patch("/{pedido_id}/deliver", response_model=PedidoStaffOut)
 async def confirmar_entrega(
     pedido_id: uuid.UUID,
-    ator: AtorEntrega = Depends(ator_entrega),
+    ator: AtorEntrega = Depends(ator_de_entrega("entregador")),
     db: AsyncSession = Depends(get_db),
 ):
     """
