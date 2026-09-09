@@ -17,11 +17,27 @@ async def listar_produtos(
     *,
     q: str | None = None,
     partner_id: int | None = None,
+    include_inactive: bool = False,
     limit: int,
     offset: int,
 ) -> tuple[list[Product], int]:
     stmt = select(Product)
     count_stmt = select(func.count()).select_from(Product)
+
+    if not include_inactive:
+        # `products.active` era escrito pelo painel (switch "STATUS DO
+        # PRODUTO"), round-trippado pelo schema e lido por NADA: produto
+        # desativado continuava no catálogo, no filtro de parceiro, no
+        # carrinho e no pedido. Um controle que persiste e não faz efeito é
+        # pior que controle nenhum.
+        #
+        # `include_inactive` é a escotilha do PAINEL, não do app: o admin
+        # precisa enxergar a linha inativa para reativá-la, e a rota exige
+        # papel `admin` para aceitar o parâmetro (ver
+        # app/routers/produtos.py). Filtro no serviço e não na tela para
+        # valer nas duas portas — catálogo e filtro por parceiro — de uma vez.
+        stmt = stmt.where(Product.active.is_(True))
+        count_stmt = count_stmt.where(Product.active.is_(True))
 
     if partner_id is not None:
         # Produto pertence ao parceiro ATRAVÉS do estoque — não há coluna de

@@ -153,3 +153,68 @@ async def test_partner_id_out_of_int32_range_is_422_not_500(client):
     classe de bug que a task 3 corrigiu em `AjusteEstoqueIn.delta`."""
     response = await client.get("/products?partner_id=3000000000", headers=headers_for("student"))
     assert response.status_code == 422
+
+
+# ── Revisão final de branch, finding 6 ─────────────────────────────────────
+#
+# `products.active` era escrito, round-trippado e exibido — o painel tem um
+# switch "STATUS DO PRODUTO — Ativo / Inativo" que persiste — e lido por NADA:
+# `listar_produtos` nunca filtrava por ele. Produto inativo continuava
+# visível, adicionável ao carrinho e comprável. Um controle que não faz nada
+# é pior que controle nenhum.
+
+
+async def _desativar(db_session, nome: str) -> None:
+    from sqlalchemy import select as _select
+
+    produto = (await db_session.execute(_select(Product).where(Product.name == nome))).scalar_one()
+    produto.active = False
+    await db_session.commit()
+
+
+async def test_an_inactive_product_leaves_the_catalog(client, db_session):
+    await _seed(db_session, parceiro="Leroy Merlin", produto="Luminária")
+    await _seed(db_session, parceiro="Leroy Merlin", produto="Cadeira aposentada")
+    await _desativar(db_session, "Cadeira aposentada")
+
+    corpo = (await client.get("/products", headers=headers_for("student"))).json()
+
+    assert [p["name"] for p in corpo["items"]] == ["Luminária"]
+    assert corpo["total"] == 1
+
+
+async def test_an_inactive_product_leaves_the_partner_filter(client, db_session):
+    leroy = await _seed(db_session, parceiro="Leroy Merlin", produto="Luminária")
+    await _seed(db_session, parceiro="Leroy Merlin", produto="Cadeira aposentada")
+    await _desativar(db_session, "Cadeira aposentada")
+
+    corpo = (
+        await client.get(f"/products?partner_id={leroy.id}", headers=headers_for("student"))
+    ).json()
+
+    assert [p["name"] for p in corpo["items"]] == ["Luminária"]
+    assert corpo["total"] == 1
+
+
+async def test_the_panel_still_sees_the_inactive_product(client, db_session):
+    """A escotilha que o painel usa: sem ela o admin não consegue nem achar o
+    produto que acabou de desativar para reativá-lo."""
+    await _seed(db_session, parceiro="Leroy Merlin", produto="Luminária")
+    await _seed(db_session, parceiro="Leroy Merlin", produto="Cadeira aposentada")
+    await _desativar(db_session, "Cadeira aposentada")
+
+    corpo = (
+        await client.get("/products?include_inactive=true", headers=headers_for("admin"))
+    ).json()
+
+    assert {p["name"] for p in corpo["items"]} == {"Luminária", "Cadeira aposentada"}
+    assert corpo["total"] == 2
+
+
+async def test_only_an_admin_may_ask_for_inactive_products(client, db_session):
+    await _seed(db_session, parceiro="Leroy Merlin", produto="Cadeira aposentada")
+    await _desativar(db_session, "Cadeira aposentada")
+
+    for papel in ("student", "separador", "entregador"):
+        response = await client.get("/products?include_inactive=true", headers=headers_for(papel))
+        assert response.status_code == 403, papel

@@ -47,7 +47,7 @@ async def _product_out(
 
 @router.get("", response_model=ProductList)
 async def listar_produtos(
-    _user: dict = Depends(get_current_user),
+    user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     storage: ObjectStorage = Depends(get_storage),
     redis: aioredis.Redis = Depends(get_redis),
@@ -56,6 +56,13 @@ async def listar_produtos(
     # id inteiro do serviço com teto, e o mesmo conceito ("id de parceiro")
     # estava ilimitado em `ProductIn.fornecedor_id`. Ver o docstring do alias.
     partner_id: Int32Id | None = Query(default=None),
+    # Escotilha do PAINEL. `GET /products` esconde produto inativo desde a
+    # correção do finding 6 da revisão final; o admin precisa vê-lo para
+    # reativá-lo, e ninguém mais precisa. Gate explícito em vez de
+    # `requer_papel` na rota inteira: o catálogo continua aberto a qualquer
+    # papel autenticado, só este parâmetro é de admin (regra 2 do CLAUDE.md —
+    # controle de acesso explícito, no ponto exato onde o poder aumenta).
+    include_inactive: bool = Query(default=False),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
 ) -> ProductList:
@@ -71,9 +78,23 @@ async def listar_produtos(
     spec B) — produto pertence ao parceiro através de `Estoque.fornecedor_id`,
     não por coluna direta em `products`. Parceiro inativo ou inexistente
     devolve lista vazia, nunca 404: ver app/services/produtos.py.
+
+    Produto INATIVO (`products.active = false`) não aparece — nem aqui nem sob
+    `partner_id`. `include_inactive=true` é a escotilha do painel e exige papel
+    `admin`.
     """
+    if include_inactive and user.get("role") != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Sem permissão para esta ação"
+        )
+
     items, total = await services.listar_produtos(
-        db, q=q, partner_id=partner_id, limit=limit, offset=offset
+        db,
+        q=q,
+        partner_id=partner_id,
+        include_inactive=include_inactive,
+        limit=limit,
+        offset=offset,
     )
     return ProductList(
         items=[await _product_out(p, storage=storage, redis=redis) for p in items],
