@@ -10,6 +10,8 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
+from app.ids import Int32Id
+
 
 class ProductOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -74,7 +76,7 @@ class ProductIn(BaseModel):
     price: Decimal = Field(gt=0, le=Decimal("99999999.99"))
     sku: str = Field(min_length=1, max_length=60)
     active: bool = True
-    fornecedor_id: int
+    fornecedor_id: Int32Id
     # `le=1_000_000`: mesma razão do teto em `AjusteEstoqueIn.delta`
     # (app/schemas/estoque.py) — `Estoque.quantidade`/`estoque_minimo` são
     # `Integer` (int32); sem teto, um valor fora da faixa passaria da

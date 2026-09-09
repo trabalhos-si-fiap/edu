@@ -4,6 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.ids import Int32Id
+
 
 class FaltaEstoqueIn(BaseModel):
     pedido_id: uuid.UUID
@@ -65,7 +67,7 @@ TipoOcorrenciaTransportadora = Literal["ATRASO_ENTREGA", "DANO", "FALHA_ENTREGA"
 
 class OcorrenciaTransportadoraIn(BaseModel):
     pedido_id: uuid.UUID
-    transportadora_id: int
+    transportadora_id: Int32Id
     tipo: TipoOcorrenciaTransportadora
     motivo: str = Field(min_length=1, max_length=2000)
 

@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.dependencies import requer_papel
 from app.exceptions import TransportadoraNotFoundError
+from app.ids import Int32Id
 from app.models.transportadora import CarrierStatus
 from app.schemas.transportadora import (
     TransportadoraIn,
@@ -51,7 +52,7 @@ async def listar_transportadoras(
 
 @router.get("/{carrier_id}", response_model=TransportadoraOut)
 async def detalhe_transportadora(
-    carrier_id: int,
+    carrier_id: Int32Id,
     _user: dict = Depends(requer_papel("admin")),
     db: AsyncSession = Depends(get_db),
 ) -> TransportadoraOut:
@@ -72,7 +73,7 @@ async def criar_transportadora(
 
 @router.put("/{carrier_id}", response_model=TransportadoraOut)
 async def atualizar_transportadora(
-    carrier_id: int,
+    carrier_id: Int32Id,
     payload: TransportadoraIn,
     _user: dict = Depends(requer_papel("admin")),
     db: AsyncSession = Depends(get_db),
@@ -87,7 +88,7 @@ async def atualizar_transportadora(
 
 @router.patch("/{carrier_id}/status", response_model=TransportadoraOut)
 async def definir_status_transportadora(
-    carrier_id: int,
+    carrier_id: Int32Id,
     payload: TransportadoraStatusIn,
     _user: dict = Depends(requer_papel("admin")),
     db: AsyncSession = Depends(get_db),

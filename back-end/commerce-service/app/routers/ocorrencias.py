@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.dependencies import get_current_user_id, requer_papel
 from app.events.publisher import publish_event
+from app.ids import Int32Id
 from app.models.ocorrencia import Ocorrencia
 from app.models.pedido import Order, OrderItem, PedidoStatusHistorico
 from app.models.produto import Product
@@ -53,7 +54,7 @@ def _pode_ver_pedido(user: dict, pedido: Order) -> bool:
 async def listar_ocorrencias(
     _user: dict = Depends(requer_papel("admin")),
     db: AsyncSession = Depends(get_db),
-    carrier_id: int | None = Query(default=None),
+    carrier_id: Int32Id | None = Query(default=None),
     tipo: str | None = Query(default=None, max_length=30),
     status: str | None = Query(default=None, max_length=20),
     limit: int = Query(default=20, ge=1, le=100),
@@ -289,7 +290,7 @@ async def _montar_detalhe(db: AsyncSession, ocorrencia: Ocorrencia) -> Ocorrenci
 
 @router.get("/{ocorrencia_id}", response_model=OcorrenciaDetalheOut)
 async def detalhe_ocorrencia(
-    ocorrencia_id: int,
+    ocorrencia_id: Int32Id,
     user: dict = Depends(requer_papel("separador", "entregador", "admin", "student")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -308,7 +309,7 @@ async def detalhe_ocorrencia(
 
 @router.post("/{ocorrencia_id}/resolve", response_model=OcorrenciaOut)
 async def resolver_ocorrencia(
-    ocorrencia_id: int,
+    ocorrencia_id: Int32Id,
     payload: ResolverOcorrenciaIn,
     aluno_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
@@ -481,7 +482,7 @@ async def resolver_ocorrencia(
 
 @router.post("/{ocorrencia_id}/close", response_model=OcorrenciaOut)
 async def fechar_ocorrencia(
-    ocorrencia_id: int,
+    ocorrencia_id: Int32Id,
     payload: FecharOcorrenciaIn,
     _user: dict = Depends(requer_papel("admin")),
     db: AsyncSession = Depends(get_db),

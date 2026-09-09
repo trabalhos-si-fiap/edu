@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.dependencies import get_current_user, requer_papel
 from app.exceptions import ParceiroNotFoundError
+from app.ids import Int32Id
 from app.schemas.parceiro import ParceiroIn, ParceiroList, ParceiroOut
 from app.services import parceiros as services
 
@@ -43,7 +44,7 @@ async def listar_parceiros(
 
 @router.get("/{parceiro_id}", response_model=ParceiroOut)
 async def detalhe_parceiro(
-    parceiro_id: int,
+    parceiro_id: Int32Id,
     _user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ParceiroOut:
@@ -64,7 +65,7 @@ async def criar_parceiro(
 
 @router.put("/{parceiro_id}", response_model=ParceiroOut)
 async def atualizar_parceiro(
-    parceiro_id: int,
+    parceiro_id: Int32Id,
     payload: ParceiroIn,
     _user: dict = Depends(requer_papel("admin")),
     db: AsyncSession = Depends(get_db),

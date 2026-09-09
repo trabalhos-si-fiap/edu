@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.dependencies import requer_papel
 from app.exceptions import EstoqueNotFoundError
+from app.ids import Int32Id
 from app.models.pedido import Order
 from app.models.produto import Estoque
 from app.routers.separacao import transicionar_pedido
@@ -156,7 +157,7 @@ async def listar_estoque(
 
 @router.patch("/inventory/{estoque_id}/adjust", response_model=EstoqueOut)
 async def ajustar_estoque(
-    estoque_id: int,
+    estoque_id: Int32Id,
     # `ge=0`: sem piso, um admin gravava estoque negativo e a separação
     # passava a trabalhar contra um número que não existe no mundo físico.
     # `le=1_000_000`: fix round 1, finding 2. `Estoque.quantidade` é

@@ -13,6 +13,7 @@ from app.exceptions import (
     ProductNotFoundError,
     SkuDuplicadoError,
 )
+from app.ids import Int32Id
 from app.models.produto import Product
 from app.redis_client import get_redis
 from app.schemas.estoque import AjusteEstoqueIn, EstoqueAjusteList, EstoqueAjusteOut
@@ -51,12 +52,10 @@ async def listar_produtos(
     storage: ObjectStorage = Depends(get_storage),
     redis: aioredis.Redis = Depends(get_redis),
     q: str | None = Query(default=None, max_length=160),
-    # `le=2_147_483_647` (int32 max): `Fornecedor.id`/`Estoque.fornecedor_id`
-    # são `Integer` (int32). Sem teto, um `partner_id` fora da faixa (ex.: 3
-    # bilhões) passaria da validação do Pydantic direto para o `WHERE` do
-    # join e estouraria `asyncpg.exceptions.DataError` não tratado (500) —
-    # mesma classe de bug que a task 3 corrigiu em `AjusteEstoqueIn.delta`.
-    partner_id: int | None = Query(default=None, ge=1, le=2_147_483_647),
+    # A faixa vive em `app.ids.Int32Id`, não repetida aqui: este era o único
+    # id inteiro do serviço com teto, e o mesmo conceito ("id de parceiro")
+    # estava ilimitado em `ProductIn.fornecedor_id`. Ver o docstring do alias.
+    partner_id: Int32Id | None = Query(default=None),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
 ) -> ProductList:
