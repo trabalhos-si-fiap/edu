@@ -35,11 +35,19 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   /// Notificações de falta de estoque/atraso de entrega carregam um
-  /// `ocorrencia_id` em `data` — tocar nelas leva direto para a tela de
+  /// `occurrence_id` em `data` — tocar nelas leva direto para a tela de
   /// resolução (`OcorrenciaResolucaoScreen`). Demais notificações
   /// continuam sem ação de toque, como antes.
+  ///
+  /// A chave é `occurrence_id`, em inglês, porque é o que a API manda de
+  /// verdade: `NotificationDataOut` (notification-service) serializa o
+  /// contrato público em inglês, e `ocorrencia_id` é só o nome da coluna do
+  /// model. Ler o nome interno deixava TODA notificação sem ação — e com
+  /// ela a tela de resolução, único lugar onde o aluno aceita um substituto
+  /// ou cancela, sem porta de entrada nenhuma. Mesma chave que este arquivo
+  /// já usa para `order_id`, logo abaixo.
   Future<void> _abrirNotificacao(NotificationModel notification) async {
-    final ocorrenciaId = notification.data?['ocorrencia_id'];
+    final ocorrenciaId = notification.data?['occurrence_id'];
     if (ocorrenciaId is! int && ocorrenciaId is! num) return;
 
     final resolvido = await Navigator.push<bool>(
@@ -153,7 +161,8 @@ class _NotificationCard extends StatelessWidget {
   final NotificationModel notification;
   final VoidCallback? onTap;
 
-  bool get _precisaDeAcao => notification.data?['ocorrencia_id'] != null;
+  // Mesma chave de `_abrirNotificacao`: o que a API manda é `occurrence_id`.
+  bool get _precisaDeAcao => notification.data?['occurrence_id'] != null;
 
   IconData get _icon {
     if (_precisaDeAcao) return Icons.warning_amber_rounded;
