@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,12 +17,14 @@ from app.schemas.carrinho import QUANTIDADE_MAXIMA, CartItemIn, CartOut
 from app.schemas.pedido import (
     OrderCreateIn,
     OrderOut,
+    PagamentoConfirmadoOut,
     PedidoStatusHistoricoOut,
     PrevisaoEntregaOut,
 )
 from app.services import carrinho as cart_services
 from app.services import pedidos as services
 from app.services.auth_client import AuthServiceUnavailableError, get_address
+from app.services.codigos_pagamento import gerar_codigo_pagamento
 from app.services.media import presign_cart, presigned_image_url
 from app.services.previsao_entrega import MINIMO_AMOSTRAS, estimar_prazo_entrega
 from app.storage import ObjectStorage, get_storage
@@ -283,3 +286,50 @@ async def recomprar(
         cart = await cart_services.obter_carrinho(db, user_id)
 
     return await presign_cart(cart, storage=storage, redis=redis)
+
+
+@router.post("/{order_id}/confirm-payment", response_model=PagamentoConfirmadoOut)
+async def confirmar_pagamento(
+    order_id: uuid.UUID,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> PagamentoConfirmadoOut:
+    """Devolve ao ALUNO o código copia-e-cola do pedido dele.
+
+    NÃO confunda com `PATCH /admin/orders/{pedido_id}/confirm-payment`
+    (`app/routers/admin.py`), que é do ADMIN (`requer_papel("admin")`) e faz
+    `CRIADO -> CONFIRMADO -> AGUARDANDO_SEPARACAO`. A colisão é de nome, não
+    de comportamento: esta rota não toca em status nenhum.
+
+    Idempotente por construção — o código é derivado do `order_id`, então
+    chamar duas vezes devolve a mesma coisa e nada é gravado.
+
+    Sem `requer_papel(...)`: mesmo idioma de `listar_pedidos`,
+    `detalhe_pedido` e `recomprar` acima, que também só pedem
+    `Depends(get_current_user)`. O controle de acesso (regra 2 do CLAUDE.md)
+    vem do FILTRO POR DONO em `services.buscar_pedido` — reaproveita
+    `_buscar_com_itens`, o "único lugar que sabe filtrar pedido por dono" —
+    não de um gate de papel: pedido de outro aluno cai no mesmo 404 que
+    pedido inexistente, sem revelar qual dos dois é, e um staff/admin
+    autenticado com o PRÓPRIO token não é dono do pedido de ninguém, então
+    também cai em 404 ao tentar.
+    """
+    try:
+        pedido = await services.buscar_pedido(db, uuid.UUID(user["sub"]), order_id)
+    except OrderNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Pedido não encontrado") from exc
+
+    try:
+        codigo = gerar_codigo_pagamento(pedido.id, pedido.payment_method)
+    except Exception as exc:  # BLE001 não está entre as regras habilitadas aqui
+        # 502 com mensagem GENÉRICA: o detalhe interno não vaza. E o cliente
+        # NUNCA monta o payload como recurso alternativo — seria reintroduzir
+        # o mock que esta spec remove.
+        logger.exception("falha ao montar o código de pagamento do pedido {}", pedido.id)
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, "Não foi possível emitir o código de pagamento"
+        ) from exc
+
+    return PagamentoConfirmadoOut(
+        order_id=pedido.id, payment_method=pedido.payment_method, payment_code=codigo
+    )

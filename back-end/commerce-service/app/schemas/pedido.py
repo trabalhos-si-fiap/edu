@@ -153,6 +153,18 @@ class PedidoFilaOut(PedidoStaffOut):
     score_risco: float
 
 
+class PagamentoConfirmadoOut(BaseModel):
+    """Resposta de `POST /orders/{id}/confirm-payment`.
+
+    `payment_code` é `None` para cartão — não há nada para copiar. O app
+    trata `None` como "não abrir caixa de diálogo de código".
+    """
+
+    order_id: UUID
+    payment_method: str
+    payment_code: str | None = None
+
+
 class PedidoStatusHistoricoOut(BaseModel):
     """Todos os campos vêm de `pedido_status_historico`, tabela sem cliente
     — ficam em português."""
