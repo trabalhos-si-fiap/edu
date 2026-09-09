@@ -7,14 +7,14 @@ import { DashboardResponse } from '../models/dashboard.model';
 @Injectable({ providedIn: 'root' })
 export class DashboardService {
   private readonly http = inject(HttpClient);
-  private readonly apiUrl = '/api/v1';
+  private readonly apiUrl = '/api';
 
   private dashboard30Days$?: Observable<DashboardResponse>;
 
-  getDashboard(days = 30): Observable<DashboardResponse> {
-    if (days === 30) {
+  getDashboard(dias = 30): Observable<DashboardResponse> {
+    if (dias === 30) {
       if (!this.dashboard30Days$) {
-        this.dashboard30Days$ = this.requestDashboard(days).pipe(
+        this.dashboard30Days$ = this.requestDashboard(dias).pipe(
           shareReplay({ bufferSize: 1, refCount: false })
         );
       }
@@ -22,18 +22,18 @@ export class DashboardService {
       return this.dashboard30Days$;
     }
 
-    return this.requestDashboard(days);
+    return this.requestDashboard(dias);
   }
 
   invalidateCache(): void {
     this.dashboard30Days$ = undefined;
   }
 
-  private requestDashboard(days: number): Observable<DashboardResponse> {
-    const params = new HttpParams().set('days', String(days));
+  private requestDashboard(dias: number): Observable<DashboardResponse> {
+    const params = new HttpParams().set('dias', String(dias));
 
     return this.http.get<DashboardResponse>(
-      `${this.apiUrl}/dashboard`,
+      `${this.apiUrl}/analytics/executive-summary`,
       { params }
     );
   }

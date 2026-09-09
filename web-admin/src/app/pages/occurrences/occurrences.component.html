@@ -23,10 +23,11 @@
     <label class="select-box">
       <select (change)="typeChanged($event)">
         <option value="">Todos os Tipos</option>
-        <option value="DAMAGE">Dano</option>
-        <option value="DELIVERY_DELAY">Atraso</option>
-        <option value="DELIVERY_FAILURE">Falha na entrega</option>
-        <option value="OTHER">Outro</option>
+        <option value="DANO">Dano</option>
+        <option value="ATRASO_ENTREGA">Atraso</option>
+        <option value="FALHA_ENTREGA">Falha na entrega</option>
+        <option value="FALTA_ESTOQUE">Falta de estoque</option>
+        <option value="OUTRO">Outro</option>
       </select>
       <span>⌄</span>
     </label>
@@ -34,8 +35,8 @@
     <label class="select-box">
       <select (change)="statusChanged($event)">
         <option value="">Todos os Status</option>
-        <option value="OPEN">OPEN</option>
-        <option value="RESOLVED">RESOLVED</option>
+        <option value="ABERTA">ABERTA</option>
+        <option value="RESOLVIDA">RESOLVIDA</option>
       </select>
       <span>⌄</span>
     </label>
@@ -60,39 +61,39 @@
             <tr>
               <td colspan="6" class="state-cell">Carregando...</td>
             </tr>
-          } @else if (pageData?.content?.length) {
-            @for (occurrence of pageData!.content; track occurrence.id) {
+          } @else if (pageData?.items?.length) {
+            @for (occurrence of pageData!.items; track occurrence.id) {
               <tr>
                 <td>
                   <div class="carrier-cell">
                     <span class="truck-circle">▣</span>
-                    <strong>{{ occurrence.carrierName }}</strong>
+                    <strong>{{ carrierName(occurrence) }}</strong>
                   </div>
                 </td>
 
                 <td>
                   <span
                     class="type-badge"
-                    [ngClass]="typeClass(occurrence.type)"
+                    [ngClass]="typeClass(occurrence.tipo)"
                   >
-                    {{ typeLabel(occurrence.type) }}
+                    {{ typeLabel(occurrence.tipo) }}
                   </span>
                 </td>
 
                 <td>
                   <span class="description">
-                    {{ occurrence.description }}
+                    {{ occurrence.motivo }}
                   </span>
                 </td>
 
                 <td class="date-cell">
-                  {{ formatDate(occurrence.createdAt) }}
+                  {{ formatDate(occurrence.criado_em) }}
                 </td>
 
                 <td>
                   <span
                     class="status-pill"
-                    [class.resolved]="occurrence.status === 'RESOLVED'"
+                    [class.resolved]="occurrence.status === 'RESOLVIDA'"
                   >
                     <i></i>{{ statusLabel(occurrence.status) }}
                   </span>
@@ -127,7 +128,7 @@
     <footer>
       <p>
         Mostrando {{ startResult }} a {{ endResult }}
-        de {{ pageData?.totalElements ?? 0 }} ocorrências
+        de {{ pageData?.total ?? 0 }} ocorrências
       </p>
 
       <div class="pager">
@@ -141,6 +142,7 @@
 @if (selectedOccurrence) {
   <app-occurrence-detail-modal
     [occurrence]="selectedOccurrence"
+    [carrierName]="carrierName(selectedOccurrence)"
     (closed)="selectedOccurrence = null"
     (updated)="occurrenceUpdated()"
   />

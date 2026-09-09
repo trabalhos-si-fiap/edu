@@ -1,94 +1,66 @@
 import { inject, Injectable } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { forkJoin, map, Observable, of, switchMap, tap } from 'rxjs';
+import { map, Observable } from 'rxjs';
 
 import {
-  AdjustInventoryRequest,
   InventoryItem,
-  InventoryPage,
-  InventorySummary
+  InventoryList,
+  InventorySummary,
+  inventoryStatus
 } from '../models/inventory.model';
-import { DashboardService } from './dashboard.service';
 
 @Injectable({ providedIn: 'root' })
 export class InventoryService {
   private readonly http = inject(HttpClient);
-  private readonly dashboardService = inject(DashboardService);
-  private readonly apiUrl = '/api/v1';
+  private readonly apiUrl = '/api';
 
-  listInventory(
-    page = 0,
-    size = 3,
-    search = '',
-    lowStock = false
-  ): Observable<InventoryPage> {
-    let params = new HttpParams()
-      .set('page', String(page))
-      .set('size', String(size))
-      .set('lowStock', String(lowStock));
+  /** `GET /admin/inventory` não tem `search` nem `lowStock` no backend, e
+   *  não devolve envelope (ver inventory.model.ts). A spec escolheu filtrar
+   *  no cliente sobre `limit=100` — o painel opera dezenas de linhas, não
+   *  milhares. */
+  listInventory(limit = 100, offset = 0): Observable<InventoryList> {
+    const params = new HttpParams()
+      .set('limit', String(limit))
+      .set('offset', String(offset));
 
-    if (search.trim()) {
-      params = params.set('search', search.trim());
-    }
+    return this.http.get<InventoryList>(`${this.apiUrl}/admin/inventory`, {
+      params
+    });
+  }
 
-    return this.http.get<InventoryPage>(
-      `${this.apiUrl}/inventory`,
+  /** `estoqueId` é o id da linha de ESTOQUE (`InventoryItem.id`), não o do
+   *  produto. `quantidade` é o novo valor ABSOLUTO, e `motivo` é
+   *  obrigatório desde a task 3 (auditoria) — os dois vão como query
+   *  param, não como body. */
+  adjustInventory(
+    estoqueId: number,
+    quantidade: number,
+    motivo: string
+  ): Observable<InventoryItem> {
+    const params = new HttpParams()
+      .set('quantidade', String(quantidade))
+      .set('motivo', motivo);
+
+    return this.http.patch<InventoryItem>(
+      `${this.apiUrl}/admin/inventory/${estoqueId}/adjust`,
+      null,
       { params }
     );
   }
 
-  adjustInventory(
-    productId: number,
-    request: AdjustInventoryRequest
-  ): Observable<InventoryItem> {
-    return this.http
-      .patch<InventoryItem>(
-        `${this.apiUrl}/inventory/${productId}`,
-        request
-      )
-      .pipe(
-        tap(() => this.dashboardService.invalidateCache())
-      );
-  }
-
+  /** Conta sobre a página carregada — não depende mais do dashboard, que
+   *  não tem nenhum dado de estoque (task 13, passo 6). */
   getSummary(): Observable<InventorySummary> {
-    return forkJoin({
-      dashboard: this.dashboardService.getDashboard(30),
-      lowStockPages: this.getAllLowStockPages()
-    }).pipe(
-      map(({ dashboard, lowStockPages }) => {
-        const lowStockItems = lowStockPages.flatMap(page => page.content);
-
-        return {
-          totalProducts: dashboard.operational.registeredProducts,
-          lowStock: dashboard.operational.lowStockProducts,
-          outOfStock: lowStockItems.filter(
-            item => item.status === 'OUT_OF_STOCK'
-          ).length
-        };
-      })
-    );
-  }
-
-  private getAllLowStockPages(): Observable<InventoryPage[]> {
-    return this.listInventory(0, 100, '', true).pipe(
-      switchMap(firstPage => {
-        if (firstPage.totalPages <= 1) {
-          return of([firstPage]);
-        }
-
-        const requests: Observable<InventoryPage>[] = [];
-
-        for (let page = 1; page < firstPage.totalPages; page++) {
-          requests.push(
-            this.listInventory(page, 100, '', true)
-          );
-        }
-
-        return forkJoin(requests).pipe(
-          map(rest => [firstPage, ...rest])
-        );
-      })
+    return this.listInventory(100, 0).pipe(
+      map(items => ({
+        totalProducts: items.length,
+        lowStock: items.filter(
+          item => inventoryStatus(item) === 'LOW_STOCK'
+        ).length,
+        outOfStock: items.filter(
+          item => inventoryStatus(item) === 'OUT_OF_STOCK'
+        ).length
+      }))
     );
   }
 }

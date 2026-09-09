@@ -8,7 +8,7 @@ import { LoginResponse } from '../models/auth.model';
 export class AuthService {
   private readonly http = inject(HttpClient);
 
-  private readonly apiUrl = '/api/v1';
+  private readonly apiUrl = '/api';
   private readonly tokenKey = 'edu_admin_token';
   private readonly userKey = 'edu_admin_user';
 
@@ -19,8 +19,12 @@ export class AuthService {
         tap(response => {
           this.clearStorages();
 
+          // Só o access token e o usuário são persistidos. O painel não
+          // implementa refresh — guardar um refresh_token de 14 dias em
+          // localStorage/sessionStorage sem nenhum código que o use seria
+          // superfície de ataque sem contrapartida (pendência: task 14).
           const storage = remember ? localStorage : sessionStorage;
-          storage.setItem(this.tokenKey, response.accessToken);
+          storage.setItem(this.tokenKey, response.tokens.access_token);
           storage.setItem(this.userKey, JSON.stringify(response.user));
         })
       );

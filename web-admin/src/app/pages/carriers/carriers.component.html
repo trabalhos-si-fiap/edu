@@ -96,8 +96,8 @@
             <tr>
               <td colspan="8" class="state-cell">Carregando...</td>
             </tr>
-          } @else if (pageData?.content?.length) {
-            @for (carrier of pageData!.content; track carrier.id) {
+          } @else if (pageData?.items?.length) {
+            @for (carrier of pageData!.items; track carrier.id) {
               <tr [class.inactive-row]="carrier.status === 'INACTIVE'">
                 <td>
                   <div class="name-cell">
@@ -119,7 +119,7 @@
 
                 <td>{{ carrier.location }}</td>
                 <td>{{ carrier.email }}</td>
-                <td>{{ carrier.averageDeliveryDays }} dias</td>
+                <td>{{ carrier.average_delivery_days }} dias</td>
 
                 <td>
                   <span
@@ -132,14 +132,14 @@
 
                 <td>
                   <div class="sla">
-                    <span [class.bad]="carrier.slaPercentage < 85">
-                      {{ carrier.slaPercentage | number:'1.0-0' }}%
+                    <span [class.bad]="slaBelowTarget(carrier)">
+                      {{ carrier.sla_percentage | number:'1.0-0' }}%
                     </span>
                     <div class="sla-track">
                       <div
                         class="sla-fill"
-                        [class.bad]="carrier.slaPercentage < 85"
-                        [style.width.%]="carrier.slaPercentage"
+                        [class.bad]="slaBelowTarget(carrier)"
+                        [style.width.%]="slaWidth(carrier)"
                       ></div>
                     </div>
                   </div>
@@ -172,7 +172,7 @@
     <footer class="directory-footer">
       <p>
         Mostrando {{ startResult }} a {{ endResult }}
-        de {{ pageData?.totalElements ?? 0 }} transportadoras
+        de {{ pageData?.total ?? 0 }} transportadoras
       </p>
 
       <div class="pager">

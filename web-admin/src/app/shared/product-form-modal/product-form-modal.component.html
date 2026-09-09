@@ -38,6 +38,26 @@
             </label>
           </div>
 
+          <div class="two-cols">
+            <label>
+              <span>CATEGORIA</span>
+              <input
+                type="text"
+                formControlName="type"
+                placeholder="Ex: papelaria"
+              />
+            </label>
+
+            <label>
+              <span>SUBCATEGORIA</span>
+              <input
+                type="text"
+                formControlName="subtype"
+                placeholder="Ex: cadernos"
+              />
+            </label>
+          </div>
+
           <label>
             <span>DESCRIÇÃO</span>
             <textarea
@@ -47,51 +67,61 @@
             ></textarea>
           </label>
 
-          <div class="two-cols">
-            <label>
-              <span>ESTOQUE MÍNIMO</span>
-              <input
-                type="number"
-                min="0"
-                formControlName="minimumStock"
-              />
-            </label>
+          @if (!isEdit) {
+            <div class="two-cols">
+              <label>
+                <span>PARCEIRO (FORNECEDOR)</span>
+                <select formControlName="fornecedorId">
+                  <option [ngValue]="null" disabled>
+                    {{ loadingPartners ? 'Carregando...' : 'Selecione um parceiro' }}
+                  </option>
+                  @for (partner of partners; track partner.id) {
+                    <option [ngValue]="partner.id">{{ partner.nome }}</option>
+                  }
+                </select>
+              </label>
 
-            @if (!isEdit) {
               <label>
                 <span>QUANTIDADE INICIAL</span>
                 <input
                   type="number"
                   min="0"
-                  formControlName="initialQuantity"
+                  formControlName="quantidadeInicial"
                 />
               </label>
-            } @else {
+            </div>
+
+            <div class="two-cols">
+              <label>
+                <span>ESTOQUE MÍNIMO</span>
+                <input
+                  type="number"
+                  min="0"
+                  formControlName="estoqueMinimo"
+                />
+              </label>
+
               <label>
                 <span>PREÇO</span>
                 <input
                   type="number"
-                  min="0"
+                  min="0.01"
                   step="0.01"
                   formControlName="price"
                 />
               </label>
-            }
-          </div>
-
-          @if (!isEdit) {
+            </div>
+          } @else {
             <label>
               <span>PREÇO</span>
               <input
                 type="number"
-                min="0"
+                min="0.01"
                 step="0.01"
                 formControlName="price"
               />
             </label>
-          }
 
-          @if (isEdit) {
             <div class="status-field">
               <span>STATUS DO PRODUTO</span>
 

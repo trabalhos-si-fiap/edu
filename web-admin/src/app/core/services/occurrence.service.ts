@@ -3,8 +3,8 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable, tap } from 'rxjs';
 
 import {
-  CarrierOccurrence,
-  OccurrencePage,
+  Occurrence,
+  OccurrenceList,
   OccurrenceStatus,
   OccurrenceType
 } from '../models/occurrence.model';
@@ -14,54 +14,46 @@ import { DashboardService } from './dashboard.service';
 export class OccurrenceService {
   private readonly http = inject(HttpClient);
   private readonly dashboardService = inject(DashboardService);
-  private readonly apiUrl = '/api/v1';
+  private readonly apiUrl = '/api';
 
   listOccurrences(
-    page = 0,
-    size = 3,
+    limit = 3,
+    offset = 0,
     carrierId: number | null = null,
-    type: OccurrenceType | '' = '',
+    tipo: OccurrenceType | '' = '',
     status: OccurrenceStatus | '' = ''
-  ): Observable<OccurrencePage> {
+  ): Observable<OccurrenceList> {
     let params = new HttpParams()
-      .set('page', String(page))
-      .set('size', String(size));
+      .set('limit', String(limit))
+      .set('offset', String(offset));
 
     if (carrierId !== null) {
-      params = params.set('carrierId', String(carrierId));
+      params = params.set('carrier_id', String(carrierId));
     }
 
-    if (type) {
-      params = params.set('type', type);
+    if (tipo) {
+      params = params.set('tipo', tipo);
     }
 
     if (status) {
       params = params.set('status', status);
     }
 
-    return this.http.get<OccurrencePage>(
-      `${this.apiUrl}/carrier-occurrences`,
-      { params }
-    );
+    return this.http.get<OccurrenceList>(`${this.apiUrl}/occurrences`, {
+      params
+    });
   }
 
-  getOccurrence(id: number): Observable<CarrierOccurrence> {
-    return this.http.get<CarrierOccurrence>(
-      `${this.apiUrl}/carrier-occurrences/${id}`
-    );
-  }
-
-  updateStatus(
-    id: number,
-    status: OccurrenceStatus
-  ): Observable<CarrierOccurrence> {
+  /** Fecha a ocorrência. Não existe "reabrir" no backend — `POST
+   *  /occurrences/{id}/close` só transiciona ABERTA -> RESOLVIDA, uma via
+   *  — diferente do toggle bidirecional que a tela tinha contra a API
+   *  Java. `invalidateCache()` porque `ocorrencias_abertas`/
+   *  `ocorrencias_resolvidas` vêm do dashboard (analytics). */
+  close(id: number, observacao?: string): Observable<Occurrence> {
     return this.http
-      .patch<CarrierOccurrence>(
-        `${this.apiUrl}/carrier-occurrences/${id}/status`,
-        { status }
-      )
-      .pipe(
-        tap(() => this.dashboardService.invalidateCache())
-      );
+      .post<Occurrence>(`${this.apiUrl}/occurrences/${id}/close`, {
+        observacao: observacao ?? null
+      })
+      .pipe(tap(() => this.dashboardService.invalidateCache()));
   }
 }

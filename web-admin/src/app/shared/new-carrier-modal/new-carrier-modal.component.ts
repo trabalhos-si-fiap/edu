@@ -46,8 +46,8 @@ export class NewCarrierModalComponent implements OnInit {
     name: ['', [Validators.required, Validators.minLength(2)]],
     location: ['', Validators.required],
     email: ['', [Validators.required, Validators.email]],
-    averageDeliveryDays: [3, [Validators.required, Validators.min(1)]],
-    slaPercentage: [
+    average_delivery_days: [3, [Validators.required, Validators.min(1)]],
+    sla_percentage: [
       95,
       [Validators.required, Validators.min(0), Validators.max(100)]
     ],
@@ -67,8 +67,8 @@ export class NewCarrierModalComponent implements OnInit {
       name: this.carrier.name,
       location: this.carrier.location,
       email: this.carrier.email,
-      averageDeliveryDays: this.carrier.averageDeliveryDays,
-      slaPercentage: this.carrier.slaPercentage,
+      average_delivery_days: this.carrier.average_delivery_days,
+      sla_percentage: Number(this.carrier.sla_percentage),
       status: this.carrier.status
     });
   }
@@ -98,9 +98,11 @@ export class NewCarrierModalComponent implements OnInit {
       name: value.name.trim(),
       location: value.location.trim(),
       email: value.email.trim(),
-      averageDeliveryDays: Number(value.averageDeliveryDays),
-      slaPercentage: Number(value.slaPercentage),
-      rating: this.carrier?.rating ?? 0,
+      average_delivery_days: Number(value.average_delivery_days),
+      sla_percentage: Number(value.sla_percentage),
+      // A tela não coleta nota manualmente — preserva a atual na edição, ou
+      // manda 0 (mínimo válido) na criação.
+      rating: this.carrier ? Number(this.carrier.rating) : 0,
       status: value.status
     };
 

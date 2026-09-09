@@ -3,7 +3,7 @@
     <header>
       <div>
         <span>OCORRÊNCIA #{{ occurrence.id }}</span>
-        <h2>{{ occurrence.carrierName }}</h2>
+        <h2>{{ carrierName }}</h2>
       </div>
       <button type="button" (click)="close()">×</button>
     </header>
@@ -12,7 +12,7 @@
       <div class="info-grid">
         <div>
           <span>TIPO</span>
-          <strong>{{ typeLabel(occurrence.type) }}</strong>
+          <strong>{{ typeLabel(occurrence.tipo) }}</strong>
         </div>
         <div>
           <span>STATUS</span>
@@ -20,32 +20,28 @@
         </div>
         <div>
           <span>REGISTRADA EM</span>
-          <strong>{{ formatDate(occurrence.createdAt) }}</strong>
+          <strong>{{ formatDate(occurrence.criado_em) }}</strong>
         </div>
       </div>
 
       <div class="description">
-        <span>DESCRIÇÃO</span>
-        <p>{{ occurrence.description }}</p>
+        <span>MOTIVO</span>
+        <p>{{ occurrence.motivo }}</p>
       </div>
     </div>
 
     <footer>
       <button class="cancel" type="button" (click)="close()">Fechar</button>
-      <button
-        class="action"
-        type="button"
-        [disabled]="saving"
-        (click)="toggleStatus()"
-      >
-        @if (saving) {
-          Salvando...
-        } @else if (occurrence.status === 'OPEN') {
-          Marcar como resolvida
-        } @else {
-          Reabrir ocorrência
-        }
-      </button>
+      @if (occurrence.status === 'ABERTA') {
+        <button
+          class="action"
+          type="button"
+          [disabled]="saving"
+          (click)="resolve()"
+        >
+          {{ saving ? 'Salvando...' : 'Marcar como resolvida' }}
+        </button>
+      }
     </footer>
   </section>
 </div>

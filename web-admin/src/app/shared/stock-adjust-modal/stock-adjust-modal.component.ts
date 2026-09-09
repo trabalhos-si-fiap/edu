@@ -14,7 +14,7 @@ import {
   Validators
 } from '@angular/forms';
 
-import { InventoryItem } from '../../core/models/inventory.model';
+import { InventoryStockRow } from '../../core/models/inventory.model';
 import { InventoryService } from '../../core/services/inventory.service';
 
 @Component({
@@ -29,7 +29,7 @@ export class StockAdjustModalComponent implements OnInit {
   private readonly inventoryService = inject(InventoryService);
   private readonly cdr = inject(ChangeDetectorRef);
 
-  @Input({ required: true }) item!: InventoryItem;
+  @Input({ required: true }) item!: InventoryStockRow;
 
   @Output() closed = new EventEmitter<void>();
   @Output() saved = new EventEmitter<void>();
@@ -54,7 +54,7 @@ export class StockAdjustModalComponent implements OnInit {
 
   ngOnInit(): void {
     this.form.patchValue({
-      quantity: this.item.quantity
+      quantity: this.item.quantidade
     });
   }
 
@@ -74,7 +74,9 @@ export class StockAdjustModalComponent implements OnInit {
       this.form.getRawValue();
 
     const cleanObservation = observations.trim();
-    const reason = cleanObservation
+    // `motivo` é obrigatório no backend (task 3, auditoria) — o preset
+    // sozinho já satisfaz isso; a observação é um complemento opcional.
+    const motivo = cleanObservation
       ? `${reasonPreset}: ${cleanObservation}`
       : reasonPreset;
 
@@ -82,10 +84,7 @@ export class StockAdjustModalComponent implements OnInit {
     this.errorMessage = '';
 
     this.inventoryService
-      .adjustInventory(this.item.productId, {
-        quantity: Number(quantity),
-        reason
-      })
+      .adjustInventory(this.item.id, Number(quantity), motivo)
       .subscribe({
         next: () => {
           this.saving = false;
@@ -96,7 +95,7 @@ export class StockAdjustModalComponent implements OnInit {
           this.saving = false;
           this.cdr.markForCheck();
 
-          if (error?.status === 400) {
+          if (error?.status === 400 || error?.status === 422) {
             this.errorMessage = 'Confira a quantidade e o motivo do ajuste.';
             return;
           }

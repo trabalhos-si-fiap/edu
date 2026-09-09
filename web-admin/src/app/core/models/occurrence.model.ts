@@ -1,26 +1,37 @@
 export type OccurrenceType =
-  | 'DELIVERY_DELAY'
-  | 'DAMAGE'
-  | 'DELIVERY_FAILURE'
-  | 'OTHER';
+  | 'FALTA_ESTOQUE'
+  | 'ATRASO_ENTREGA'
+  | 'DANO'
+  | 'FALHA_ENTREGA'
+  | 'OUTRO';
 
-export type OccurrenceStatus = 'OPEN' | 'RESOLVED';
+export type OccurrenceStatus = 'ABERTA' | 'RESOLVIDA';
 
-export interface CarrierOccurrence {
+/** Espelha `OcorrenciaOut` por inteiro — inclui `produto_id`,
+ *  `nova_data_sugerida` e `resolucao`, que toda ocorrência devolve (não só
+ *  as de transportadora), medido em
+ *  back-end/commerce-service/app/schemas/ocorrencia.py.
+ *
+ *  Não existe `carrier_name`: a tela resolve o nome cruzando
+ *  `transportadora_id` com a lista de transportadoras já carregada — junção
+ *  no cliente, mesma decisão do estoque (ver occurrences.component.ts). */
+export interface Occurrence {
   id: number;
-  carrierId: number;
-  carrierName: string;
-  type: OccurrenceType;
-  description: string;
+  pedido_id: string;
+  tipo: OccurrenceType;
   status: OccurrenceStatus;
-  createdAt: string;
-  resolvedAt: string | null;
+  produto_id: string | null;
+  transportadora_id: number | null;
+  nova_data_sugerida: string | null;
+  motivo: string;
+  resolucao: string | null;
+  criado_em: string;
+  resolvido_em: string | null;
 }
 
-export interface OccurrencePage {
-  content: CarrierOccurrence[];
-  page: number;
-  size: number;
-  totalElements: number;
-  totalPages: number;
+export interface OccurrenceList {
+  items: Occurrence[];
+  total: number;
+  limit: number;
+  offset: number;
 }

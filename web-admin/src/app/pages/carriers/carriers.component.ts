@@ -9,12 +9,12 @@ import { forkJoin } from 'rxjs';
 
 import {
   Carrier,
-  CarrierPage,
+  CarrierList,
   CarrierStatus,
   CarrierSummary
 } from '../../core/models/carrier.model';
 import { CarrierService } from '../../core/services/carrier.service';
-import { DashboardService } from '../../core/services/dashboard.service';
+import { OccurrenceService } from '../../core/services/occurrence.service';
 import { NewCarrierModalComponent } from '../../shared/new-carrier-modal/new-carrier-modal.component';
 import { SuccessToastComponent } from '../../shared/success-toast/success-toast.component';
 
@@ -31,10 +31,10 @@ import { SuccessToastComponent } from '../../shared/success-toast/success-toast.
 })
 export class CarriersComponent implements OnInit {
   private readonly carrierService = inject(CarrierService);
-  private readonly dashboardService = inject(DashboardService);
+  private readonly occurrenceService = inject(OccurrenceService);
   private readonly cdr = inject(ChangeDetectorRef);
 
-  pageData: CarrierPage | null = null;
+  pageData: CarrierList | null = null;
   summary: CarrierSummary = { total: 0, active: 0, inactive: 0 };
   openOccurrences = 0;
 
@@ -59,12 +59,20 @@ export class CarriersComponent implements OnInit {
 
     forkJoin({
       summary: this.carrierService.getSummary(),
-      dashboard: this.dashboardService.getDashboard(30)
+      // Contagem em tempo real de ocorrências ABERTAS — não vem mais do
+      // dashboard, que só tem o total de um período fixo de dias, não "em
+      // aberto agora" (task 13, passo 5: "sem tocar no dashboard").
+      openOccurrences: this.occurrenceService.listOccurrences(
+        1,
+        0,
+        null,
+        '',
+        'ABERTA'
+      )
     }).subscribe({
       next: result => {
         this.summary = result.summary;
-        this.openOccurrences =
-          result.dashboard.operational.openOccurrences;
+        this.openOccurrences = result.openOccurrences.total;
         this.cdr.markForCheck();
       }
     });
@@ -75,8 +83,8 @@ export class CarriersComponent implements OnInit {
 
     this.carrierService
       .listCarriers(
-        this.page,
         this.pageSize,
+        this.page * this.pageSize,
         '',
         this.statusFilter
       )
@@ -140,23 +148,34 @@ export class CarriersComponent implements OnInit {
   }
 
   get hasNext(): boolean {
-    return this.page + 1 < (this.pageData?.totalPages ?? 0);
+    return (this.page + 1) * this.pageSize < (this.pageData?.total ?? 0);
   }
 
   get startResult(): number {
-    const total = this.pageData?.totalElements ?? 0;
+    const total = this.pageData?.total ?? 0;
     return total === 0 ? 0 : this.page * this.pageSize + 1;
   }
 
   get endResult(): number {
     return Math.min(
       (this.page + 1) * this.pageSize,
-      this.pageData?.totalElements ?? 0
+      this.pageData?.total ?? 0
     );
   }
 
   statusLabel(status: CarrierStatus): string {
     return status === 'ACTIVE' ? 'Ativa' : 'Inativa';
+  }
+
+  /** Comparações numéricas sobre `sla_percentage` — o campo chega como
+   *  STRING (ver carrier.model.ts), e TypeScript não permite `<` entre
+   *  string e number diretamente. */
+  slaBelowTarget(carrier: Carrier): boolean {
+    return Number(carrier.sla_percentage) < 85;
+  }
+
+  slaWidth(carrier: Carrier): number {
+    return Number(carrier.sla_percentage);
   }
 
   initials(name: string): string {
@@ -186,9 +205,9 @@ export class CarriersComponent implements OnInit {
           carrier.status,
           carrier.location,
           carrier.email,
-          String(carrier.averageDeliveryDays),
-          String(carrier.rating),
-          String(carrier.slaPercentage)
+          String(carrier.average_delivery_days),
+          carrier.rating,
+          carrier.sla_percentage
         ])
       ];
 

@@ -74,6 +74,7 @@ label,
 }
 
 input,
+select,
 textarea {
   width: 100%;
   border: 1px solid #b9c5d2;
@@ -90,7 +91,8 @@ textarea {
   }
 }
 
-input {
+input,
+select {
   height: 44px;
 }
 
