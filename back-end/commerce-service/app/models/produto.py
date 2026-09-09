@@ -3,6 +3,7 @@ from sqlalchemy import (
     Column,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
@@ -28,6 +29,22 @@ class Fornecedor(Base):
     # `DEFAULT TRUE` for any insert that bypasses the ORM (raw SQL, seed
     # scripts, SQLAdmin, a future service) — fix round 1, reviewer finding.
     ativo = Column(Boolean, default=True, server_default=text("true"))
+    # Origem de expedição. Todo produto tem estoque, todo estoque tem
+    # fornecedor, todo fornecedor tem origem — é isso que evita um caminho
+    # especial de código para "produto sem parceiro". Os produtos próprios do
+    # Edu pertencem a um fornecedor "Edu" criado pelo seed como qualquer
+    # outro (ver `app/seeds/parceiros.py`).
+    #
+    # `origem_rotulo` é NOT NULL com default "" porque as linhas de
+    # `fornecedores` que já existem no banco do usuário não têm origem, e uma
+    # coluna NOT NULL sem default falharia o ALTER TABLE nelas.
+    #
+    # Numeric(9, 6), não Float: 6 casas decimais dão ~11 cm de resolução, e a
+    # spec C lê estas colunas para montar rota. Float acumularia erro de
+    # arredondamento numa coordenada que atravessa JSON duas vezes.
+    origem_rotulo = Column(String(120), nullable=False, default="", server_default=text("''"))
+    origem_lat = Column(Numeric(9, 6), nullable=True)
+    origem_lng = Column(Numeric(9, 6), nullable=True)
 
 
 class Product(Base):
@@ -44,6 +61,9 @@ class Product(Base):
     """
 
     __tablename__ = "products"
+    __table_args__ = (
+        Index("uq_products_sku", "sku", unique=True, postgresql_where=text("sku <> ''")),
+    )
 
     # `default=` cobre insert pelo ORM; `server_default` cobre insert que
     # passa por fora dele (psql, seed em SQL, SQLAdmin) — mesmo padrão da
@@ -57,6 +77,19 @@ class Product(Base):
         server_default=text("gen_random_uuid()"),
     )
     name = Column(String(160), nullable=False, index=True)
+    # `sku` e `active` chegam com a task 1 da spec B para o painel Angular
+    # poder cadastrar e desativar produto (`web-admin/src/app/shared/
+    # product-form-modal/`, que já os pede). `sku` é único e 60 caracteres,
+    # copiado de `Product.java`.
+    #
+    # `server_default=''` mais unicidade parecem brigar: a segunda linha com
+    # sku vazio violaria o índice. Por isso o índice é ÚNICO PARCIAL, criado
+    # na revision com `postgresql_where=(sku != '')` — o mesmo idioma do
+    # `ix_payment_methods_one_default_per_user` (`app/models/pagamento.py`).
+    # Sem isso, a migration falharia no banco do usuário, que já tem seis
+    # produtos semeados sem sku.
+    sku = Column(String(60), nullable=False, default="", server_default=text("''"))
+    active = Column(Boolean, nullable=False, default=True, server_default=text("true"))
     type = Column(String(64), nullable=False, index=True)
     subtype = Column(String(64), nullable=False, default="", server_default=text("''"))
     description = Column(Text, nullable=False, default="", server_default=text("''"))
@@ -89,4 +122,10 @@ class Estoque(Base):
     produto_id = Column(UUID(as_uuid=True), ForeignKey("products.id"))
     fornecedor_id = Column(Integer, ForeignKey("fornecedores.id"))
     quantidade = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    # Piso de reposição. Alimenta o filtro `lowStock` e o rótulo
+    # NORMAL/LOW_STOCK/OUT_OF_STOCK do painel — no Java isso morava em
+    # `Product.minimumStock`, mas aqui o estoque é por (produto, fornecedor)
+    # e um mesmo produto pode ter piso diferente em fornecedores diferentes.
+    # O piso pertence à linha que ele governa.
+    estoque_minimo = Column(Integer, nullable=False, default=0, server_default=text("0"))
     atualizado_em = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

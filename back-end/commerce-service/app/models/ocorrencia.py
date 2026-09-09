@@ -12,13 +12,22 @@ class Ocorrencia(Base):
     # do FK acompanha o rename de `pedidos` para `orders` (task C2), e só o
     # TIPO acompanha `orders.id` virando uuid (task C3).
     pedido_id = Column(UUID(as_uuid=True), ForeignKey("orders.id"), nullable=False, index=True)
-    tipo = Column(String(30), nullable=False)  # FALTA_ESTOQUE | ATRASO_ENTREGA
+    # FALTA_ESTOQUE | ATRASO_ENTREGA | DANO | FALHA_ENTREGA | OUTRO
+    # Os três últimos são a porta de `OccurrenceType` do Java; o
+    # `DELIVERY_DELAY` de lá é o `ATRASO_ENTREGA` que já existia aqui, e por
+    # isso não virou um sexto valor.
+    tipo = Column(String(30), nullable=False)
     # `default=` covers ORM inserts; `server_default` matches schema.sql's
     # `DEFAULT 'ABERTA'` for any insert bypassing the ORM — fix round 1,
     # reviewer finding.
     status = Column(
         String(20), nullable=False, default="ABERTA", server_default=text("'ABERTA'"), index=True
     )
+    # A ocorrência continua sendo SEMPRE de um pedido (`pedido_id` é NOT
+    # NULL). A transportadora é uma DIMENSÃO dela, não um segundo dono — é
+    # por isso que o `CarrierOccurrence` do Java não virou tabela separada.
+    # O painel de transportadoras lê ocorrências agrupando por esta coluna.
+    transportadora_id = Column(Integer, ForeignKey("carriers.id"), nullable=True, index=True)
 
     # Campos específicos de FALTA_ESTOQUE
     produto_id = Column(UUID(as_uuid=True), ForeignKey("products.id"), nullable=True)

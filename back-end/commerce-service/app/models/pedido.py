@@ -105,6 +105,18 @@ class Order(Base):
     ship_city = Column(String(120), nullable=True)
     ship_state = Column(String(2), nullable=True)
 
+    # Origem de expedição, RESOLVIDA na criação do pedido a partir do
+    # fornecedor dos itens e congelada aqui. A spec C lê estas colunas para
+    # simular a rota e NÃO recalcula a origem — o estoque pode mudar de
+    # fornecedor depois que o pedido saiu. Mesmo espírito do snapshot
+    # `ship_*` logo acima: um pedido é registro histórico.
+    #
+    # Nullable: pedidos criados antes desta spec não têm origem, e o carrinho
+    # de um catálogo sem fornecedor cadastrado também não teria.
+    origem_rotulo = Column(String(120), nullable=True)
+    origem_lat = Column(Numeric(9, 6), nullable=True)
+    origem_lng = Column(Numeric(9, 6), nullable=True)
+
     items = relationship(
         "OrderItem",
         back_populates="order",
