@@ -8,6 +8,11 @@ Escreve pela MESMA função de transição que as rotas usam
 (`app/routers/separacao.py::transicionar_pedido`), nunca por UPDATE direto:
 validação de transição, carimbo de `status_updated_at`, linha de histórico e
 evento acontecem de um jeito só, e não de dois.
+
+O salto AGUARDANDO_COLETA -> EM_TRANSITO é o único com efeito extra: ele
+substitui `PATCH /delivery/{id}/collect`, então congela a coordenada de
+destino como a coleta faz. O que ele NÃO faz é gravar `deliverer_id` — ver o
+comentário no laço e `docs/back-end/order-flow.md` §4.
 """
 
 import uuid
@@ -19,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.pedido import Order
 from app.routers.separacao import transicionar_pedido
+from app.services.posicao import congelar_destino
 from app.services.status_pedido import StatusPedido
 
 # O passo seguinte de cada estado que pode ser avançado sozinho.
@@ -64,8 +70,29 @@ async def avancar_parados(
 
     avancados: list[uuid.UUID] = []
     for pedido in pedidos:
-        destino = PROXIMO_ESTADO[StatusPedido(pedido.status)]
-        await transicionar_pedido(db, pedido.id, destino.value, None, observacao=OBSERVACAO)
+        origem = StatusPedido(pedido.status)
+        destino = PROXIMO_ESTADO[origem]
+        atualizado = await transicionar_pedido(
+            db, pedido.id, destino.value, None, observacao=OBSERVACAO
+        )
+
+        if origem is StatusPedido.AGUARDANDO_COLETA:
+            # Este salto SUBSTITUI `PATCH /delivery/{id}/collect`, e a coleta
+            # faz duas coisas que a transição sozinha não faz. Uma delas
+            # cabe aqui: congelar a coordenada de destino. Sem ela o pedido
+            # entra em EM_TRANSITO sem destino, o simulador de posição o
+            # filtra fora (`avancar_carregamentos` exige destino congelado) e
+            # o mapa do comprador nunca anda para esse pedido.
+            #
+            # `congelar_destino` nunca levanta, por desenho — não precisa de
+            # guard aqui, do mesmo jeito que `confirmar_coleta` não tem um.
+            #
+            # A outra coisa, `deliverer_id`, NÃO é feita: não há pessoa
+            # nenhuma coletando, e inventar um dono seria gravar mentira no
+            # histórico. A consequência está escrita em
+            # `docs/back-end/order-flow.md` §4.
+            await congelar_destino(db, atualizado)
+
         avancados.append(pedido.id)
         logger.info("avanco_automatico: pedido {} avançou para {}", pedido.id, destino.value)
     return avancados

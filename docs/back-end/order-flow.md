@@ -316,6 +316,31 @@ usam (`transicionar_pedido`), nunca por `UPDATE` direto — validação de
 transição, carimbo de `status_updated_at`, linha de histórico e evento
 `order.status_changed` acontecem de um jeito só, não de dois.
 
+### O que a rede de segurança faz de diferente na coleta
+
+`AGUARDANDO_COLETA → EM_TRANSITO` é o único salto que a rota equivalente
+(`PATCH /delivery/{id}/collect`) acompanha de **dois** efeitos extras. O
+avanço automático reproduz um e deliberadamente não reproduz o outro:
+
+- **Congela o destino.** `congelar_destino` é chamado depois do salto, como
+  na coleta manual — sem isso o pedido entraria em `EM_TRANSITO` sem
+  coordenada de destino, o simulador (seção 3) o filtraria fora e o mapa do
+  comprador nunca andaria para ele. A função nunca levanta, por desenho, e
+  aqui vale a mesma garantia que vale na rota.
+- **NÃO grava `deliverer_id`.** Não há pessoa coletando: inventar um dono
+  seria gravar mentira no histórico. A consequência é concreta e vale
+  conhecer antes de ligar o interruptor: **um pedido coletado pela rede de
+  segurança não tem `deliverer_id`, e por isso uma conta `entregador` não
+  consegue mais confirmar a entrega dele** — `PATCH /delivery/{id}/deliver`
+  responde **403** ("Apenas o entregador responsável por este pedido pode
+  confirmar a entrega"), porque a posse que ela checa nunca foi
+  atribuída. Quem continua conseguindo entregar é o **entregador de lote**
+  (token de carregamento), cuja posse é o `carregamento_id` e não o
+  `deliverer_id` — e a própria rede de segurança, que levará o pedido a
+  `ENTREGUE` no prazo seguinte. É a descrição honesta de uma rede que é
+  desligada por padrão: quando ela age no lugar do entregador, ela também
+  assume o resto do trajeto daquele pedido.
+
 ---
 
 ## 5. Push por transição

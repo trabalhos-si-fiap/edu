@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
+from app.config import settings
 from app.services.avanco_automatico import PROXIMO_ESTADO, avancar_parados
 from app.services.status_pedido import TRANSICOES_VALIDAS, StatusPedido
 
@@ -106,3 +107,91 @@ async def test_it_publishes_through_the_same_funnel(db_session, seed_pedido_para
     await avancar_parados(db_session, datetime.now(UTC), 600)
 
     assert [chave for chave, _ in eventos] == ["order.status_changed"]
+
+
+# ── Fix final: a rede de segurança congela o destino no salto que substitui
+# `confirmar_coleta`. ───────────────────────────────────────────────────────
+
+
+async def _seed_pronto_para_coleta(db_session, carregamento_id: int, parado_ha: timedelta):
+    """Pedido em AGUARDANDO_COLETA, com snapshot de endereço e carregamento —
+    o mesmo estado que `PATCH /delivery/{id}/collect` encontraria."""
+    import uuid
+    from decimal import Decimal
+
+    from app.models.pedido import Order
+
+    pedido = Order(
+        user_id=str(uuid.uuid4()),
+        status=StatusPedido.AGUARDANDO_COLETA.value,
+        total=Decimal("100.00"),
+        status_updated_at=datetime.now(UTC) - parado_ha,
+        carregamento_id=carregamento_id,
+        ship_label="Casa",
+        ship_zip_code="13201-005",
+        ship_street="Rua das Flores",
+        ship_number="42",
+        ship_neighborhood="Centro",
+        ship_city="Jundiaí",
+        ship_state="SP",
+    )
+    db_session.add(pedido)
+    await db_session.commit()
+    await db_session.refresh(pedido)
+    return pedido
+
+
+async def test_the_collect_hop_freezes_the_destination(
+    db_session, seed_carregamento, monkeypatch, _stub_publish_event
+):
+    """`congelar_destino` só era chamado por `confirmar_coleta`. Quando a rede
+    de segurança faz a coleta, o pedido ficava sem coordenada de destino para
+    sempre — o simulador o filtra fora e o mapa do comprador nunca anda."""
+    from decimal import Decimal
+
+    from app.services.directions import DirectionsResult
+
+    carregamento = await seed_carregamento()
+    pedido = await _seed_pronto_para_coleta(db_session, carregamento.id, timedelta(minutes=20))
+    monkeypatch.setattr(settings, "google_maps_api_key", "test-key")
+
+    async def fake_fetch(client, *, origin, destination, api_key):
+        return DirectionsResult(
+            polyline="enc-poly",
+            distance_text="10 km",
+            distance_km=10.0,
+            duration_text="20 min",
+            duration_minutes=20,
+            destination_latitude=-23.185700,
+            destination_longitude=-46.897800,
+        )
+
+    monkeypatch.setattr("app.services.posicao.directions.fetch_directions", fake_fetch)
+
+    avancados = await avancar_parados(db_session, datetime.now(UTC), 600)
+
+    assert avancados == [pedido.id]
+    await db_session.refresh(pedido)
+    assert pedido.status == StatusPedido.EM_TRANSITO.value
+    assert pedido.destino_lat == Decimal("-23.185700")
+    assert pedido.destino_lng == Decimal("-46.897800")
+
+
+async def test_a_hop_that_is_not_the_collect_never_touches_the_destination(
+    db_session, seed_pedido_parado, monkeypatch, _stub_publish_event
+):
+    """Congelar destino é um efeito da COLETA, não de qualquer avanço: um
+    salto AGUARDANDO_SEPARACAO -> EM_SEPARACAO não pode chamar a Google."""
+    chamadas = []
+
+    async def _nao_deveria(db, order):
+        chamadas.append(order.id)
+
+    monkeypatch.setattr("app.services.avanco_automatico.congelar_destino", _nao_deveria)
+    await seed_pedido_parado(
+        status=StatusPedido.AGUARDANDO_SEPARACAO.value, parado_ha=timedelta(minutes=20)
+    )
+
+    await avancar_parados(db_session, datetime.now(UTC), 600)
+
+    assert chamadas == []
