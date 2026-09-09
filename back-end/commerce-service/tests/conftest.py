@@ -1,7 +1,7 @@
 import json
 import uuid
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import httpx
@@ -177,6 +177,35 @@ def seed_carregamento_com_pedido(seed_carregamento, db_session):
         await db_session.commit()
         await db_session.refresh(pedido)
         return carregamento, pedido
+
+    return _seed
+
+
+@pytest.fixture
+def seed_pedido_parado(db_session):
+    """Um pedido no `status` pedido, parado há `parado_ha` — o par que os
+    testes do avanço automático (task 7) precisam para exercitar o prazo.
+
+    `status_updated_at` é carimbado explicitamente no passado
+    (`agora - parado_ha`), nunca deixado para o server default: é exatamente
+    esse campo que `avancar_parados` compara contra o prazo, e é o mesmo
+    campo que `transicionar_pedido` recarimba em toda transição manual — o
+    critério de "ação manual sempre vence a rede de segurança".
+    """
+
+    async def _seed(*, status: str, parado_ha: timedelta):
+        from app.models.pedido import Order
+
+        pedido = Order(
+            user_id=str(uuid.uuid4()),
+            status=status,
+            total=Decimal("100.00"),
+            status_updated_at=datetime.now(UTC) - parado_ha,
+        )
+        db_session.add(pedido)
+        await db_session.commit()
+        await db_session.refresh(pedido)
+        return pedido
 
     return _seed
 

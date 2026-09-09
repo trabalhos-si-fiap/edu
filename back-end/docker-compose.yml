@@ -219,6 +219,9 @@ services:
       # Chamada serviço-a-serviço para app/services/auth_client.py (nome do
       # autor da review, hoje; endereço de entrega, a partir do bloco C).
       AUTH_SERVICE_URL: http://auth-users-service:8000
+      # Rede de segurança da apresentação (app/scheduler.py, task 7).
+      # AUSENTE = 0 = DESLIGADO, o default e o que a spec C pede.
+      AVANCO_AUTOMATICO_SEGUNDOS: ${AVANCO_AUTOMATICO_SEGUNDOS:-0}
     depends_on:
       postgres:
         condition: service_healthy

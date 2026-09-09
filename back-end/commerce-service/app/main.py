@@ -17,12 +17,15 @@ from app.routers import (
     separacao,
     transportadoras,
 )
+from app.scheduler import start_scheduler, stop_scheduler
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_publisher()
+    start_scheduler()
     yield
+    stop_scheduler()
     await close_publisher()
 
 

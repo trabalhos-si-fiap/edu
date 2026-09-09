@@ -68,5 +68,18 @@ class Settings(BaseSettings):
     # `GET /auth/addresses/{id}` (snapshot de entrega no checkout).
     auth_service_url: str = "http://auth-users-service:8000"
 
+    # Rede de segurança da apresentação: avança um pedido parado no mesmo
+    # estado há mais que este prazo. AUSENTE (0) É DESLIGADO — o default, e o
+    # critério de pronto 6 da spec C.
+    #
+    # Se ligar, use um valor BEM maior que três minutos: a apresentação é
+    # conduzida por uma pessoa alternando entre quatro perfis, e trocar de
+    # sessão já leva mais que isso. Um prazo curto faz o pedido correr na
+    # frente do apresentador, que é exatamente o acidente a evitar.
+    avanco_automatico_segundos: int = 0
+    # De quanto em quanto tempo o simulador grava uma posição nova. Dez
+    # segundos casa com o polling do app (`OrderProvider`, 8s).
+    simulador_posicao_segundos: int = 10
+
 
 settings = Settings()
