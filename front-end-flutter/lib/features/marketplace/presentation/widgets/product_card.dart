@@ -1,5 +1,6 @@
 import 'package:edu_ia/core/theme/app_colors.dart';
 import 'package:edu_ia/core/utils/currency.dart';
+import 'package:edu_ia/features/cart/data/cart_service.dart';
 import 'package:edu_ia/features/cart/data/cart_store.dart';
 import 'package:edu_ia/features/marketplace/domain/product.dart';
 import 'package:edu_ia/features/marketplace/presentation/widgets/product_image.dart';
@@ -117,11 +118,24 @@ class ProductCard extends StatelessWidget {
             const SizedBox(height: 10),
             AddToCartButton(
               enabled: true,
-              onAddToCart: () => context.read<CartStore>().add(product),
+              onAddToCart: () => _addToCart(context),
             ),
           ],
         ),
       ),
     );
+  }
+
+  /// Toque otimista: `CartStore.add` já atualizou a UI na hora. Este
+  /// `catchError` só existe para o caminho de falha — hoje, sobretudo o 409
+  /// de origem única do carrinho — mostrar a frase que o backend mandou.
+  /// Não usa `await` de propósito: o toque não pode travar esperando rede.
+  void _addToCart(BuildContext context) {
+    context.read<CartStore>().add(product).catchError((Object error) {
+      if (!context.mounted) return;
+      final message =
+          error is CartException ? error.message : 'Não foi possível adicionar ao carrinho.';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    });
   }
 }
