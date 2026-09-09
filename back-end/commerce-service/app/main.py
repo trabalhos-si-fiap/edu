@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from app.events.publisher import close_publisher, init_publisher
 from app.routers import (
     admin,
+    carregamentos,
     carrinho,
     entrega,
     ocorrencias,
@@ -38,6 +39,7 @@ app.include_router(admin.router)
 app.include_router(parceiros.router)
 app.include_router(ocorrencias.router)
 app.include_router(transportadoras.router)
+app.include_router(carregamentos.router)
 
 
 @app.get("/health")

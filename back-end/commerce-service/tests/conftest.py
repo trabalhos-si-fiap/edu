@@ -105,9 +105,9 @@ def _stub_publish_event(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, dict
     não onde ele é definido — `from app.events.publisher import publish_event`
     copia a referência para o namespace de quem importa, então remendar
     `app.events.publisher.publish_event` não afetaria nenhuma dessas cópias.
-    Há TRÊS chamadores, confirmados com `grep -rn "publish_event" app/`:
-    `app/routers/pedidos.py`, `app/routers/ocorrencias.py` (quatro publishes) e
-    `app/routers/separacao.py`.
+    Há QUATRO chamadores, confirmados com `grep -rn "publish_event" app/`:
+    `app/routers/pedidos.py`, `app/routers/ocorrencias.py` (quatro publishes),
+    `app/routers/separacao.py` e `app/routers/carregamentos.py`.
 
     Devolve a lista de eventos capturados (`(routing_key, payload)`, na ordem
     de publicação) — fix round 2: testes de idempotência (ex: prova de que
@@ -140,6 +140,7 @@ def _stub_publish_event(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, dict
     monkeypatch.setattr("app.routers.pedidos.publish_event", _capturar)
     monkeypatch.setattr("app.routers.ocorrencias.publish_event", _capturar)
     monkeypatch.setattr("app.routers.separacao.publish_event", _capturar)
+    monkeypatch.setattr("app.routers.carregamentos.publish_event", _capturar)
 
     return eventos
 

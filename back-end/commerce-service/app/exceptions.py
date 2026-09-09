@@ -143,3 +143,39 @@ class SkuDuplicadoError(Exception):
 
     Sufixo `Error` por N818.
     """
+
+
+class CarregamentoNotFoundError(Exception):
+    """Nenhum carregamento com o id dado. O router traduz em 404
+    "Carregamento não encontrado".
+
+    Sufixo `Error` por N818.
+    """
+
+
+class CarregamentoOrigemDivergenteError(Exception):
+    """Tentativa de pôr num carregamento um pedido que sai de outra origem.
+    O router traduz em 409 com `MENSAGEM` como `detail`.
+
+    Um carregamento é o lote que sai de UMA origem (spec C, "Carregamento e
+    credencial do entregador"). A interpolação de posição (task 6) parte da
+    origem do lote; um lote de duas origens não tem ponto de partida. Mesmo
+    espírito de `CarrinhoOrigemMistaError`, um nível acima.
+
+    Sufixo `Error` por N818.
+    """
+
+    MENSAGEM = (
+        "Este carregamento sai de outra origem. "
+        "Crie um carregamento separado para os pedidos desta origem."
+    )
+
+
+class PedidoJaCarregadoError(Exception):
+    """O pedido já está em OUTRO carregamento. O router traduz em 409.
+
+    Reatribuir ao MESMO carregamento não cai aqui — é idempotente, e o admin
+    que clica duas vezes não pode receber erro.
+
+    Sufixo `Error` por N818.
+    """
