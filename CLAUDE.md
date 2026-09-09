@@ -14,6 +14,7 @@ App educacional com Flutter (frontend) e Python + FastAPI (backend em microservi
 | | [docs/front-end/firebase_setup.md](docs/front-end/firebase_setup.md) | Documento histórico: FCM saiu do app na spec A; nenhuma credencial é necessária para compilar |
 | | [docs/front-end/running_ios.md](docs/front-end/running_ios.md) | Rodar no iOS (simulador/device), API_BASE_URL por plataforma |
 | **Entrega** | [docs/smoke-test.md](docs/smoke-test.md) | Roteiro manual de ponta a ponta pelos quatro perfis, com as lacunas conhecidas que nao sao bug |
+| | [docs/smoke-test-spec-b.md](docs/smoke-test-spec-b.md) | Plano de smoke test da spec B: as bordas e costuras que o roteiro de caminho feliz nao alcanca |
 | **Backend** | [docs/back-end/microservices.md](docs/back-end/microservices.md) | Arquitetura de microservicos: gateway, servicos, edu-common, como subir e testar |
 | | [docs/back-end/start-here.md](docs/back-end/start-here.md) | Documento histórico: setup e padrões do monolito, apagado na spec A |
 | | [docs/back-end/password-reset.md](docs/back-end/password-reset.md) | Documento histórico: envio de e-mail (Celery + adapter) do monolito, apagado na spec A — o OTP em si sobrevive em auth-users-service, sem envio |
