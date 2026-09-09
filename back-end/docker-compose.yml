@@ -274,6 +274,9 @@ services:
       <<: *service-env
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/notification_db
       DATABASE_URL_TEST: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/notification_test
+      EMAIL_BACKEND: ${EMAIL_BACKEND:-console}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-no-reply@svemlab.com}
     depends_on: *depends-db-mq
 
   analytics-service:

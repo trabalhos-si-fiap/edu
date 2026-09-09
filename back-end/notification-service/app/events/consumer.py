@@ -17,6 +17,7 @@ from app.services.destinatarios import (
     PAPEIS_POR_STATUS,
     resolver,
 )
+from app.services.email import enviar_email
 
 # O produtor (`learning-service/app/scheduler.py`) manda `subtema_nome` no
 # payload desde a fase 2 — este serviço não tem banco de conteúdo e não pode
@@ -274,6 +275,30 @@ async def handle_occurrence_resolved(message: aio_pika.abc.AbstractIncomingMessa
             await db.commit()
 
 
+async def handle_shipment_created(message: aio_pika.abc.AbstractIncomingMessage) -> None:
+    """Manda a credencial do carregamento para a transportadora.
+
+    NÃO grava linha de notificação: a transportadora não é usuária deste
+    sistema, e a senha não tem por que existir no banco depois do envio. O
+    `Carregamento` guarda só o hash (commerce, task 4).
+    """
+    async with message.process():
+        payload = json.loads(message.body)
+        texto = (
+            f"Carregamento #{payload['carregamento_id']} liberado para "
+            f"{payload['transportadora_nome']}.\n\n"
+            f"Código: {payload['codigo']}\n"
+            f"Senha: {payload['senha']}\n\n"
+            "O entregador entra no app com este código, esta senha, o nome e um "
+            "contato. O acesso vale apenas para os pedidos deste carregamento."
+        )
+        await enviar_email(
+            para=payload["transportadora_email"],
+            assunto=f"Carregamento #{payload['carregamento_id']} — código de acesso",
+            texto=texto,
+        )
+
+
 # Extraído do antigo `start_consumer` monolítico para constante de módulo —
 # cada tupla é (nome da fila, routing key, handler). Oito filas, uma
 # routing key cada, todas ligadas à mesma exchange topic.
@@ -290,6 +315,7 @@ BINDINGS: list[tuple[str, str, Handler]] = [
         "order.occurrence_resolved",
         handle_occurrence_resolved,
     ),
+    ("notification.shipment_created", "shipment.created", handle_shipment_created),
 ]
 
 

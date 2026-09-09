@@ -42,6 +42,24 @@ def fake_message(payload: dict) -> MagicMock:
     return message
 
 
+def _payload_shipment() -> dict:
+    """Mesmo formato publicado por `POST /shipments` (commerce-service, task
+    4): `senha` em texto claro — é a ÚNICA cópia em claro, a linha do
+    carregamento guarda só o hash bcrypt."""
+    return {
+        "carregamento_id": 12,
+        "codigo": "ABCD2345",
+        "senha": "SEGREDO12345",
+        "transportadora_id": 3,
+        "transportadora_nome": "Expresso Cajamar",
+        "transportadora_email": "operacao@expresso.example",
+    }
+
+
+async def _noop_email(*, para, assunto, texto) -> None:
+    pass
+
+
 async def _registrar_staff(test_session_factory) -> None:
     """Popula o registro local com um de cada papel de staff — mesmo caminho
     que `handle_staff_created` deixaria, sem depender dele nos testes que só
@@ -419,6 +437,11 @@ async def test_every_binding_points_to_a_real_handler():
             "order.occurrence_resolved",
             consumer_module.handle_occurrence_resolved,
         ),
+        (
+            "notification.shipment_created",
+            "shipment.created",
+            consumer_module.handle_shipment_created,
+        ),
     ]
     assert expected == consumer_module.BINDINGS
 
@@ -660,3 +683,33 @@ def test_every_internal_status_has_a_recipient_rule():
         "CANCELADO",
     }
     assert internos <= set(PAPEIS_POR_STATUS)
+
+
+async def test_shipment_created_emails_the_carrier(db_session, test_session_factory, monkeypatch):
+    enviados = []
+
+    async def _capturar(*, para, assunto, texto):
+        enviados.append((para, assunto, texto))
+
+    monkeypatch.setattr(consumer_module, "async_session", test_session_factory)
+    monkeypatch.setattr(consumer_module, "enviar_email", _capturar)
+
+    await consumer_module.handle_shipment_created(fake_message(_payload_shipment()))
+
+    para, _assunto, texto = enviados[0]
+    assert para == "operacao@expresso.example"
+    assert "ABCD2345" in texto and "SEGREDO12345" in texto
+
+
+async def test_shipment_created_does_not_store_the_password(
+    db_session, test_session_factory, monkeypatch
+):
+    """A senha vive no e-mail e em lugar nenhum mais. Uma linha de
+    `notificacoes` é lida por rota autenticada de USUÁRIO — a transportadora
+    não é usuária deste sistema, e a senha não tem por que ficar no banco."""
+    monkeypatch.setattr(consumer_module, "async_session", test_session_factory)
+    monkeypatch.setattr(consumer_module, "enviar_email", _noop_email)
+
+    await consumer_module.handle_shipment_created(fake_message(_payload_shipment()))
+
+    assert (await db_session.execute(select(Notificacao))).scalars().all() == []
