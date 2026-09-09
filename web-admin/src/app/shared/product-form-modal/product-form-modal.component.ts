@@ -195,7 +195,13 @@ export class ProductFormModalComponent implements OnInit {
   private loadPartners(): void {
     this.loadingPartners = true;
 
-    this.partnerService.listPartners(true, 100, 0).subscribe({
+    // `active = false` significa "todos" no backend, não "só os inativos"
+    // (`GET /partners?active=false`, ver parceiros.py). O seletor de
+    // fornecedor precisa de TODOS: o fornecedor da própria loja é semeado
+    // como parceiro INATIVO — ele não é vitrine —, e um admin cadastrando
+    // produto próprio tem que poder escolhê-lo. Com `true` aqui, o produto
+    // próprio ficava impossível de cadastrar pelo painel.
+    this.partnerService.listPartners(false, 100, 0).subscribe({
       next: list => {
         this.partners = list.items;
         this.loadingPartners = false;
