@@ -85,10 +85,10 @@ async def ajustar_estoque(
 ) -> EstoqueAjusteOut:
     """Ajuste por DELTA, com auditoria, atômico. Ver app/services/estoque.py."""
     try:
-        estoque = await estoque_services.obter_estoque_do_produto(db, product_id)
+        estoque_id = await estoque_services.obter_estoque_do_produto(db, product_id)
         _, ajuste = await estoque_services.aplicar_ajuste(
             db,
-            estoque_id=estoque.id,
+            estoque_id=estoque_id,
             delta=payload.delta,
             motivo=payload.motivo,
             autor_id=uuid.UUID(user["sub"]),

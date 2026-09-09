@@ -24,40 +24,57 @@ from app.models.estoque_ajuste import EstoqueAjuste
 from app.models.produto import Estoque
 
 
-async def obter_estoque_do_produto(db: AsyncSession, produto_id: uuid.UUID) -> Estoque:
-    """Uma linha de estoque para o produto.
+async def obter_estoque_do_produto(db: AsyncSession, produto_id: uuid.UUID) -> int:
+    """Id da linha de estoque do produto — não a entidade.
 
-    Correção à task 3: `Estoque` tem `uq_produto_fornecedor` na PAR
-    (produto_id, fornecedor_id) — um produto com mais de um fornecedor gera
-    mais de uma linha aqui. `scalar_one_or_none()` estouraria
+    Fix round 1, finding 5: esta função só existe para os chamadores
+    descobrirem QUAL `estoque_id` passar para `aplicar_ajuste`/
+    `definir_quantidade`/`listar_ajustes`. Carregar a entidade `Estoque`
+    inteira aqui punha um objeto SEM lock no identity map da sessão — e é
+    exatamente essa entidade "pré-lock" que, se a mesma sessão depois faz um
+    `SELECT ... FOR UPDATE` no mesmo id, arma a armadilha que
+    `execution_options(populate_existing=True)` (em `aplicar_ajuste` e
+    `definir_quantidade`) existe para desarmar. `populate_existing` continua
+    ali como defesa de última linha — mas `select(Estoque.id)` em vez de
+    `select(Estoque)` fecha o problema NESTA ponta: nenhuma entidade entra na
+    sessão por este caminho, então não há o que ficar velho.
+
+    Correção à task 3 (rodada original): `Estoque` tem `uq_produto_fornecedor`
+    na PAR (produto_id, fornecedor_id) — um produto com mais de um fornecedor
+    gera mais de uma linha aqui. `scalar_one_or_none()` estouraria
     `MultipleResultsFound` nesse caso; `order_by(id).limit(1)` resolve de
-    forma determinística para a linha mais antiga. Ver
+    forma determinística para a linha mais antiga (a de id menor). Ver
     test_a_product_stocked_by_two_suppliers_still_resolves_to_one_row.
     """
     result = await db.execute(
-        select(Estoque).where(Estoque.produto_id == produto_id).order_by(Estoque.id).limit(1)
+        select(Estoque.id).where(Estoque.produto_id == produto_id).order_by(Estoque.id).limit(1)
     )
-    estoque = result.scalars().first()
-    if estoque is None:
+    estoque_id = result.scalars().first()
+    if estoque_id is None:
         raise EstoqueNotFoundError()
-    return estoque
+    return estoque_id
 
 
 async def aplicar_ajuste(
     db: AsyncSession, *, estoque_id: int, delta: int, motivo: str, autor_id: uuid.UUID
 ) -> tuple[Estoque, EstoqueAjuste]:
-    # `populate_existing=True`: o caminho de entrada do router
-    # (`POST /products/{id}/stock-adjustments`) já carregou este `Estoque` SEM
-    # lock, via `obter_estoque_do_produto`, na MESMA sessão — o objeto Python
-    # já está no identity map antes desta linha rodar. Sem `populate_existing`,
-    # o SQL `FOR UPDATE` abaixo bloqueia corretamente e o Postgres devolve a
-    # linha ATUALIZADA quando destrava, mas o ORM, achando o id já carregado,
-    # devolve a instância antiga em memória SEM reescrever `quantidade` —
+    # `populate_existing=True`: defesa de última linha contra o identity map.
+    # `obter_estoque_do_produto` (usada pelo router antes de chegar aqui) só
+    # busca a COLUNA `Estoque.id` desde o fix round 1 — nenhuma entidade
+    # `Estoque` entra na sessão por aquele caminho, então hoje não há cache
+    # pré-lock para este SELECT herdar. Mas QUALQUER outro chamador futuro
+    # (tasks 6, 11, 13) que carregue a entidade sem lock antes de chamar
+    # `aplicar_ajuste` na mesma sessão reabriria o mesmo buraco: o SQL
+    # `FOR UPDATE` abaixo bloqueia corretamente e o Postgres devolve a linha
+    # ATUALIZADA quando destrava, mas o ORM, achando o id já carregado,
+    # devolveria a instância antiga em memória SEM reescrever `quantidade` —
     # exatamente o gotcha que o comentário de `admin.py::confirmar_pagamento`
-    # documenta para `Order`. Medido: sem esta opção,
-    # `test_concurrent_deltas_do_not_lose_an_adjustment` perde um ajuste (10 +5
-    # +5 vira 15, não 20) porque as duas requisições leem `anterior=10` — uma
-    # delas a partir do cache, não do SELECT que acabou de esperar o lock.
+    # documenta para `Order`. Medido originalmente (task 3, antes deste fix):
+    # sem `populate_existing`, `test_concurrent_deltas_do_not_lose_an_adjustment`
+    # perdia um ajuste (10 +5 +5 virava 15, não 20) porque uma das duas
+    # requisições lia `anterior=10` do cache, não do SELECT que acabou de
+    # esperar o lock. Mantido aqui como o núcleo de escrita — é o lugar certo
+    # para a defesa valer para QUALQUER chamador, não só o de hoje.
     estoque = (
         await db.execute(
             select(Estoque)
@@ -134,10 +151,10 @@ async def definir_quantidade(
 async def listar_ajustes(
     db: AsyncSession, *, produto_id: uuid.UUID, limit: int, offset: int
 ) -> tuple[list[EstoqueAjuste], int]:
-    estoque = await obter_estoque_do_produto(db, produto_id)
+    estoque_id = await obter_estoque_do_produto(db, produto_id)
     stmt = (
         select(EstoqueAjuste)
-        .where(EstoqueAjuste.estoque_id == estoque.id)
+        .where(EstoqueAjuste.estoque_id == estoque_id)
         .order_by(EstoqueAjuste.criado_em.desc(), EstoqueAjuste.id.desc())
         .limit(limit)
         .offset(offset)
@@ -147,7 +164,7 @@ async def listar_ajustes(
         await db.execute(
             select(func.count())
             .select_from(EstoqueAjuste)
-            .where(EstoqueAjuste.estoque_id == estoque.id)
+            .where(EstoqueAjuste.estoque_id == estoque_id)
         )
     ).scalar_one()
     return items, total
