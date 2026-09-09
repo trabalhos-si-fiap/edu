@@ -159,7 +159,13 @@ async def ajustar_estoque(
     estoque_id: int,
     # `ge=0`: sem piso, um admin gravava estoque negativo e a separação
     # passava a trabalhar contra um número que não existe no mundo físico.
-    quantidade: int = Query(ge=0),
+    # `le=1_000_000`: fix round 1, finding 2. `Estoque.quantidade` é
+    # `Integer` (int32) — sem teto, um valor fora da faixa (ex.: 3 bilhões)
+    # passa pela validação do Pydantic e só estoura em runtime, dentro da
+    # transação, como `asyncpg.exceptions.DataError` não tratado (500). O
+    # teto de um milhão não tem significado de negócio; existe só para
+    # manter o valor sempre dentro de int32 com folga enorme.
+    quantidade: int = Query(ge=0, le=1_000_000),
     # Obrigatório desde a spec B: um ajuste sem motivo não é auditoria. O
     # painel Angular já mandava um (`stock-adjust-modal` compõe
     # "<preset>: <observação>") — só não havia onde gravar.
@@ -172,6 +178,16 @@ async def ajustar_estoque(
     (`app/services/estoque.py`), então as duas deixam rastro em
     `estoque_ajustes` — antes da spec B esta rota não deixava nenhum.
     """
+    # Fix round 1, finding 4: `Query(min_length=1)` só barra string VAZIA —
+    # `"   "` tem length 3 e passa. Um motivo feito só de espaço em branco é
+    # um motivo vazio disfarçado, e uma auditoria sem motivo é o problema que
+    # esta task inteira existe para resolver. `AjusteEstoqueIn` (a porta de
+    # delta) valida isso com um `field_validator`; aqui, sem um schema
+    # Pydantic no meio (é um `Query`, não um body), a checagem é manual, mas
+    # a regra é a mesma.
+    motivo = motivo.strip()
+    if not motivo:
+        raise HTTPException(422, "motivo não pode ser vazio ou conter só espaços")
     try:
         estoque, _ = await estoque_services.definir_quantidade(
             db,

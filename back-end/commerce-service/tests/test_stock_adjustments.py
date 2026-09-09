@@ -210,6 +210,91 @@ async def test_the_admin_absolute_route_also_writes_the_trail(client, db_session
     assert trilha[0].motivo == "Inventário"
 
 
+async def test_the_admin_absolute_route_also_requires_admin(client, db_session):
+    """Fix round 1, finding 1. Esta rota ganhou poder nesta task: agora ela
+    AUTORA uma linha de auditoria atribuída a `user["sub"]` — `user` deixou
+    de ser um parâmetro só de guarda e passou a ser um valor que o handler
+    consome. Se alguém trocar `requer_papel("admin")` por `get_current_user`
+    no futuro, o handler continua compilando e a suíte continua verde sem
+    este teste, mas qualquer aluno autenticado passaria a reescrever estoque
+    e a forjar linhas de auditoria em nome de si mesmo."""
+    _, estoque = await _seed(db_session, quantidade=10)
+
+    response = await client.patch(
+        f"/admin/inventory/{estoque.id}/adjust?quantidade=4&motivo=Teste",
+        headers=headers_for("student"),
+    )
+
+    assert response.status_code == 403
+
+
+async def test_a_delta_out_of_int32_range_is_422_not_500(client, db_session):
+    """Fix round 1, finding 2. `Estoque.quantidade` e
+    `EstoqueAjuste.quantidade_*` são `Integer` (int32). Sem teto no schema,
+    `{"delta": 3000000000, ...}` passava da validação do Pydantic direto para
+    o `INSERT` de `estoque_ajustes` e estourava
+    `asyncpg.exceptions.DataError: invalid input for query argument ...
+    (value out of int32 range)` não tratado — 500, não 422."""
+    produto, _ = await _seed(db_session)
+    response = await client.post(
+        f"/products/{produto.id}/stock-adjustments",
+        json={"delta": 3_000_000_000, "motivo": "Recebimento de lote"},
+        headers=headers_for("admin"),
+    )
+    assert response.status_code == 422
+
+
+async def test_an_absolute_quantity_out_of_int32_range_is_422_not_500(client, db_session):
+    """Mesma classe de bug da finding 2, na porta absoluta
+    (`PATCH /admin/inventory/{id}/adjust`)."""
+    _, estoque = await _seed(db_session, quantidade=10)
+    response = await client.patch(
+        f"/admin/inventory/{estoque.id}/adjust?quantidade=3000000000&motivo=Teste",
+        headers=headers_for("admin"),
+    )
+    assert response.status_code == 422
+
+
+async def test_a_whitespace_only_reason_is_rejected_on_the_delta_door(client, db_session):
+    """Fix round 1, finding 4. `Field(min_length=1)` só barra string VAZIA —
+    `"   "` tem length 3 e passava (o revisor mediu 201). Um motivo feito só
+    de espaço em branco é um motivo vazio disfarçado, e uma auditoria sem
+    motivo é exatamente o que esta task existe para impedir."""
+    produto, _ = await _seed(db_session)
+    response = await client.post(
+        f"/products/{produto.id}/stock-adjustments",
+        json={"delta": 1, "motivo": "   "},
+        headers=headers_for("admin"),
+    )
+    assert response.status_code == 422
+
+
+async def test_a_whitespace_only_reason_is_rejected_on_the_absolute_door(client, db_session):
+    """Mesma classe de bug da finding 4, na porta absoluta."""
+    _, estoque = await _seed(db_session, quantidade=10)
+    response = await client.patch(
+        f"/admin/inventory/{estoque.id}/adjust?quantidade=4&motivo=%20%20%20",
+        headers=headers_for("admin"),
+    )
+    assert response.status_code == 422
+
+
+async def test_the_absolute_door_also_caps_the_reason_at_the_column_width(client, db_session):
+    """Fix round 1, finding 4. O teto de 300 caracteres já funcionava
+    (`Query(max_length=300)`), mas só estava pinado por teste na porta de
+    delta (`test_a_reason_is_mandatory_and_capped_at_the_column_width`). Sem
+    este teste, remover `max_length` desta rota passaria despercebido e um
+    motivo de 400 caracteres estouraria em runtime contra o `String(300)` da
+    coluna (500), não 422."""
+    _, estoque = await _seed(db_session, quantidade=10)
+    motivo_gigante = "x" * 400
+    response = await client.patch(
+        f"/admin/inventory/{estoque.id}/adjust?quantidade=4&motivo={motivo_gigante}",
+        headers=headers_for("admin"),
+    )
+    assert response.status_code == 422
+
+
 async def test_a_product_stocked_by_two_suppliers_still_resolves_to_one_row(client, db_session):
     """Correção da task 3 ao brief: `Estoque` tem `uq_produto_fornecedor` na
     PAR (produto_id, fornecedor_id), não em `produto_id` sozinho — um

@@ -31,7 +31,14 @@ class AjusteEstoqueIn(BaseModel):
     `PATCH /admin/inventory/{id}/adjust`, que converte para delta dentro do
     lock e chama o mesmo núcleo (ver app/services/estoque.py)."""
 
-    delta: int
+    # `ge`/`le`: fix round 1, finding 2. `Estoque.quantidade` e
+    # `EstoqueAjuste.quantidade_*` são `Integer` (int32) — sem teto, um delta
+    # fora da faixa (ex.: 3 bilhões) passava da validação do Pydantic direto
+    # para o `INSERT` de `estoque_ajustes` e estourava
+    # `asyncpg.exceptions.DataError` não tratado (500) dentro da transação. O
+    # teto de um milhão não é regra de negócio; é só para manter o valor
+    # sempre dentro de int32 com folga enorme.
+    delta: int = Field(ge=-1_000_000, le=1_000_000)
     motivo: str = Field(min_length=1, max_length=300)
 
     @field_validator("delta")
@@ -39,6 +46,18 @@ class AjusteEstoqueIn(BaseModel):
     def _delta_nao_pode_ser_zero(cls, v: int) -> int:
         if v == 0:
             raise ValueError("delta não pode ser zero")
+        return v
+
+    @field_validator("motivo")
+    @classmethod
+    def _motivo_nao_pode_ser_so_espaco(cls, v: str) -> str:
+        """Fix round 1, finding 4: `min_length=1` só barra string vazia —
+        `"   "` tem length 3 e passava. Um motivo feito só de espaço em
+        branco é um motivo vazio disfarçado; a trilha de auditoria existe
+        para não deixar isso passar."""
+        v = v.strip()
+        if not v:
+            raise ValueError("motivo não pode ser vazio ou conter só espaços")
         return v
 
 
