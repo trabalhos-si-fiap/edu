@@ -28,17 +28,21 @@ legacy — são desta task.
 """
 
 import uuid
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
-from edu_common.security import create_access_token
+from edu_common.security import create_access_token, hash_password
 from loguru import logger
 
 from app.config import settings
 from app.exceptions import RouteUnavailableError
+from app.models.carregamento import Carregamento
 from app.models.pedido import Order, OrderItem
 from app.models.produto import Product
+from app.models.transportadora import Carrier
 from app.services.directions import DirectionsResult
+from app.services.posicao import registrar_posicao
 from app.services.status_pedido import StatusPedido
 
 
@@ -130,6 +134,93 @@ async def _seed_pedido_com_endereco(db_session, user_id: str) -> Order:
     return order
 
 
+async def _seed_pedido_do_aluno(db_session) -> Order:
+    """Pedido comum, sem carregamento — o caso mais frequente, em que ainda
+    não há posição nenhuma para mostrar (task 6)."""
+    return await _tracked_order(db_session, str(uuid.uuid4()))
+
+
+async def _seed_pedido_em_transito_com_carregamento(db_session) -> tuple[Order, Carregamento]:
+    """Pedido EM_TRANSITO com um carregamento de origem congelada — o caso em
+    que o rastreio tem uma posição real registrada para mostrar (task 6).
+
+    Não reusa a fixture `seed_carregamento` de `conftest.py` de propósito:
+    aqui o teste quer o `Order` (para pegar `user_id`/`id`) junto do
+    `Carregamento` (para chamar `registrar_posicao`), então monta os dois
+    inline como os demais seeds locais deste arquivo.
+    """
+    carrier = Carrier(
+        name="Expresso Cajamar",
+        location="Cajamar, SP",
+        email="operacao@expresso.example",
+        average_delivery_days=2,
+        rating=Decimal("4.5"),
+        sla_percentage=Decimal("97.50"),
+    )
+    db_session.add(carrier)
+    await db_session.flush()
+
+    carregamento = Carregamento(
+        transportadora_id=carrier.id,
+        codigo=uuid.uuid4().hex[:12].upper(),
+        senha_hash=hash_password("nao-usada-neste-teste"),
+        criado_por=uuid.uuid4(),
+        origem_rotulo="Cajamar, SP",
+        origem_lat=Decimal("-23.355800"),
+        origem_lng=Decimal("-46.876900"),
+    )
+    db_session.add(carregamento)
+    await db_session.flush()
+
+    pedido = Order(
+        user_id=str(uuid.uuid4()),
+        total=Decimal("100.00"),
+        payment_method="pix",
+        status=StatusPedido.EM_TRANSITO.value,
+        status_updated_at=datetime.now(UTC),
+        carregamento_id=carregamento.id,
+        destino_lat=Decimal("-23.561414"),
+        destino_lng=Decimal("-46.655881"),
+    )
+    db_session.add(pedido)
+    await db_session.commit()
+    await db_session.refresh(pedido)
+    await db_session.refresh(carregamento)
+    return pedido, carregamento
+
+
+async def test_tracking_answers_with_a_null_position_when_none_was_recorded(
+    client, db_session
+) -> None:
+    """200 com posição nula, nunca tela de erro: o mapa mostra origem e
+    destino sem o marcador móvel."""
+    pedido = await _seed_pedido_do_aluno(db_session)
+
+    corpo = (
+        await client.get(
+            f"/orders/{pedido.id}/tracking", headers=headers_for("student", str(pedido.user_id))
+        )
+    ).json()
+
+    assert corpo["courier_position"] is None
+
+
+async def test_tracking_carries_the_last_recorded_position(client, db_session) -> None:
+    pedido, carregamento = await _seed_pedido_em_transito_com_carregamento(db_session)
+    await registrar_posicao(
+        db_session, carregamento.id, Decimal("-23.450000"), Decimal("-46.700000")
+    )
+
+    corpo = (
+        await client.get(
+            f"/orders/{pedido.id}/tracking", headers=headers_for("student", str(pedido.user_id))
+        )
+    ).json()
+
+    assert corpo["courier_position"]["latitude"] == -23.45
+    assert corpo["courier_position"]["longitude"] == -46.7
+
+
 async def test_get_order_tracking_requires_auth(client) -> None:
     resp = await client.get(f"/orders/{uuid.uuid4()}/tracking")
     assert resp.status_code == 403
@@ -146,7 +237,10 @@ async def test_get_order_tracking_matches_flutter_contract(client, db_session) -
 
     body = resp.json()
     # Exatamente as chaves que `OrderModel.fromJson` lê
-    # (front-end-flutter/lib/features/order_tracking/domain/order_model.dart).
+    # (front-end-flutter/lib/features/order_tracking/domain/order_model.dart)
+    # mais `courier_position` (task 6) — o app ainda não a
+    # lê nesta task (fica para a task do Flutter), mas um campo extra no
+    # JSON não quebra o parser Dart, que só lê as chaves que conhece.
     # `status` é divergência deliberada nº 7: o legacy não tem esse campo no
     # payload de rastreio (ver docs/back-end/commerce-parity.md).
     assert set(body) == {
@@ -160,6 +254,7 @@ async def test_get_order_tracking_matches_flutter_contract(client, db_session) -
         "carrier",
         "map_url",
         "status",
+        "courier_position",
     }
     assert body["id"] == str(order.id)
     assert body["carrier"]

@@ -11,6 +11,7 @@ from app.dependencies import PAPEL_CARREGAMENTO, AtorEntrega, ator_de_entrega
 from app.models.pedido import Order
 from app.routers.separacao import transicionar_pedido
 from app.schemas.pedido import PedidoStaffOut
+from app.services.posicao import congelar_destino
 from app.services.previsao_entrega import estimar_prazo_entrega
 from app.services.status_pedido import StatusPedido
 
@@ -126,6 +127,10 @@ async def confirmar_coleta(
     pedido_atualizado = await transicionar_pedido(
         db, pedido_id, StatusPedido.EM_TRANSITO.value, quem_fez
     )
+
+    # Uma vez por pedido, e nunca bloqueando a coleta (ver
+    # `congelar_destino`, que não levanta).
+    await congelar_destino(db, pedido_atualizado)
 
     # Estima o prazo de entrega com base na média histórica real de
     # tempo entre coleta e entrega — só preenche se o pedido ainda não

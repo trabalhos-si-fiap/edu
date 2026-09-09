@@ -23,6 +23,7 @@ from app.redis_client import get_redis
 from app.schemas.rastreio import CourierLocationIn, ETAPredictionOut, OrderTrackingOut, RouteOut
 from app.services import pedidos as pedidos_services
 from app.services import rastreio as services
+from app.services.posicao import ultima_posicao
 from app.services.rastreio_builder import build_order_tracking
 
 router = APIRouter(prefix="/orders", tags=["tracking"])
@@ -55,7 +56,16 @@ async def rastreio_pedido(
         user["sub"],
         order.status,
     )
-    return build_order_tracking(order)
+    # Task 6: posição do carregamento, carregada aqui (a camada de
+    # serviço/router é dona de I/O) e passada pronta ao construtor puro —
+    # pedido sem carregamento nunca teve posição registrada, então nem
+    # consulta.
+    posicao = (
+        await ultima_posicao(db, order.carregamento_id)
+        if order.carregamento_id is not None
+        else None
+    )
+    return build_order_tracking(order, posicao)
 
 
 @router.get("/{order_id}/route", response_model=RouteOut)

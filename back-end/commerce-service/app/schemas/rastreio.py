@@ -67,6 +67,19 @@ class KitItemOut(BaseModel):
     subtitle: str | None = Field(default=None, max_length=160)
 
 
+class TrackingPositionOut(BaseModel):
+    """Última posição conhecida do carregamento que leva o pedido (task 6).
+
+    `None` no payload é estado normal: pedido que ainda não saiu, lote sem
+    posição registrada, ou destino não resolvido. O app desenha origem e
+    destino sem o marcador móvel — nunca uma tela de erro.
+    """
+
+    latitude: float = Field(..., ge=_LAT_MIN, le=_LAT_MAX)
+    longitude: float = Field(..., ge=_LNG_MIN, le=_LNG_MAX)
+    updated_at: datetime
+
+
 class OrderTrackingOut(BaseModel):
     """Payload completo renderizado pela tela de rastreio.
 
@@ -80,6 +93,9 @@ class OrderTrackingOut(BaseModel):
     entrou porque a timeline de um pedido cancelado fica inteira PENDING
     (`_step_status` em `rastreio_builder.py`), então `isDelivered` sozinho
     nunca detecta cancelamento — o app usa `status` para parar o polling.
+
+    `courier_position` é a task 6: campo novo, com default `None` — o app
+    antigo, que não conhece a chave, continua lendo o payload sem quebrar.
     """
 
     id: str = Field(..., max_length=64)
@@ -92,6 +108,7 @@ class OrderTrackingOut(BaseModel):
     carrier: str = Field(..., max_length=120)
     map_url: str | None = Field(default=None, max_length=512)
     status: StatusContrato
+    courier_position: TrackingPositionOut | None = None
 
 
 # --- Rota no mapa (GET /orders/{id}/route) -----------------------------------

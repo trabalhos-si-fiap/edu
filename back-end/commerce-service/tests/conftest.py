@@ -1,5 +1,8 @@
 import json
+import uuid
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
+from decimal import Decimal
 
 import httpx
 import pytest
@@ -91,6 +94,91 @@ async def db_session(
 ) -> AsyncIterator[AsyncSession]:
     async with test_session_factory() as session:
         yield session
+
+
+@pytest.fixture
+def seed_carregamento(db_session):
+    """Um carregamento pronto, com origem congelada. `senha_hash` é um hash
+    qualquer — nenhum teste desta fixture faz login.
+
+    Usada pelas tasks 6 e 7 (rastreio de posição e o scheduler que a
+    aciona).
+    """
+
+    async def _seed(**kwargs):
+        from edu_common.security import hash_password
+
+        from app.models.carregamento import Carregamento
+        from app.models.transportadora import Carrier
+
+        carrier = Carrier(
+            name=kwargs.get("carrier_name", "Expresso Cajamar"),
+            location="Cajamar, SP",
+            email="operacao@expresso.example",
+            average_delivery_days=2,
+            rating=Decimal("4.5"),
+            sla_percentage=Decimal("97.50"),
+        )
+        db_session.add(carrier)
+        await db_session.flush()
+        carregamento = Carregamento(
+            transportadora_id=carrier.id,
+            codigo=kwargs.get("codigo", "ABCD2345"),
+            senha_hash=hash_password("nao-usada-nesta-fixture"),
+            criado_por=uuid.uuid4(),
+            origem_rotulo="Cajamar, SP",
+            origem_lat=Decimal("-23.355800"),
+            origem_lng=Decimal("-46.876900"),
+        )
+        db_session.add(carregamento)
+        await db_session.commit()
+        await db_session.refresh(carregamento)
+        return carregamento
+
+    return _seed
+
+
+# Destino padrão de `seed_carregamento_com_pedido` quando o teste não pede um
+# explícito — a mesma coordenada usada como DESTINO em
+# `tests/test_delivery_position.py`, só para os dados de teste ficarem
+# reconhecíveis entre os dois arquivos.
+_DESTINO_PADRAO_TESTE = (Decimal("-23.561414"), Decimal("-46.655881"))
+
+
+@pytest.fixture
+def seed_carregamento_com_pedido(seed_carregamento, db_session):
+    """`seed_carregamento` mais um `Order` associado a ele, no status que o
+    teste pedir — o par que os testes do simulador (tasks 6 e 7) precisam
+    para exercitar o avanço POR carregamento.
+
+    Cada chamada gera um `codigo` de lote novo, para duas chamadas no mesmo
+    teste não colidirem no índice único de `carregamentos.codigo`.
+    `status_updated_at` é carimbado explicitamente, não deixado para o
+    server default: é o horário que `fracao_percorrida` lê como a partida —
+    ver a nota do controlador no brief da task 6.
+    """
+
+    async def _seed(
+        *, status: str, destino: tuple[Decimal, Decimal] | None = _DESTINO_PADRAO_TESTE
+    ):
+        from app.models.pedido import Order
+
+        carregamento = await seed_carregamento(codigo=uuid.uuid4().hex[:12].upper())
+        pedido = Order(
+            user_id=str(uuid.uuid4()),
+            status=status,
+            total=Decimal("100.00"),
+            carregamento_id=carregamento.id,
+            status_updated_at=datetime.now(UTC),
+            destino_lat=destino[0] if destino else None,
+            destino_lng=destino[1] if destino else None,
+        )
+        db_session.add(pedido)
+        await db_session.commit()
+        await db_session.refresh(pedido)
+        return carregamento, pedido
+
+    return _seed
 
 
 @pytest.fixture
