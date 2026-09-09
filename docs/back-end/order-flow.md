@@ -458,6 +458,19 @@ nenhuma task o introduziu pela porta dos fundos:
 - **Roteirização com várias paradas.** Um carregamento interpola para **um**
   destino (o primeiro pedido do lote com coordenada congelada), não uma rota
   que visita vários endereços em sequência.
+- **Rotação/expurgo da senha do carregamento que já saiu da fila viva.** A
+  senha em claro viaja num evento **persistente** sobre uma exchange
+  **durável**, e o `EventConsumer` do `edu-common` mantém dead-letter
+  sempre ligada. Consequência que vale saber antes de precisar dela: se o
+  envio do e-mail falhar, `handle_shipment_created` levanta, o
+  `async with message.process()` rejeita com `requeue=False` e a mensagem
+  **para na `edu.events.dead`** — ela não desaparece junto com a tentativa
+  de envio. Isso é o comportamento desejado (uma credencial perdida em
+  silêncio seria pior), mas significa que **drenar essa fila é manusear
+  credencial em claro**: quem for ler a `edu.events.dead` está lendo a senha
+  de um carregamento, e o certo é criar um carregamento novo em vez de
+  reencaminhar aquela mensagem. Não há expurgo automático, nem rotação — nem
+  aqui nem no token de 12h descrito acima.
 - **Cálculo de rota por serviço externo além do que já existe.**
   `GET /orders/{id}/route` e `app/services/previsao_entrega.py` são
   reaproveitados como estavam; a única coisa nova que os toca é a leitura da

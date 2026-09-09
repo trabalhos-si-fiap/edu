@@ -138,7 +138,17 @@ cd front-end-flutter && flutter analyze lib/
 ```
 
 Mesmos seis avisos, nos mesmos arquivos e nas mesmas regras que a baseline
-medida antes da task 1. Nenhum arquivo tocado por esta spec está entre eles.
+medida antes da task 1 — a CONTAGEM não mudou, que é o critério do plano.
+
+O que a frase original desta seção dizia a mais ("nenhum arquivo tocado por
+esta spec está entre eles") era **falso**, e a revisão final o pegou: dois
+dos seis avisos estão em `admin_scaffold.dart:42`, uma linha que a task 13
+reescreveu (o `pageBuilder` deixou de ser um ternário e virou um `switch`
+sobre `AdminTab` para acomodar a aba de carregamentos) — os dois
+`unnecessary_underscores` de `(_, __, ___)` vieram junto com a linha nova.
+Um terceiro, em `logistics_api.dart`, está num arquivo que a task 11 editou,
+ainda que não na linha editada. O correto é: a contagem ficou em seis, e
+parte dos seis vive em arquivos que esta spec tocou.
 
 ### 4. `web-admin`
 

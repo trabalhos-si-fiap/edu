@@ -260,7 +260,7 @@ real de aparelho (ver a lacuna abaixo).
 | Admin, separador | a qualquer momento depois da etapa 1 | aviso de pedido criado (`order.created`) — o único evento que nunca notifica o aluno |
 | Aluno, separador | depois do passo 2 da etapa 2 (confirmar pagamento) | `Pedido #XXXXXXXX` — foi para `AGUARDANDO_SEPARACAO` |
 | Aluno | depois do passo 3 da etapa 3 (separação finalizada) | `Pedido #XXXXXXXX` — está `SEPARADO` (é a etapa 4) |
-| Entregador | depois do passo 3 da etapa 3 | veja pela conta `entregador@demo.edu` (login normal), não pela sessão aberta por código de carregamento na etapa 5 — só a conta registrada aparece no registro de staff |
+| Entregador | depois do passo 3 da etapa 3 | confira pela conta `entregador@demo.edu` (login normal). O sino também aparece na fila aberta por **código de carregamento** (etapa 5), mas ali ele responde **403** e a tela mostra o estado de erro: o token de lote não é usuário de `/notifications`, e é assim de propósito (`get_current_user_uuid`, notification-service). Não é queda nem lista de outra conta — é a recusa correta. O registro de staff endereça a CONTA `entregador@demo.edu`, não o lote. |
 | Aluno | depois da coleta, na etapa 5 | `Pedido #XXXXXXXX` — saiu para entrega |
 | Aluno, admin | depois da entrega, na etapa 5 | `Pedido #XXXXXXXX` — entregue |
 | Separador | depois de resolver a ocorrência aceitando substituição/remoção, na etapa 6 | aviso de ocorrência resolvida |
