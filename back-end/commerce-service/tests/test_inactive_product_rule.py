@@ -352,3 +352,88 @@ async def test_resolving_with_an_active_substitute_still_works(client, db_sessio
     ).scalar_one()
     await db_session.refresh(item)
     assert item.product_id == substituto.id
+
+
+# ── O caminho DEGRADADO da substituição ────────────────────────────────────
+#
+# Achado da re-revisão: o `fake_encoder` do `conftest.py` sempre passa do
+# `LIMIAR_SIMILARIDADE`, então a suíte inteira só exercitava a consulta
+# semântica — tirar o `Product.active.is_(True)` de `_buscar_por_categoria`
+# deixava tudo verde. Ou seja, a porta que abre exatamente quando o modelo de
+# embeddings falha era a única sem teste atrás dela.
+#
+# O alvo do monkeypatch é `app.services.substituicao_ia.gerar_embedding`, o
+# NOME onde o chamador importou a função — remendar
+# `app.services.embeddings.gerar_embedding` não afetaria a cópia que o
+# `from ... import` já colocou no namespace de `substituicao_ia`. Mesma
+# armadilha que o `_stub_publish_event` do `conftest.py` documenta.
+#
+# **O fixture precisa de um candidato ATIVO além do inativo**, e isso não é
+# detalhe: `sugerir_substitutos` faz `if not candidatos: return []` ANTES do
+# `try`, usando a consulta semântica — que já é filtrada. Com só um candidato
+# inativo, a função retorna cedo e `_buscar_por_categoria` nunca roda; o teste
+# passaria pelo motivo errado, verde por curto-circuito. Medido: a primeira
+# versão deste teste ficava verde com o filtro do fallback REMOVIDO.
+
+
+def _quebrar_embeddings(monkeypatch) -> None:
+    def _explode(*_args, **_kwargs):
+        raise RuntimeError("modelo de embeddings indisponível")
+
+    monkeypatch.setattr("app.services.substituicao_ia.gerar_embedding", _explode)
+
+
+async def _reportar_falta(client, pedido, faltante):
+    return await client.post(
+        "/occurrences/stock-shortage",
+        json={
+            "pedido_id": str(pedido.id),
+            "produto_id": str(faltante.id),
+            "motivo": "sem estoque na prateleira",
+        },
+        headers=_staff_headers("separador", _SEPARADOR),
+    )
+
+
+async def test_the_degraded_path_never_suggests_an_inactive_product(
+    client, db_session, monkeypatch
+):
+    """Sem modelo de embeddings, `sugerir_substitutos` cai em
+    `_buscar_por_categoria` pelo `except Exception` — de propósito, para falha
+    de IA nunca impedir o separador de reportar falta. É o caminho que roda
+    quando algo já deu errado, e é o que precisa do mesmo filtro.
+
+    A lista devolvida ser exatamente `[ativo]` prova as DUAS coisas de uma vez:
+    o fallback REALMENTE rodou (senão viria vazia, com o encoder quebrado) e o
+    inativo não entrou nela."""
+    _quebrar_embeddings(monkeypatch)
+    fornecedor = await _parceiro(db_session)
+    faltante = await _produto(db_session, fornecedor, nome="Caderno universitário")
+    ativo = await _produto(db_session, fornecedor, nome="Caderno colegial")
+    inativo = await _produto(db_session, fornecedor, nome="Caderno aposentado", active=False)
+    pedido = await _pedido_em_separacao(db_session, faltante)
+
+    response = await _reportar_falta(client, pedido, faltante)
+
+    assert response.status_code == 201
+    sugeridos = [p["id"] for p in response.json()["produtos_sugeridos"]]
+    assert sugeridos == [str(ativo.id)]
+    assert str(inativo.id) not in sugeridos
+
+
+async def test_a_dead_embedding_model_never_blocks_the_shortage_report(
+    client, db_session, monkeypatch
+):
+    """A propriedade que o módulo declara no próprio docstring: falha do
+    modelo degrada a qualidade da sugestão, nunca derruba o fluxo do
+    separador."""
+    _quebrar_embeddings(monkeypatch)
+    fornecedor = await _parceiro(db_session)
+    faltante = await _produto(db_session, fornecedor, nome="Caderno universitário")
+    ativo = await _produto(db_session, fornecedor, nome="Caderno colegial")
+    pedido = await _pedido_em_separacao(db_session, faltante)
+
+    response = await _reportar_falta(client, pedido, faltante)
+
+    assert response.status_code == 201
+    assert [p["id"] for p in response.json()["produtos_sugeridos"]] == [str(ativo.id)]
