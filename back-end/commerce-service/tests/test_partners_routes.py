@@ -45,6 +45,13 @@ async def test_listing_is_open_to_any_authenticated_role(client, db_session):
     assert response.json()["total"] == 1
 
 
+async def test_detail_is_open_to_any_authenticated_role(client, db_session):
+    parceiro = await _seed_parceiro(db_session, nome="Leroy Merlin")
+    response = await client.get(f"/partners/{parceiro.id}", headers=headers_for("student"))
+    assert response.status_code == 200
+    assert response.json()["nome"] == "Leroy Merlin"
+
+
 async def test_listing_is_paginated_and_capped(client):
     assert (
         await client.get("/partners?limit=5000", headers=headers_for("admin"))
@@ -81,6 +88,16 @@ async def test_creating_a_partner_requires_admin(client):
     payload = {"nome": "X", "origem_rotulo": "São Paulo, SP"}
     for papel in ("student", "separador", "entregador"):
         response = await client.post("/partners", json=payload, headers=headers_for(papel))
+        assert response.status_code == 403, papel
+
+
+async def test_updating_a_partner_requires_admin(client, db_session):
+    parceiro = await _seed_parceiro(db_session, nome="Leroy Merlin")
+    payload = {"nome": "X", "origem_rotulo": "São Paulo, SP"}
+    for papel in ("student", "separador", "entregador"):
+        response = await client.put(
+            f"/partners/{parceiro.id}", json=payload, headers=headers_for(papel)
+        )
         assert response.status_code == 403, papel
 
 
