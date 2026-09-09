@@ -1,26 +1,66 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/network/token_store.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/utils/jwt_utils.dart';
 import '../data/logistics_api.dart';
 import '../domain/order.dart';
 import 'widgets/logistics_scaffold.dart';
 
+/// `role` do token de carregamento (`POST /shipments/login`). Não é papel de
+/// usuário: `requer_papel(...)` do `edu-common` o recusa em toda rota que não
+/// seja `/delivery/*`.
+const _papelCarregamento = 'carregamento';
+
 class EntregadorEmRotaScreen extends StatefulWidget {
-  const EntregadorEmRotaScreen({super.key});
+  const EntregadorEmRotaScreen({super.key, LogisticsApi? api, TokenStore? tokenStore})
+    : _api = api,
+      _tokenStore = tokenStore;
+
+  final LogisticsApi? _api;
+  final TokenStore? _tokenStore;
 
   @override
   State<EntregadorEmRotaScreen> createState() => _EntregadorEmRotaScreenState();
 }
 
 class _EntregadorEmRotaScreenState extends State<EntregadorEmRotaScreen> {
-  final _api = LogisticsApi();
+  late final LogisticsApi _api = widget._api ?? LogisticsApi();
+  late final TokenStore _tokenStore = widget._tokenStore ?? TokenStore();
   late Future<List<Pedido>> _entregasFuture;
   String? _acaoEmAndamentoId;
+
+  /// Verdadeiro quando a sessão ativa é um token de carregamento.
+  ///
+  /// `POST /occurrences/delivery-delay` é `requer_papel("entregador",
+  /// "admin")`, e `requer_papel` recusa `role="carregamento"` — oferecer
+  /// "Reportar atraso" nessa sessão é oferecer uma ação que o servidor
+  /// responde com 403. O conserto é esconder a ação, não alargar o token: o
+  /// escopo do lote é entregar os pedidos DELE, e nada além disso (ver
+  /// `docs/back-end/order-flow.md` §2).
+  ///
+  /// Começa `false` — na dúvida, mantém o comportamento que já existia para
+  /// a conta de entregador. Um token ilegível (ou um armazenamento que não
+  /// responde) nunca esconde a ação de quem tem direito a ela.
+  bool _sessaoDeLote = false;
 
   @override
   void initState() {
     super.initState();
     _carregarEntregas();
+    _detectarSessao();
+  }
+
+  Future<void> _detectarSessao() async {
+    String? token;
+    try {
+      token = await _tokenStore.readAccessToken();
+    } on Exception {
+      return;
+    }
+    if (token == null) return;
+    final ehLote = extrairRoleDoToken(token) == _papelCarregamento;
+    if (ehLote && mounted) setState(() => _sessaoDeLote = true);
   }
 
   void _carregarEntregas() {
@@ -287,26 +327,30 @@ class _EntregadorEmRotaScreenState extends State<EntregadorEmRotaScreen> {
                         const SizedBox(height: 14),
                         Row(
                           children: [
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed:
-                                    emAndamento ? null : () => _abrirDialogoAtraso(pedido),
-                                icon: const Icon(Icons.schedule, size: 18),
-                                label: const Text(
-                                  'Reportar atraso',
-                                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
-                                ),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: const Color(0xFFB86E00),
-                                  side: const BorderSide(color: Color(0xFFFFD08A)),
-                                  padding: const EdgeInsets.symmetric(vertical: 12),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10),
+                            // Só a conta de entregador reporta atraso; a
+                            // sessão de lote levaria 403 do servidor.
+                            if (!_sessaoDeLote) ...[
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed:
+                                      emAndamento ? null : () => _abrirDialogoAtraso(pedido),
+                                  icon: const Icon(Icons.schedule, size: 18),
+                                  label: const Text(
+                                    'Reportar atraso',
+                                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                                  ),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: const Color(0xFFB86E00),
+                                    side: const BorderSide(color: Color(0xFFFFD08A)),
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
-                            const SizedBox(width: 10),
+                              const SizedBox(width: 10),
+                            ],
                             Expanded(
                               child: ElevatedButton.icon(
                                 onPressed: emAndamento

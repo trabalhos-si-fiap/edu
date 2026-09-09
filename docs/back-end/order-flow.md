@@ -187,6 +187,17 @@ porque "quem fez" aqui não é uma pessoa com conta no sistema (a coluna é
 - Identidade de pessoa: sem `user_id` de verdade, o histórico de status desse
   ator não pode ser atribuído a ninguém além do próprio lote.
 
+**Dito sem rodeio: um token de carregamento autoriza as rotas de `/delivery`
+para os pedidos do próprio lote, e nada mais.** Em particular, **reportar
+atraso continua exigindo uma conta `entregador`** —
+`POST /occurrences/delivery-delay` é `requer_papel("entregador", "admin")`, e
+`requer_papel` recusa `role="carregamento"`. O app respeita isso do lado
+certo: a tela "Entregas em Rota" **esconde** a ação "Reportar atraso" quando
+a sessão ativa é de lote (`tracking_screen.dart`, `_sessaoDeLote`, lido do
+claim `role` por `extrairRoleDoToken`), em vez de oferecer um botão cuja
+única resposta possível é 403. Alargar o token para cobrir a rota seria dar
+ao lote uma capacidade que ele não deve ter.
+
 ---
 
 ## 3. Posição — declarada como simulação
