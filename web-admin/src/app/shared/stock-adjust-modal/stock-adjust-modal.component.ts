@@ -48,7 +48,11 @@ export class StockAdjustModalComponent implements OnInit {
 
   readonly form = this.fb.nonNullable.group({
     quantity: [0, [Validators.required, Validators.min(0)]],
-    reasonPreset: ['Recebimento de lote', Validators.required],
+    // Sem valor inicial: um preset pré-selecionado satisfaria
+    // `Validators.required` sem o admin ter escolhido nada, e `motivo`
+    // gravaria uma constante em vez de uma decisão humana — exatamente o
+    // que a auditoria (task 3) existe para não deixar acontecer.
+    reasonPreset: ['', Validators.required],
     observations: ['', Validators.maxLength(220)]
   });
 

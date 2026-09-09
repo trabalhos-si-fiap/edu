@@ -41,6 +41,7 @@
 
           <div class="select-shell">
             <select formControlName="reasonPreset">
+              <option value="" disabled>Selecione o motivo</option>
               @for (reason of reasonOptions; track reason) {
                 <option [value]="reason">{{ reason }}</option>
               }
@@ -80,7 +81,7 @@
         <button
           class="confirm"
           type="submit"
-          [disabled]="saving"
+          [disabled]="saving || form.invalid"
         >
           {{ saving ? 'SALVANDO...' : 'CONFIRMAR' }}
         </button>
