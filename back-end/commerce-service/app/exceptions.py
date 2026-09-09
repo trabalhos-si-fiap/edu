@@ -111,6 +111,26 @@ class TransportadoraNotFoundError(Exception):
     """
 
 
+class CarrinhoOrigemMistaError(Exception):
+    """Tentativa de pôr no carrinho um item de outro parceiro. O router
+    traduz em 409 com `MENSAGEM` como `detail`.
+
+    Pedido misto é PROIBIDO por decisão da spec B, não adiado: um pedido sai
+    de UMA origem, e a spec C simula a rota a partir dela. Um carrinho misto
+    produziria um pedido sem origem definida.
+
+    A mensagem mora aqui, não no router, porque ela é contrato de UI: o app
+    a exibe verbatim, sem reescrever (`cart_service.dart`, task 12).
+
+    Sufixo `Error` por N818.
+    """
+
+    MENSAGEM = (
+        "Seu carrinho já tem itens de outro parceiro. "
+        "Finalize ou esvazie o carrinho antes de misturar."
+    )
+
+
 class SkuDuplicadoError(Exception):
     """Já existe produto com este `sku`. O router traduz em 409.
 

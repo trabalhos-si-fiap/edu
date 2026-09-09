@@ -5,9 +5,9 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.exceptions import CartItemNotFoundError, CartProductNotFoundError
+from app.exceptions import CarrinhoOrigemMistaError, CartItemNotFoundError, CartProductNotFoundError
 from app.models.carrinho import Cart, CartItem
-from app.models.produto import Product
+from app.models.produto import Estoque, Product
 from app.schemas.carrinho import CartItemIn, CartItemOut, CartOut
 
 
@@ -80,6 +80,50 @@ async def obter_carrinho(db: AsyncSession, user_id: uuid.UUID) -> CartOut:
     return await montar_cart_out(db, cart.id)
 
 
+async def _fornecedor_do_produto(db: AsyncSession, product_id: uuid.UUID) -> int | None:
+    """De qual parceiro este produto é. `None` quando não há linha de estoque.
+
+    Produto pertence ao parceiro ATRAVÉS do estoque — a mesma travessia que
+    `services.produtos.listar_produtos` faz para o filtro `partner_id`.
+
+    Correção ao brief da task 8: `Estoque` tem `uq_produto_fornecedor` na
+    PAR (produto_id, fornecedor_id), não em `produto_id` sozinho — um
+    produto com mais de um fornecedor gera mais de uma linha aqui.
+    `scalar_one_or_none()` estouraria `MultipleResultsFound` nesse caso (500
+    em `POST /cart/items` para um catálogo perfeitamente comum).
+    `order_by(Estoque.id).limit(1)` resolve de forma determinística para a
+    linha mais antiga — mesma correção e mesmo critério de desempate que a
+    task 3 já aplicou em `obter_estoque_do_produto`
+    (`app/services/estoque.py`), para as duas funções concordarem sobre qual
+    é o fornecedor de um mesmo produto. Ver
+    test_a_product_stocked_by_two_suppliers_is_added_without_a_500.
+    """
+    result = await db.execute(
+        select(Estoque.fornecedor_id)
+        .where(Estoque.produto_id == product_id)
+        .order_by(Estoque.id)
+        .limit(1)
+    )
+    return result.scalars().first()
+
+
+async def _origem_do_carrinho(db: AsyncSession, cart_id: uuid.UUID) -> int | None:
+    """O fornecedor dos itens que já estão no carrinho, ou `None` se o
+    carrinho está vazio (ou só tem itens sem origem).
+
+    LIMIT 1 basta: a regra que esta função serve é o que garante que nunca há
+    mais de um fornecedor aqui.
+    """
+    return (
+        await db.execute(
+            select(Estoque.fornecedor_id)
+            .join(CartItem, CartItem.product_id == Estoque.produto_id)
+            .where(CartItem.cart_id == cart_id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+
 async def adicionar_item(db: AsyncSession, user_id: uuid.UUID, data: CartItemIn) -> CartOut:
     produto = (
         await db.execute(select(Product).where(Product.id == data.product_id))
@@ -93,6 +137,19 @@ async def adicionar_item(db: AsyncSession, user_id: uuid.UUID, data: CartItemIn)
     # deste usuário, tornando o read->write da quantidade do item atômico
     # (regra 3 do CLAUDE.md).
     await db.execute(select(Cart.id).where(Cart.id == cart.id).with_for_update())
+
+    # A checagem de origem fica DENTRO do lock de linha do carrinho que a
+    # linha acima acabou de tomar. Fora dele, duas adições simultâneas leem um
+    # carrinho vazio, as duas concluem "não há origem ainda", e as duas
+    # gravam — carrinho misto sem nenhum erro aparecer. Regra 3 do CLAUDE.md.
+    fornecedor_do_item = await _fornecedor_do_produto(db, data.product_id)
+    origem_atual = await _origem_do_carrinho(db, cart.id)
+    if (
+        fornecedor_do_item is not None
+        and origem_atual is not None
+        and fornecedor_do_item != origem_atual
+    ):
+        raise CarrinhoOrigemMistaError()
 
     item = (
         await db.execute(
