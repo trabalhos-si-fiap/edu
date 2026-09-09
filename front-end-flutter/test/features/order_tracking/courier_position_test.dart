@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:edu_ia/features/order_tracking/data/order_service.dart';
 import 'package:edu_ia/features/order_tracking/data/route_service.dart';
 import 'package:edu_ia/features/order_tracking/domain/order_model.dart';
+import 'package:edu_ia/features/order_tracking/domain/order_route.dart';
 import 'package:edu_ia/features/order_tracking/presentation/route_provider.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -57,6 +60,31 @@ Map<String, dynamic> _pedidoEntregue() => {
 /// Rota mockada, mesmo padrão de `_OkService` em route_provider_test.dart.
 class _FakeRouteService extends RouteService {
   _FakeRouteService() : super(useMock: true);
+}
+
+/// Rota mínima, só para satisfazer o tipo de retorno de [_PendingRouteService]
+/// — o teste que a usa nunca chega a ler `provider.route`.
+OrderRoute _fakeRoute() => OrderRoute.fromJson({
+  'origin': {'label': 'CD', 'latitude': -23.35, 'longitude': -46.87},
+  'destination': {'label': 'Destino', 'latitude': -23.5, 'longitude': -46.6},
+  'polyline': '',
+  'distance_text': '10 km',
+  'distance_km': 10.0,
+  'duration_text': '20 min',
+  'duration_minutes': 20,
+});
+
+/// Rota cujo `fetchRoute` só resolve quando o teste manda ([release]) — usada
+/// para simular um `dispose()` no meio de uma busca ainda em andamento.
+class _PendingRouteService extends RouteService {
+  _PendingRouteService() : super();
+
+  final _completer = Completer<OrderRoute>();
+
+  @override
+  Future<OrderRoute> fetchRoute(String orderId) => _completer.future;
+
+  void release() => _completer.complete(_fakeRoute());
 }
 
 /// Retorna uma posição que caminha para o sul a cada chamada, simulando o
@@ -174,4 +202,39 @@ void main() {
     expect(provider.courierPosition!.latitude, -23.41);
     provider.dispose();
   });
+
+  test('latitude não numérica na posição vira null, não exceção', () {
+    final model = OrderModel.fromJson({
+      ..._payloadSemPosicao(),
+      'courier_position': {
+        'latitude': 'not-a-number',
+        'longitude': -46.7,
+        'updated_at': '2026-09-09T12:00:00Z',
+      },
+    });
+    expect(model.courierPosition, isNull);
+  });
+
+  test(
+    'dispose() enquanto a rota ainda carrega evita timer de posição órfão',
+    () async {
+      final routeService = _PendingRouteService();
+      final orderService = _MovingPositionService();
+      final provider = RouteProvider(
+        service: routeService,
+        orderService: orderService,
+        positionInterval: const Duration(milliseconds: 10),
+      );
+
+      final loadFuture = provider.load('pedido-1');
+      provider.dispose();
+      routeService.release();
+      await loadFuture;
+
+      // Se um timer órfão tivesse sido criado, ele teria disparado várias
+      // vezes nessa janela.
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+      expect(orderService.calls, 0);
+    },
+  );
 }

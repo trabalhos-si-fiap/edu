@@ -133,19 +133,24 @@ class CourierPosition {
   });
 
   /// Tolerante: payload ausente/nulo, não-mapa, ou com latitude/longitude
-  /// ausentes ou não numéricas viram `null` em vez de lançar — mesmo estilo
-  /// defensivo do restante do arquivo (`(json['x'] as num?)?.toDouble() ?? 0`).
-  /// Um `updated_at` ausente ou inválido não invalida a posição: cai no
-  /// mesmo fallback que `estimatedArrival` já usa (`DateTime.now()`).
+  /// ausentes ou não numéricas viram `null` em vez de lançar. Diferente do
+  /// idioma `(json['x'] as num?)?.toDouble() ?? 0` usado no resto do arquivo
+  /// — que só tolera chave ausente, não um valor de outro tipo — aqui
+  /// checamos `is num` antes de converter, porque um valor de tipo errado
+  /// (ex.: uma string) é exatamente o "malformado" que este campo precisa
+  /// tolerar sem lançar. Um `updated_at` ausente, de outro tipo ou inválido
+  /// não invalida a posição: cai no mesmo fallback que `estimatedArrival`
+  /// já usa (`DateTime.now()`).
   static CourierPosition? fromJson(Map<String, dynamic>? json) {
     if (json == null) return null;
-    final latitude = (json['latitude'] as num?)?.toDouble();
-    final longitude = (json['longitude'] as num?)?.toDouble();
-    if (latitude == null || longitude == null) return null;
-    final raw = json['updated_at'] as String?;
+    final rawLatitude = json['latitude'];
+    final rawLongitude = json['longitude'];
+    if (rawLatitude is! num || rawLongitude is! num) return null;
+    final rawUpdatedAt = json['updated_at'];
+    final raw = rawUpdatedAt is String ? rawUpdatedAt : null;
     return CourierPosition(
-      latitude: latitude,
-      longitude: longitude,
+      latitude: rawLatitude.toDouble(),
+      longitude: rawLongitude.toDouble(),
       updatedAt:
           (raw == null ? null : DateTime.tryParse(raw)) ?? DateTime.now(),
     );

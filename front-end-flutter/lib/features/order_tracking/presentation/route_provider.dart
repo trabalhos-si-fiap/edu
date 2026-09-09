@@ -61,13 +61,22 @@ class RouteProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      _route = await _service.fetchRoute(orderId);
+      final route = await _service.fetchRoute(orderId);
+      // A tela pode ter sido fechada (dispose()) enquanto a rota ainda
+      // carregava. Sem esta checagem, o código abaixo criaria um
+      // Timer.periodic que nada mais cancela (dispose() já rodou e não há
+      // um segundo dispose() por vir) e chamaria notifyListeners() num
+      // ChangeNotifier já descartado.
+      if (_disposed) return;
+      _route = route;
       _state = RouteViewState.success;
       _startPositionPolling();
     } on RouteException catch (e) {
+      if (_disposed) return;
       _errorMessage = e.message;
       _state = RouteViewState.error;
     } catch (_) {
+      if (_disposed) return;
       _errorMessage = 'Algo deu errado. Tente novamente.';
       _state = RouteViewState.error;
     }
