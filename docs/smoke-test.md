@@ -58,8 +58,8 @@ que é a distinção que o dia do corte torna cara.
 | 0.6 | O seed da spec B rodou | `docker exec -i edu-postgres psql -U edu -d commerce_db -c "SELECT nome, ativo, origem_rotulo FROM fornecedores;"` e `-c "SELECT count(*) FROM estoque WHERE fornecedor_id IS NULL;"` | Dois fornecedores com origem preenchida, e **zero** linhas de estoque sem fornecedor. Estoque órfão significa que o seed não adotou os produtos próprios: a seção de parceiros do app fica vazia e todo pedido novo sai sem origem. |
 
 A 0.3 é a que pega a imagem velha: se as filas não têm `arguments`, o
-`edu-common` que está rodando é anterior a esta entrega, e o rebuild não
-aconteceu ou não pegou.
+`edu-common` que está rodando é anterior à spec A, e o rebuild não
+aconteceu ou não pegou. A 0.5 e a 0.6 fazem o mesmo pela spec B.
 
 ## Etapa 1 — aluno: catálogo, carrinho, pedido
 
@@ -143,7 +143,7 @@ Volte para `aluno@demo.edu` e abra a tela de notificações.
 
 Deve existir uma notificação cujo título é `Pedido #XXXXXXXX`, com os oito
 caracteres que você anotou na etapa 1, em maiúsculas. **Esse é o teste da task
-3 desta entrega**: antes, o título trazia os 36 caracteres do UUID.
+3 da spec A**: antes, o título trazia os 36 caracteres do UUID.
 
 Conferência de banco, se a tela deixar dúvida:
 
