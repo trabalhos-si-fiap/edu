@@ -155,8 +155,13 @@ export class OccurrencesComponent implements OnInit {
         return 'failure';
       case 'ATRASO_ENTREGA':
         return 'delay';
+      // `.type-badge` só define damage/delay/failure/other
+      // (occurrences.component.scss) — sem uma classe `.shortage`, a
+      // badge de FALTA_ESTOQUE ficava sem nenhum estilo aplicado. Mapear
+      // para 'other' evita mudar SCSS (que já geraria risco de um quarto
+      // aviso de budget) e ainda é o rótulo visualmente correto: FALTA_
+      // ESTOQUE é o único tipo aqui que não é fim-de-transportadora.
       case 'FALTA_ESTOQUE':
-        return 'shortage';
       default:
         return 'other';
     }

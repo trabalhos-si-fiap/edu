@@ -33,7 +33,12 @@
 
         <label class="field">
           <span>NOVA QUANTIDADE</span>
-          <input type="number" min="0" formControlName="quantity" />
+          <input
+            type="number"
+            min="0"
+            max="1000000"
+            formControlName="quantity"
+          />
         </label>
 
         <label class="field">

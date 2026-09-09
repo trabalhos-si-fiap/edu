@@ -53,9 +53,13 @@ export class ProductFormModalComponent implements OnInit {
     description: ['', Validators.maxLength(4000)],
     // Backend não limita casas decimais (`price: Decimal`, sem `decimal_places`)
     // — o Postgres arredondaria silenciosamente "10.999" para "11.00". O
-    // form normaliza para 2 casas antes de enviar (ver submit()), então o
-    // que o admin vê na tela é sempre o que fica salvo.
-    price: [0, [Validators.required, Validators.min(0.01)]],
+    // form normaliza para 2 casas antes de enviar (ver submit()) e volta o
+    // valor arredondado para o campo, então o que o admin VÊ na tela é
+    // sempre o que fica salvo. `max` espelha `ProductIn.price` (`le=99999999.99`).
+    price: [
+      0,
+      [Validators.required, Validators.min(0.01), Validators.max(99_999_999.99)]
+    ],
     active: [true],
     fornecedorId: this.fb.control<number | null>(null),
     quantidadeInicial: [0, [Validators.required, Validators.min(0)]],
@@ -119,8 +123,11 @@ export class ProductFormModalComponent implements OnInit {
 
     const value = this.form.getRawValue();
     // Normaliza para exatamente 2 casas — o que o admin vê ao enviar é o
-    // que o Postgres vai guardar, sem arredondamento silencioso.
+    // que o Postgres vai guardar, sem arredondamento silencioso. O valor
+    // arredondado volta para o campo: se `10.999` virou `11.00`, a tela
+    // passa a mostrar `11` em vez de manter o que foi digitado.
     const price = Number(value.price).toFixed(2);
+    this.form.patchValue({ price: Number(price) });
 
     this.saving = true;
     this.errorMessage = '';
@@ -196,6 +203,8 @@ export class ProductFormModalComponent implements OnInit {
       },
       error: () => {
         this.loadingPartners = false;
+        this.errorMessage =
+          'Não foi possível carregar a lista de parceiros. Feche e tente novamente.';
         this.cdr.markForCheck();
       }
     });

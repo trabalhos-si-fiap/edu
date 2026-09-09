@@ -47,7 +47,10 @@ export class StockAdjustModalComponent implements OnInit {
   ];
 
   readonly form = this.fb.nonNullable.group({
-    quantity: [0, [Validators.required, Validators.min(0)]],
+    // `le=1_000_000` espelha `quantidade: int = Query(ge=0, le=1_000_000)`
+    // em `PATCH /admin/inventory/{id}/adjust` — sem o teto, um valor fora
+    // da faixa só falha no 422 do servidor, com mensagem genérica.
+    quantity: [0, [Validators.required, Validators.min(0), Validators.max(1_000_000)]],
     // Sem valor inicial: um preset pré-selecionado satisfaria
     // `Validators.required` sem o admin ter escolhido nada, e `motivo`
     // gravaria uma constante em vez de uma decisão humana — exatamente o
