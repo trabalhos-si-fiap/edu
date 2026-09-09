@@ -307,7 +307,15 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       if (mounted) _snack(e.message);
       return;
     }
-    if (!mounted || code == null) return;
+    if (!mounted) return;
+    if (code == null) {
+      // Não deveria acontecer para PIX/boleto (só cartão não tem código),
+      // mas o pedido já foi criado — silêncio aqui pareceria um bug de
+      // travamento. Avisa o aluno em vez de simplesmente não fazer nada.
+      _snack('Pedido finalizado, mas não veio um código de pagamento para copiar.');
+      Navigator.pop(context);
+      return;
+    }
 
     final ehPix = method.type == PaymentMethodType.pix;
     _showCopyCodeDialog(
