@@ -14,6 +14,7 @@ import {
   Validators
 } from '@angular/forms';
 
+import { backendDetail } from '../../core/http-error';
 import { InventoryStockRow } from '../../core/models/inventory.model';
 import { InventoryService } from '../../core/services/inventory.service';
 
@@ -103,11 +104,21 @@ export class StockAdjustModalComponent implements OnInit {
           this.cdr.markForCheck();
 
           if (error?.status === 400 || error?.status === 422) {
-            this.errorMessage = 'Confira a quantidade e o motivo do ajuste.';
+            // O 422 mais provável aqui é a recusa de estoque negativo, cuja
+            // sentença o servidor já escreve. O texto genérico só entra
+            // quando o `detail` não é exibível (422 de schema do Pydantic,
+            // que vem como lista).
+            this.errorMessage = backendDetail(
+              error,
+              'Confira a quantidade e o motivo do ajuste.'
+            );
             return;
           }
 
-          this.errorMessage = 'Não foi possível atualizar o estoque.';
+          this.errorMessage = backendDetail(
+            error,
+            'Não foi possível atualizar o estoque.'
+          );
         }
       });
   }

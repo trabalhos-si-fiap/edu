@@ -14,6 +14,7 @@ import {
   Validators
 } from '@angular/forms';
 
+import { backendDetail } from '../../core/http-error';
 import { Partner } from '../../core/models/partner.model';
 import { PartnerService } from '../../core/services/partner.service';
 import { ProductService } from '../../core/services/product.service';
@@ -152,9 +153,12 @@ export class ProductFormModalComponent implements OnInit {
             this.cdr.markForCheck();
             this.saved.emit('created');
           },
-          error: () => {
+          error: error => {
             this.saving = false;
-            this.errorMessage = 'Não foi possível adicionar o produto.';
+            this.errorMessage = backendDetail(
+              error,
+              'Não foi possível adicionar o produto.'
+            );
             this.cdr.markForCheck();
           }
         });
@@ -178,9 +182,12 @@ export class ProductFormModalComponent implements OnInit {
           this.cdr.markForCheck();
           this.saved.emit('updated');
         },
-        error: () => {
+        error: error => {
           this.saving = false;
-          this.errorMessage = 'Não foi possível editar o produto.';
+          this.errorMessage = backendDetail(
+            error,
+            'Não foi possível editar o produto.'
+          );
           this.cdr.markForCheck();
         }
       });
