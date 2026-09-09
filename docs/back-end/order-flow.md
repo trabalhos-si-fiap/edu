@@ -362,7 +362,7 @@ exaustiva sobre os dez estados internos:
 | `CONFIRMADO` | ninguém — transitório, atravessado na mesma chamada de `confirmar_pagamento` |
 | `AGUARDANDO_SEPARACAO` | aluno, separador |
 | `EM_SEPARACAO` | aluno |
-| `AGUARDANDO_SUBSTITUICAO` | aluno |
+| `AGUARDANDO_SUBSTITUICAO` | ninguém — `order.stock_issue` já avisa o aluno, e só ele traz o `occurrence_id` |
 | `SEPARADO` | aluno |
 | `AGUARDANDO_COLETA` | aluno, entregador |
 | `EM_TRANSITO` | aluno |
@@ -382,6 +382,16 @@ Um estado ou evento sem entrada nesta tabela quebra a suíte
 (`test_every_internal_status_has_a_recipient_rule`) — um push endereçado a
 ninguém é, em produção, indistinguível de um push que nunca foi publicado, e
 a tabela existe para que essa lacuna apareça no CI, não numa apresentação.
+
+**Por que `AGUARDANDO_SUBSTITUICAO` não avisa ninguém** — o mesmo raciocínio
+de `CONFIRMADO`, com um agravante. `reportar_falta_estoque` publica **dois**
+eventos para um único fato: a transição e, logo em seguida,
+`order.stock_issue`. A linha escrita pela transição nasce sem
+`ocorrencia_id` (a transição não carrega esse dado) e, mesmo assim, dizia
+"toque para escolher um substituto" — era a única das duas que **não** abre
+a tela de resolução, porque a tela navega pelo `occurrence_id`. Quem avisa o
+comprador da falta é `order.stock_issue`, que traz o id. Uma falta, uma
+linha, e a linha que instrui o toque é a que pode ser tocada.
 
 ### Como "separador"/"admin" viram um id de destinatário
 

@@ -589,9 +589,21 @@ async def test_delivery_notifies_the_student_and_the_admin(
     assert destinatarios == {STUDENT_ID, ADMIN_ID}
 
 
-async def test_the_substitution_wait_notifies_only_the_buyer(
-    db_session, test_session_factory, monkeypatch
-):
+async def test_the_substitution_wait_notifies_nobody(db_session, test_session_factory, monkeypatch):
+    """Emenda declarada: este teste afirmava que a espera por substituição
+    notificava SÓ o comprador. Agora afirma que ela não notifica ninguém —
+    e o motivo é o mesmo que já vale para `CONFIRMADO`.
+
+    `reportar_falta_estoque` (commerce) publica DOIS eventos para um único
+    fato: a transição `AGUARDANDO_SUBSTITUICAO` e, logo depois,
+    `order.stock_issue`. O comprador via duas linhas para uma falta só — e a
+    linha da transição, justamente a que manda "toque para escolher um
+    substituto", nascia SEM `ocorrencia_id` (a transição não tem esse dado),
+    então era a inerte das duas: sem id, a tela de notificações não abre a
+    resolução. Quem carrega o id — e portanto quem pode ser tocado — é
+    `order.stock_issue` (`handle_stock_issue`, logo abaixo). A tupla vazia
+    aqui deixa o evento actionable ser o único a falar.
+    """
     monkeypatch.setattr(consumer_module, "async_session", test_session_factory)
     await _registrar_staff(test_session_factory)
 
@@ -605,8 +617,32 @@ async def test_the_substitution_wait_notifies_only_the_buyer(
         )
     )
 
+    assert (await db_session.execute(select(Notificacao))).scalars().all() == []
+
+
+async def test_the_stock_issue_event_is_the_one_that_carries_the_occurrence(
+    db_session, test_session_factory, monkeypatch
+):
+    """O par do teste acima: quem avisa o comprador da falta é
+    `order.stock_issue`, e a linha dele traz o `ocorrencia_id` que a tela de
+    notificações precisa para abrir a resolução."""
+    monkeypatch.setattr(consumer_module, "async_session", test_session_factory)
+
+    await consumer_module.handle_stock_issue(
+        fake_message(
+            {
+                "pedido_id": PEDIDO_ID,
+                "aluno_id": STUDENT_ID,
+                "ocorrencia_id": 12,
+                "produto_id": str(uuid.uuid4()),
+                "produtos_sugeridos": [],
+            }
+        )
+    )
+
     notificacoes = (await db_session.execute(select(Notificacao))).scalars().all()
     assert [str(n.aluno_id) for n in notificacoes] == [STUDENT_ID]
+    assert notificacoes[0].ocorrencia_id == 12
     assert "falta" in notificacoes[0].descricao.lower()
 
 

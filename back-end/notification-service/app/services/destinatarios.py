@@ -24,7 +24,15 @@ PAPEIS_POR_STATUS: dict[str, tuple[str, ...]] = {
     "CONFIRMADO": (),
     "AGUARDANDO_SEPARACAO": (ALUNO, "separador"),
     "EM_SEPARACAO": (ALUNO,),
-    "AGUARDANDO_SUBSTITUICAO": (ALUNO,),
+    # Vazia pelo mesmo motivo de `CONFIRMADO`, com um agravante: um único
+    # fato (o item em falta) publica DOIS eventos — esta transição e, logo
+    # depois, `order.stock_issue`. A linha desta transição nasce sem
+    # `ocorrencia_id` (a transição não tem esse dado), então ela mandava
+    # "toque para escolher um substituto" sendo a única das duas que NÃO
+    # abre a tela de resolução. `handle_stock_issue` já avisa o comprador e
+    # já carrega o id que a tela precisa; avisar aqui era duplicar o evento
+    # e deixar a linha inerte na frente da útil.
+    "AGUARDANDO_SUBSTITUICAO": (),
     "SEPARADO": (ALUNO,),
     "AGUARDANDO_COLETA": (ALUNO, "entregador"),
     "EM_TRANSITO": (ALUNO,),
@@ -33,8 +41,12 @@ PAPEIS_POR_STATUS: dict[str, tuple[str, ...]] = {
 }
 
 PAPEIS_ORDER_CREATED: tuple[str, ...] = ("admin", "separador")
-PAPEIS_STOCK_ISSUE: tuple[str, ...] = (ALUNO,)
-PAPEIS_DELIVERY_DELAYED: tuple[str, ...] = (ALUNO,)
+# Não existe `PAPEIS_STOCK_ISSUE`/`PAPEIS_DELIVERY_DELAYED`: os dois handlers
+# correspondentes escrevem direto para `payload["aluno_id"]`, sem passar por
+# `resolver`, porque o destinatário deles é o comprador e só. Foram
+# declarados sem consumidor e apagados aqui — uma constante que ninguém lê é
+# uma regra que ninguém aplica.
+
 # O separador é quem está bloqueado esperando a decisão do aluno
 # (`finalizar_separacao` recusa com ocorrência aberta).
 PAPEIS_OCCURRENCE_RESOLVED: tuple[str, ...] = ("separador",)
