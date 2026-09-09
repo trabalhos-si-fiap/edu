@@ -2,6 +2,7 @@ import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from loguru import logger
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -172,14 +173,40 @@ async def reportar_falta_estoque(
     # estado, e uma transição inválida derrubaria a abertura da ocorrência com
     # 400 — a ocorrência é o registro do fato, e ela não pode depender de o
     # pedido estar num estado específico.
+    #
+    # Fix round 1 (reviewer, task 3): `pedido` acima veio de um SELECT sem
+    # `with_for_update()` e a sessão é `expire_on_commit=False` — o status
+    # lido aqui é o de ANTES de `sugerir_substitutos` e do commit da própria
+    # ocorrência, não um valor fresco. Se o pedido saiu de EM_SEPARACAO nessa
+    # janela (finalize concorrente, cancelamento, outra ocorrência), a guarda
+    # acima ainda acredita em EM_SEPARACAO, chama `transicionar_pedido`, e o
+    # `validar_transicao` autoritativo (com lock) dela rejeita com 400 — DEPOIS
+    # da `Ocorrencia` já estar commitada. A ocorrência é o registro de um fato
+    # que já aconteceu; falhar a requisição aqui perderia o registro que o
+    # separador acabou de criar, então um 400 desta transição não pode
+    # derrubar a resposta 201 — só o efeito de "estacionar" o pedido é
+    # descartado, com log, e a ocorrência permanece válida.
     if pedido.status == StatusPedido.EM_SEPARACAO.value:
-        await transicionar_pedido(
-            db,
-            pedido.id,
-            StatusPedido.AGUARDANDO_SUBSTITUICAO.value,
-            user["sub"],
-            observacao=f"Falta de estoque, ocorrência #{ocorrencia.id}",
-        )
+        try:
+            await transicionar_pedido(
+                db,
+                pedido.id,
+                StatusPedido.AGUARDANDO_SUBSTITUICAO.value,
+                user["sub"],
+                observacao=f"Falta de estoque, ocorrência #{ocorrencia.id}",
+            )
+        except HTTPException as exc:
+            if exc.status_code != 400:
+                raise
+            logger.warning(
+                "Falta de estoque registrada (ocorrência #{}) mas o pedido {} não "
+                "pôde ser parado em AGUARDANDO_SUBSTITUICAO: a rota acreditava no "
+                "status {} ao chamar a transição, e o funil (autoritativo, com "
+                "lock) já não concordava.",
+                ocorrencia.id,
+                pedido.id,
+                pedido.status,
+            )
 
     # `str(...)` nos dois ids: `orders.id` e `products.id` são UUID desde a
     # fase 2 e JSON não tem tipo UUID — o transporte

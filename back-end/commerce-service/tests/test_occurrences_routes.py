@@ -5,6 +5,7 @@ from decimal import Decimal
 
 import pytest
 from edu_common.security import create_access_token
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -378,6 +379,46 @@ async def test_stock_shortage_leaves_an_order_outside_picking_alone(client, db_s
     assert response.status_code == 201
     await db_session.refresh(pedido)
     assert pedido.status == StatusPedido.AGUARDANDO_COLETA.value
+
+
+async def test_stock_shortage_still_succeeds_when_the_transition_races_and_loses(
+    client, db_session, monkeypatch
+):
+    """Fix round 1 (reviewer, task 3): a `Ocorrencia` já está commitada
+    quando `transicionar_pedido` roda — `pedido.status` lido antes do
+    commit/`sugerir_substitutos` pode estar desatualizado se o pedido saiu
+    de EM_SEPARACAO nessa janela (finalize concorrente, cancelamento, outra
+    ocorrência). Um 400 do funil autoritativo não pode derrubar a resposta:
+    o registro do fato (a ocorrência) já aconteceu e sobrevive; só o
+    "estacionar" é perdido, com log."""
+    produto = await _seed_produto(db_session)
+    pedido = await _seed_pedido(db_session, StatusPedido.EM_SEPARACAO.value, picker_id=PICKER_A)
+
+    async def _transicao_que_perde_a_corrida(*args, **kwargs):
+        raise HTTPException(400, "Transição inválida: pedido não está mais em EM_SEPARACAO")
+
+    # Alvo do monkeypatch é o nome onde `ocorrencias.py` importou a função —
+    # mesmo raciocínio do `_stub_publish_event` em conftest.py.
+    monkeypatch.setattr(
+        "app.routers.ocorrencias.transicionar_pedido", _transicao_que_perde_a_corrida
+    )
+
+    response = await client.post(
+        "/occurrences/stock-shortage",
+        headers=headers_for("separador", sub=PICKER_A),
+        json={
+            "pedido_id": str(pedido.id),
+            "produto_id": str(produto.id),
+            "motivo": "Prateleira vazia",
+        },
+    )
+
+    assert response.status_code == 201, response.text
+
+    ocorrencia = (
+        await db_session.execute(select(Ocorrencia).where(Ocorrencia.pedido_id == pedido.id))
+    ).scalar_one_or_none()
+    assert ocorrencia is not None
 
 
 async def test_accepting_a_substitute_returns_the_order_to_the_picker(client, db_session):
