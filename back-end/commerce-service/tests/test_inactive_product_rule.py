@@ -23,6 +23,7 @@ from sqlalchemy import select
 
 from app.config import settings
 from app.models.carrinho import Cart, CartItem
+from app.models.ocorrencia import Ocorrencia
 from app.models.pedido import Order, OrderItem
 from app.models.produto import Estoque, Fornecedor, Product
 
@@ -194,3 +195,160 @@ async def test_the_service_refuses_before_creating_a_cart_row(client, db_session
 
     assert (await db_session.execute(select(CartItem))).scalars().all() == []
     assert (await db_session.execute(select(Cart))).scalars().first() is None
+
+
+# ── A terceira porta: a substituição de ocorrência de falta de estoque ─────
+#
+# `sugerir_substitutos` filtrava candidatos por `Estoque.quantidade > 0` e não
+# por `Product.active`, e o ramo `substituir` de `POST /occurrences/{id}/resolve`
+# escreve o produto escolhido DIRETO no `order_items` — sem passar por
+# `adicionar_item`. Era a única porta que contornava a regra inteira, e ela
+# escreve num PEDIDO, não num carrinho.
+#
+# Duas consultas de candidato, não uma: a semântica e o fallback
+# `_buscar_por_categoria`, que dispara sempre que a similaridade fica abaixo
+# do limiar ou o modelo de embeddings falha. Filtrar só a primeira deixaria a
+# porta aberta pelo caminho degradado, que é justamente o que roda quando algo
+# dá errado.
+
+_SEPARADOR = "00000000-0000-0000-0000-0000000000e1"
+
+
+def _staff_headers(role: str, sub: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {create_access_token(sub, role, settings.jwt_secret)}"}
+
+
+async def _pedido_em_separacao(db_session, produto: Product) -> Order:
+    pedido = Order(
+        user_id=uuid.UUID(_ALUNO),
+        status="em_separacao",
+        total=Decimal("10.00"),
+        picker_id=uuid.UUID(_SEPARADOR),
+    )
+    db_session.add(pedido)
+    await db_session.commit()
+    await db_session.refresh(pedido)
+    db_session.add(
+        OrderItem(
+            order_id=pedido.id,
+            product_id=produto.id,
+            product_name=produto.name,
+            unit_price=Decimal("10.00"),
+            quantity=1,
+        )
+    )
+    await db_session.commit()
+    return pedido
+
+
+async def test_an_inactive_product_is_never_suggested_as_a_substitute(client, db_session):
+    fornecedor = await _parceiro(db_session)
+    faltante = await _produto(db_session, fornecedor, nome="Caderno universitário")
+    # MESMO `type` do faltante, para que as DUAS consultas de candidato — a
+    # semântica e o fallback por categoria — o encontrassem antes do fix.
+    await _produto(db_session, fornecedor, nome="Caderno colegial", active=False)
+    pedido = await _pedido_em_separacao(db_session, faltante)
+
+    response = await client.post(
+        "/occurrences/stock-shortage",
+        json={
+            "pedido_id": str(pedido.id),
+            "produto_id": str(faltante.id),
+            "motivo": "sem estoque na prateleira",
+        },
+        headers=_staff_headers("separador", _SEPARADOR),
+    )
+
+    assert response.status_code == 201
+    assert response.json()["produtos_sugeridos"] == []
+
+
+async def test_an_active_product_is_still_suggested(client, db_session):
+    """Controle positivo: o filtro não pode zerar a sugestão de todo mundo."""
+    fornecedor = await _parceiro(db_session)
+    faltante = await _produto(db_session, fornecedor, nome="Caderno universitário")
+    substituto = await _produto(db_session, fornecedor, nome="Caderno colegial")
+    pedido = await _pedido_em_separacao(db_session, faltante)
+
+    response = await client.post(
+        "/occurrences/stock-shortage",
+        json={
+            "pedido_id": str(pedido.id),
+            "produto_id": str(faltante.id),
+            "motivo": "sem estoque na prateleira",
+        },
+        headers=_staff_headers("separador", _SEPARADOR),
+    )
+
+    assert response.status_code == 201
+    assert [p["id"] for p in response.json()["produtos_sugeridos"]] == [str(substituto.id)]
+
+
+async def test_resolving_with_an_inactive_substitute_is_refused(client, db_session):
+    """A porta de ESCRITA, e ela não depende da lista de sugestões: o
+    `produto_escolhido_id` vem do corpo da requisição. Fechar só a sugestão
+    seria meia resposta de novo."""
+    fornecedor = await _parceiro(db_session)
+    faltante = await _produto(db_session, fornecedor, nome="Caderno universitário")
+    inativo = await _produto(db_session, fornecedor, nome="Caderno aposentado", active=False)
+    pedido = await _pedido_em_separacao(db_session, faltante)
+
+    ocorrencia = Ocorrencia(
+        pedido_id=pedido.id,
+        tipo="FALTA_ESTOQUE",
+        status="ABERTA",
+        motivo="sem estoque",
+        produto_id=faltante.id,
+        criado_por=uuid.UUID(_SEPARADOR),
+    )
+    db_session.add(ocorrencia)
+    await db_session.commit()
+    await db_session.refresh(ocorrencia)
+
+    response = await client.post(
+        f"/occurrences/{ocorrencia.id}/resolve",
+        json={"resolucao": "substituir", "produto_escolhido_id": str(inativo.id)},
+        headers=headers_for(),
+    )
+
+    assert response.status_code == 404
+
+    item = (
+        await db_session.execute(select(OrderItem).where(OrderItem.order_id == pedido.id))
+    ).scalar_one()
+    await db_session.refresh(item)
+    assert item.product_id == faltante.id
+    assert item.product_name == "Caderno universitário"
+
+
+async def test_resolving_with_an_active_substitute_still_works(client, db_session):
+    fornecedor = await _parceiro(db_session)
+    faltante = await _produto(db_session, fornecedor, nome="Caderno universitário")
+    substituto = await _produto(db_session, fornecedor, nome="Caderno colegial")
+    pedido = await _pedido_em_separacao(db_session, faltante)
+
+    ocorrencia = Ocorrencia(
+        pedido_id=pedido.id,
+        tipo="FALTA_ESTOQUE",
+        status="ABERTA",
+        motivo="sem estoque",
+        produto_id=faltante.id,
+        criado_por=uuid.UUID(_SEPARADOR),
+    )
+    db_session.add(ocorrencia)
+    await db_session.commit()
+    await db_session.refresh(ocorrencia)
+
+    response = await client.post(
+        f"/occurrences/{ocorrencia.id}/resolve",
+        json={"resolucao": "substituir", "produto_escolhido_id": str(substituto.id)},
+        headers=headers_for(),
+    )
+
+    assert response.status_code == 200
+
+    item = (
+        await db_session.execute(select(OrderItem).where(OrderItem.order_id == pedido.id))
+    ).scalar_one()
+    await db_session.refresh(item)
+    assert item.product_id == substituto.id

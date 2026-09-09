@@ -375,7 +375,17 @@ async def resolver_ocorrencia(
             select(Product).where(Product.id == payload.produto_escolhido_id)
         )
         novo_produto = novo_produto_result.scalar_one_or_none()
-        if not novo_produto:
+        # Produto INATIVO é recusado como inexistente, mesma escolha de
+        # `services/carrinho.py::adicionar_item` e pelo mesmo motivo: o que
+        # saiu da vitrine não está no catálogo, e reusar o 404 existente evita
+        # inventar uma forma de erro nova.
+        #
+        # A checagem tem que estar AQUI e não só em `sugerir_substitutos`:
+        # `produto_escolhido_id` vem do CORPO da requisição, não da lista de
+        # sugestões, então filtrar só a lista fecharia meia porta. Esta linha é
+        # o último ponto antes da escrita — o `order_items` é registro de um
+        # PEDIDO, não um carrinho.
+        if not novo_produto or not novo_produto.active:
             raise HTTPException(404, "Produto escolhido não encontrado")
 
         diferenca = (novo_produto.price - item.unit_price) * item.quantity
