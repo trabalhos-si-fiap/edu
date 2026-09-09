@@ -194,6 +194,19 @@ async def test_delivery_queue_actually_applies_limit_and_offset(client, db_sessi
     assert {row["id"] for row in first_body}.isdisjoint({row["id"] for row in last_body})
 
 
+async def test_a_deliverer_user_still_collects_the_old_way(client, db_session):
+    """O papel `entregador` deixa de ser o caminho normal, mas não morre: a
+    spec A seeda uma conta com ele, e a suíte de entrega inteira depende
+    dele. Esta task não pode quebrar esse caminho."""
+    pedido = await _seed_pedido(db_session, StatusPedido.AGUARDANDO_COLETA.value)
+
+    response = await client.patch(
+        f"/delivery/{pedido.id}/collect", headers=headers_for("entregador", DELIVERER_A)
+    )
+
+    assert response.status_code == 200
+
+
 async def test_delivery_mine_actually_applies_limit_and_offset(client, db_session):
     total = 55
     for _i in range(total):

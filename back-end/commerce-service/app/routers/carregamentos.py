@@ -3,15 +3,18 @@ agregado, mesmo critério de `/partners` sobre `fornecedores` (spec B)."""
 
 import uuid
 
+from edu_common.security import create_access_token
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.database import get_db
 from app.dependencies import requer_papel
 from app.events.publisher import publish_event
 from app.exceptions import (
     CarregamentoNotFoundError,
     CarregamentoOrigemDivergenteError,
+    CredencialCarregamentoInvalidaError,
     OrderNotFoundError,
     PedidoJaCarregadoError,
     TransportadoraNotFoundError,
@@ -22,6 +25,8 @@ from app.schemas.carregamento import (
     CarregamentoCriadoOut,
     CarregamentoIn,
     CarregamentoList,
+    CarregamentoLoginIn,
+    CarregamentoLoginOut,
     CarregamentoOut,
     PedidoDoCarregamentoIn,
 )
@@ -29,6 +34,45 @@ from app.schemas.pedido import PedidoStaffOut
 from app.services import carregamentos as services
 
 router = APIRouter(prefix="/shipments", tags=["shipments"])
+
+# Uma jornada, não uma semana. Ver `CarregamentoLoginOut`.
+_EXPIRACAO_TOKEN_MINUTOS = 12 * 60
+
+
+@router.post("/login", response_model=CarregamentoLoginOut)
+async def login_carregamento(
+    payload: CarregamentoLoginIn,
+    db: AsyncSession = Depends(get_db),
+) -> CarregamentoLoginOut:
+    """Rota PÚBLICA por construção — é o ponto de entrada de quem ainda não
+    tem credencial nenhuma, como `POST /auth/login`. A autorização que ela
+    concede é estreita: um token de escopo de UM carregamento (ver
+    `app/dependencies.py::ator_entrega`), nunca um papel da frota.
+    """
+    try:
+        carregamento = await services.autenticar_carregamento(
+            db,
+            codigo=payload.codigo,
+            senha=payload.senha,
+            nome=payload.nome,
+            contato=payload.contato,
+        )
+    except CredencialCarregamentoInvalidaError as exc:
+        raise HTTPException(401, "Código ou senha inválidos") from exc
+
+    token = create_access_token(
+        str(carregamento.id),
+        "carregamento",
+        settings.jwt_secret,
+        settings.jwt_algorithm,
+        expires_minutes=_EXPIRACAO_TOKEN_MINUTOS,
+    )
+    return CarregamentoLoginOut(
+        access_token=token,
+        carregamento_id=carregamento.id,
+        codigo=carregamento.codigo,
+        origem_rotulo=carregamento.origem_rotulo,
+    )
 
 
 @router.post("", response_model=CarregamentoCriadoOut, status_code=status.HTTP_201_CREATED)

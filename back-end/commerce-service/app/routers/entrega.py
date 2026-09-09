@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import requer_papel
+from app.dependencies import PAPEL_CARREGAMENTO, AtorEntrega, ator_entrega
 from app.models.pedido import Order
 from app.routers.separacao import transicionar_pedido
 from app.schemas.pedido import PedidoStaffOut
@@ -21,15 +21,17 @@ router = APIRouter(prefix="/delivery", tags=["delivery"])
 async def fila_entrega(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    user: dict = Depends(requer_papel("entregador", "admin")),
+    ator: AtorEntrega = Depends(ator_entrega),
     db: AsyncSession = Depends(get_db),
 ):
+    if ator.tipo == PAPEL_CARREGAMENTO:
+        # O entregador do lote quer ver o lote inteiro, não a fila global por
+        # status — o filtro é o carregamento, não `AGUARDANDO_COLETA`.
+        filtro = Order.carregamento_id == ator.carregamento_id
+    else:
+        filtro = Order.status == StatusPedido.AGUARDANDO_COLETA.value
     result = await db.execute(
-        select(Order)
-        .where(Order.status == StatusPedido.AGUARDANDO_COLETA.value)
-        .order_by(Order.id)
-        .limit(limit)
-        .offset(offset)
+        select(Order).where(filtro).order_by(Order.id).limit(limit).offset(offset)
     )
     # `de_order`, não o ORM cru: `endereco_entrega` não é mais atributo do
     # model — precisa ser composto (ver PedidoStaffOut.de_order).
@@ -40,18 +42,21 @@ async def fila_entrega(
 async def minhas_entregas(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    user: dict = Depends(requer_papel("entregador")),
+    ator: AtorEntrega = Depends(ator_entrega),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Order)
-        .where(
-            Order.deliverer_id == user["sub"],
+    if ator.tipo == PAPEL_CARREGAMENTO:
+        filtro = (
+            Order.carregamento_id == ator.carregamento_id,
             Order.status == StatusPedido.EM_TRANSITO.value,
         )
-        .order_by(Order.id)
-        .limit(limit)
-        .offset(offset)
+    else:
+        filtro = (
+            Order.deliverer_id == ator.id,
+            Order.status == StatusPedido.EM_TRANSITO.value,
+        )
+    result = await db.execute(
+        select(Order).where(*filtro).order_by(Order.id).limit(limit).offset(offset)
     )
     return [PedidoStaffOut.de_order(pedido) for pedido in result.scalars().all()]
 
@@ -59,7 +64,7 @@ async def minhas_entregas(
 @router.patch("/{pedido_id}/collect", response_model=PedidoStaffOut)
 async def confirmar_coleta(
     pedido_id: uuid.UUID,
-    user: dict = Depends(requer_papel("entregador")),
+    ator: AtorEntrega = Depends(ator_entrega),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -91,20 +96,35 @@ async def confirmar_coleta(
 
     A estimativa de prazo abaixo grava em `orders.estimated_delivery_at`
     (`data_prevista_entrega` antes da task C2).
+
+    Task 5: o mesmo endpoint agora também aceita um token de carregamento.
+    `ator.autoriza(pedido)` cobre os dois casos — usuário (regra acima) e
+    lote (posse é `carregamento_id`, não `deliverer_id`) — mas as mensagens
+    de erro continuam distintas por ator, porque a mensagem de usuário já é
+    afirmada por teste.
     """
     result = await db.execute(select(Order).where(Order.id == pedido_id).with_for_update())
     pedido = result.scalar_one_or_none()
     if not pedido:
         raise HTTPException(404, "Pedido não encontrado")
 
-    if pedido.deliverer_id is not None and str(pedido.deliverer_id) != user["sub"]:
+    if not ator.autoriza(pedido):
+        if ator.tipo == PAPEL_CARREGAMENTO:
+            raise HTTPException(403, "Este pedido não pertence a este carregamento")
         raise HTTPException(403, "Este pedido já foi atribuído a outro entregador")
 
-    pedido.deliverer_id = user["sub"]
+    if ator.tipo == PAPEL_CARREGAMENTO:
+        # Não há usuário aqui: a posse do pedido já é o `carregamento_id`
+        # (task 4, `atribuir_pedido`), então `deliverer_id` fica nulo — o
+        # lote é o dono, não uma pessoa.
+        quem_fez = None
+    else:
+        pedido.deliverer_id = ator.id
+        quem_fez = ator.id
     await db.flush()
 
     pedido_atualizado = await transicionar_pedido(
-        db, pedido_id, StatusPedido.EM_TRANSITO.value, user["sub"]
+        db, pedido_id, StatusPedido.EM_TRANSITO.value, quem_fez
     )
 
     # Estima o prazo de entrega com base na média histórica real de
@@ -132,7 +152,7 @@ async def confirmar_coleta(
 @router.patch("/{pedido_id}/deliver", response_model=PedidoStaffOut)
 async def confirmar_entrega(
     pedido_id: uuid.UUID,
-    user: dict = Depends(requer_papel("entregador")),
+    ator: AtorEntrega = Depends(ator_entrega),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -143,17 +163,28 @@ async def confirmar_entrega(
     pedido como entregue. Diferente de `confirmar_coleta`, aqui o pedido
     já tem dono (`deliverer_id` foi definido na coleta), então a posse
     PRECISA ser checada antes de deixar concluir a entrega.
+
+    Task 5: a checagem de posse do usuário continua EXPLÍCITA, além de
+    `ator.autoriza(pedido)` — `autoriza` aceita `deliverer_id is None` (o
+    caso de claim-on-first-action da coleta), e entregar um pedido sem dono
+    não pode passar. Para o ator de lote, a posse É o `carregamento_id`, daí
+    a segunda checagem, que `autoriza` já cobre sozinha.
     """
     result = await db.execute(select(Order).where(Order.id == pedido_id))
     pedido = result.scalar_one_or_none()
     if not pedido:
         raise HTTPException(404, "Pedido não encontrado")
-    if str(pedido.deliverer_id) != user["sub"]:
+    if ator.tipo != PAPEL_CARREGAMENTO and str(pedido.deliverer_id) != ator.id:
         raise HTTPException(
             403, "Apenas o entregador responsável por este pedido pode confirmar a entrega"
         )
+    if not ator.autoriza(pedido):
+        raise HTTPException(403, "Este pedido não pertence a este carregamento")
 
     pedido_atualizado = await transicionar_pedido(
-        db, pedido_id, StatusPedido.ENTREGUE.value, user["sub"]
+        db,
+        pedido_id,
+        StatusPedido.ENTREGUE.value,
+        ator.id if ator.tipo != PAPEL_CARREGAMENTO else None,
     )
     return PedidoStaffOut.de_order(pedido_atualizado)

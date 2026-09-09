@@ -61,3 +61,28 @@ class CarregamentoList(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class CarregamentoLoginIn(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    codigo: str = Field(min_length=1, max_length=12)
+    senha: str = Field(min_length=1, max_length=128)
+    nome: str = Field(min_length=1, max_length=120)
+    contato: str = Field(min_length=1, max_length=120)
+
+
+class CarregamentoLoginOut(BaseModel):
+    """Só o access token: o carregamento não tem refresh.
+
+    Um lote é de uma jornada, e um refresh de sete dias sobre uma senha que
+    circula por e-mail é vida longa demais para uma credencial compartilhada.
+    Expiração e revogação sofisticadas estão explicitamente fora do escopo da
+    spec; o que existe é o `exp` de 12 horas abaixo.
+    """
+
+    access_token: str
+    token_type: str = "bearer"  # noqa: S105 — não é segredo, é o esquema OAuth2
+    carregamento_id: int
+    codigo: str
+    origem_rotulo: str

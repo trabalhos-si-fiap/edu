@@ -6,10 +6,12 @@ retorno de `criar_carregamento` e o payload de `shipment.created`. Nada aqui a
 loga, e nenhuma leitura posterior a devolve.
 """
 
+import hmac
 import secrets
 import uuid
+from datetime import UTC, datetime
 
-from edu_common.security import hash_password
+from edu_common.security import DUMMY_PASSWORD_HASH, hash_password, verify_password
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.exceptions import (
     CarregamentoNotFoundError,
     CarregamentoOrigemDivergenteError,
+    CredencialCarregamentoInvalidaError,
     OrderNotFoundError,
     PedidoJaCarregadoError,
     TransportadoraNotFoundError,
@@ -169,6 +172,44 @@ async def buscar_carregamento(db: AsyncSession, carregamento_id: int) -> Carrega
     carregamento = await db.get(Carregamento, carregamento_id)
     if carregamento is None:
         raise CarregamentoNotFoundError()
+    return carregamento
+
+
+async def autenticar_carregamento(
+    db: AsyncSession, *, codigo: str, senha: str, nome: str, contato: str
+) -> Carregamento:
+    """Valida a credencial e registra quem pegou a carga no primeiro acesso.
+
+    O SELECT é por código exato. A comparação com `hmac.compare_digest` logo
+    abaixo parece redundante depois de um `WHERE codigo = :codigo` — e é, para
+    o resultado; ela está lá porque a regra 9 do CLAUDE.md pede comparação em
+    tempo constante de segredo, e porque uma reescrita futura que troque o
+    filtro por uma busca case-insensitive ou por prefixo herdaria a proteção
+    em vez de perdê-la em silêncio.
+    """
+    carregamento = (
+        await db.execute(
+            select(Carregamento).where(Carregamento.codigo == codigo).with_for_update()
+        )
+    ).scalar_one_or_none()
+
+    if carregamento is None or not hmac.compare_digest(carregamento.codigo, codigo):
+        # Gasta um bcrypt do MESMO custo antes de recusar: sem isto, um código
+        # inexistente responderia em microssegundos e um código válido com
+        # senha errada em ~100 ms, o que basta para enumerar lotes.
+        verify_password(senha, DUMMY_PASSWORD_HASH)
+        raise CredencialCarregamentoInvalidaError()
+
+    if not verify_password(senha, carregamento.senha_hash):
+        raise CredencialCarregamentoInvalidaError()
+
+    if carregamento.aberto_em is None:
+        carregamento.entregador_nome = nome
+        carregamento.entregador_contato = contato
+        carregamento.aberto_em = datetime.now(UTC)
+        await db.commit()
+        await db.refresh(carregamento)
+
     return carregamento
 
 

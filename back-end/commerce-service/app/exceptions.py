@@ -179,3 +179,14 @@ class PedidoJaCarregadoError(Exception):
 
     Sufixo `Error` por N818.
     """
+
+
+class CredencialCarregamentoInvalidaError(Exception):
+    """Código ou senha de carregamento que não conferem. UMA exceção para os
+    dois casos, de propósito: o router traduz em 401 com a mesma mensagem, e
+    o serviço gasta o mesmo tempo nos dois caminhos (bcrypt contra
+    `DUMMY_PASSWORD_HASH` quando o código não existe). Distinguir os dois
+    transformaria a rota num oráculo de quais lotes existem.
+
+    Sufixo `Error` por N818.
+    """
