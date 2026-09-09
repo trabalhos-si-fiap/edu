@@ -2,7 +2,7 @@
 
 **Para que serve:** confirmar, em cerca de trinta minutos, que a plataforma
 inteira funciona sobre um backend só depois que o monolito foi apagado. Não é
-suíte de regressão — as 847 asserções de backend e as 179 do Flutter já rodam
+suíte de regressão — as 882 asserções de backend e as 179 do Flutter já rodam
 em CI e cobrem unidade e integração. Este documento cobre o que teste
 automatizado não alcança: um humano atravessando o produto de ponta a ponta,
 alternando entre os quatro perfis, contra o stack de verdade.

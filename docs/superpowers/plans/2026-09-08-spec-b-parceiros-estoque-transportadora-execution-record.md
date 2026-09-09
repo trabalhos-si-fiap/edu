@@ -68,6 +68,15 @@ até bater o número escrito.
 | Flutter (`flutter analyze`) | 7 `info`, exit 1 | 7 `info`, exit 1 |
 | `web-admin` (`npm run build`) | exit 0, 3 avisos de budget SCSS | exit 0, 3 avisos de budget SCSS |
 
+A coluna "Depois" mede o fim das **catorze tarefas do plano**. A revisão da
+branch inteira veio depois dela e acrescentou mais 35 testes ao commerce ao
+fechar os oito achados e os dois residuais: a branch foi mesclada com
+**commerce 526** e **882 no total Python**. Os outros alvos não se moveram.
+Deixo as duas medições lado a lado de propósito — trocar 491 por 526 na tabela
+faria ela descrever o presente e apagaria a proporção que importa: as catorze
+tarefas somaram 124 testes ao commerce, e a revisão da branch inteira somou
+outros 35 depois de todas elas terem sido revisadas e aprovadas uma a uma.
+
 Os seis serviços que este plano não toca ficaram **exatamente** onde estavam.
 Isso era o teste de costura mais barato disponível e ele passou.
 
