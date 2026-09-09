@@ -10,11 +10,13 @@ O que este arquivo mais protege é a fronteira: as ocorrências que já existem
 pelo aluno) não podem mudar de comportamento.
 """
 
+import asyncio
 import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
 
 from edu_common.security import create_access_token
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models.ocorrencia import Ocorrencia
@@ -467,3 +469,85 @@ async def test_student_resolve_refuses_accepting_a_new_date_without_one(client, 
 
     await db_session.refresh(pedido)
     assert pedido.estimated_delivery_at == entrega_estimada
+
+
+# ── Fix round 1 (hardening): provar o lock de `close`, não só a idempotência
+#
+# `test_closing_an_occurrence_is_admin_only_and_idempotent_guarded` fecha a
+# mesma ocorrência duas vezes SEQUENCIALMENTE no mesmo client — uma versão
+# sem `with_for_update()` passaria nele igualzinho, porque a segunda chamada
+# enxerga o `RESOLVIDA` que a primeira já commitou por leitura comum, sem
+# precisar de lock nenhum. Este teste mirra
+# `test_concurrent_resolves_apply_the_price_delta_once`
+# (`tests/test_occurrences_routes.py`): duas requisições de verdade
+# concorrentes, com o encontro forçado sem `sleep` fixo no meio do caminho
+# (um `asyncio.gather` puro não basta — as queries locais voltam rápido
+# demais para o event loop trocar de tarefa, medido lá e medido aqui de
+# novo). A PRIMEIRA para no seu commit e só segue quando a SEGUNDA abriu a
+# própria sessão (fez seu próprio primeiro `execute`).
+#
+# Diferença medida contra o `resolve`: o `close` só faz UM `execute` antes
+# do commit (o `resolve` faz até quatro — outro SELECT FOR UPDATE, mais
+# OrderItem/Product), então o SELECT simples da segunda sessão (sem lock)
+# tem uma folga de só alguns milissegundos para voltar antes do commit da
+# primeira — nesta máquina, ela vencia essa corrida de forma consistente,
+# fazendo uma versão SEM `with_for_update()` passar aqui por acidente (medido: 5/5
+# rodadas "verdes" com o lock removido, antes deste ajuste). Por isso o
+# `asyncio.sleep(0.05)` abaixo, DEPOIS do sinal e ANTES do commit da
+# primeira: ele não muda nada quando o lock existe (a segunda já está
+# bloqueada no banco esperando a primeira terminar, não esperando este
+# sleep), mas garante que, sem o lock, o SELECT sem lock da segunda teve
+# tempo de sobra para voltar com "ABERTA" antes da primeira commitar —
+# tornando o resultado sem lock ([200, 200], achado duplicado)
+# deterministico em vez de uma corrida de sorte.
+async def test_concurrent_closes_apply_the_resolution_once(client, db_session, monkeypatch):
+    pedido = await _seed_pedido(db_session)
+    carrier = await _seed_carrier(db_session)
+    criada = await client.post(
+        "/occurrences/carrier",
+        json={
+            "pedido_id": str(pedido.id),
+            "transportadora_id": carrier.id,
+            "tipo": "DANO",
+            "motivo": "m",
+        },
+        headers=headers_for("admin"),
+    )
+    ocorrencia_id = criada.json()["id"]
+
+    execute_real = AsyncSession.execute
+    commit_real = AsyncSession.commit
+    sessoes_vistas = {id(db_session)}
+    a_segunda_abriu = asyncio.Event()
+    estado = {"ja_esperou": False}
+
+    async def execute_espiao(self, *args, **kwargs):
+        if id(self) not in sessoes_vistas:
+            sessoes_vistas.add(id(self))
+            if len(sessoes_vistas) == 3:  # db_session + as duas sessões de rota
+                a_segunda_abriu.set()
+        return await execute_real(self, *args, **kwargs)
+
+    async def commit_espiao(self):
+        if id(self) != id(db_session) and not estado["ja_esperou"]:
+            estado["ja_esperou"] = True
+            await asyncio.wait_for(a_segunda_abriu.wait(), timeout=5)
+            await asyncio.sleep(0.05)
+        return await commit_real(self)
+
+    monkeypatch.setattr(AsyncSession, "execute", execute_espiao)
+    monkeypatch.setattr(AsyncSession, "commit", commit_espiao)
+
+    primeira, segunda = await asyncio.gather(
+        client.post(f"/occurrences/{ocorrencia_id}/close", json={}, headers=headers_for("admin")),
+        client.post(f"/occurrences/{ocorrencia_id}/close", json={}, headers=headers_for("admin")),
+    )
+
+    monkeypatch.undo()
+
+    codigos = sorted([primeira.status_code, segunda.status_code])
+    assert codigos == [200, 400], f"{primeira.text} / {segunda.text}"
+
+    ocorrencia_db = await db_session.get(Ocorrencia, ocorrencia_id)
+    await db_session.refresh(ocorrencia_db)
+    assert ocorrencia_db.status == "RESOLVIDA"
