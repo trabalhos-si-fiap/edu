@@ -36,7 +36,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import async_session
-from app.events.publisher import close_publisher, init_publisher
+from app.events.publisher import close_publisher, init_publisher, publish_event
 from app.main import app
 from app.models.user import User
 
@@ -112,18 +112,28 @@ async def seed_demo_accounts(client: AsyncClient, session: AsyncSession, senha: 
         # já autenticado: não existe rota que crie o primeiro admin. Este
         # INSERT direto rompe o ciclo do ovo e da galinha uma vez, de forma
         # visível (ver docs/back-end/demo-accounts.md).
-        session.add(
-            User(
-                nome=admin["nome"],
-                email=admin["email"],
-                senha_hash=hash_password(senha),
-                role="admin",
-            )
+        admin_user = User(
+            nome=admin["nome"],
+            email=admin["email"],
+            senha_hash=hash_password(senha),
+            role="admin",
         )
+        session.add(admin_user)
         await session.commit()
         existentes.add(admin["email"])
         criadas += 1
         logger.info("conta de demonstração criada (bootstrap direto): {} (admin)", admin["email"])
+
+        # As outras três contas nascem por rota e publicam `student.created` /
+        # `staff.created` por conta própria. O admin é INSERT direto (é o que
+        # rompe o ciclo do ovo e da galinha), então o evento sai daqui — sem
+        # ele, o registro de staff do notification-service (spec C) nunca
+        # conhece o admin, e toda transição que avisa admin fica sem
+        # destinatário.
+        await publish_event(
+            "staff.created",
+            {"user_id": str(admin_user.id), "nome": admin_user.nome, "role": admin_user.role},
+        )
 
     aluno = next(conta for conta in DEMO_ACCOUNTS if conta["role"] == "student")
     if aluno["email"] not in existentes:

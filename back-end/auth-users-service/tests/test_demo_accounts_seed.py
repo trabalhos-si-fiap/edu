@@ -18,11 +18,37 @@ async def test_seed_creates_one_account_per_role(client, db_session, _stub_publi
     papeis = (await db_session.execute(select(User.role))).scalars().all()
     assert sorted(papeis) == ["admin", "entregador", "separador", "student"]
 
-    # Só o admin nasce por INSERT direto (bootstrap). As outras três passam
-    # pelas rotas reais, que publicam evento — sem isso, learning-service e
-    # analytics-service nunca saberiam que o aluno de demonstração existe.
+    # As quatro contas publicam evento, agora — inclusive o admin, criado por
+    # INSERT direto no bootstrap (task 8 da spec C): sem isso, o registro de
+    # staff do notification-service nasceria sem o admin, e toda transição
+    # que avisa admin ficaria sem destinatário. Amendment declarado: esta
+    # asserção antes tinha só dois "staff.created" (separador, entregador) —
+    # ver relato da task 8.
     routing_keys = sorted(routing_key for routing_key, _ in _stub_publish_event)
-    assert routing_keys == ["staff.created", "staff.created", "student.created"]
+    assert routing_keys == [
+        "staff.created",
+        "staff.created",
+        "staff.created",
+        "student.created",
+    ]
+
+
+async def test_the_bootstrap_admin_announces_itself_like_the_others(
+    client, db_session, _stub_publish_event
+):
+    """`admin@demo.edu` é a única conta criada por INSERT direto, então ela
+    nunca publicou `staff.created` — e o registro de staff do
+    notification-service (spec C, task 8) nasceria sem o admin, deixando as
+    transições que avisam admin sem destinatário nenhum."""
+    await seed_demo_accounts(client, db_session, SENHA)
+
+    usuarios = (await db_session.execute(select(User))).scalars().all()
+    admin = next(u for u in usuarios if u.role == "admin")
+    evento_esperado = (
+        "staff.created",
+        {"user_id": str(admin.id), "nome": "Admin Demo", "role": "admin"},
+    )
+    assert evento_esperado in _stub_publish_event
 
 
 async def test_seed_is_idempotent(client, db_session):

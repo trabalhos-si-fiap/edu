@@ -70,6 +70,13 @@ def _stub_publish_event(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, dict
     see what the route actually publishes, so renaming a key in the published
     dict broke no test here nor in the services that consume it. Same shape as
     commerce-service's equivalent fixture.
+
+    A segunda linha de patch é por causa do MESMO motivo, num módulo
+    diferente: `app/seeds/demo_accounts.py` também faz
+    `from app.events.publisher import publish_event`, e o bootstrap do admin
+    (task 8 da spec C) chama esse nome ligado no seu próprio módulo — patchar
+    só `app.routers.auth.publish_event` deixaria o seed batendo no publisher
+    desconectado.
     """
     eventos: list[tuple[str, dict]] = []
 
@@ -77,6 +84,7 @@ def _stub_publish_event(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, dict
         eventos.append((routing_key, payload))
 
     monkeypatch.setattr("app.routers.auth.publish_event", _capturar)
+    monkeypatch.setattr("app.seeds.demo_accounts.publish_event", _capturar)
 
     return eventos
 
