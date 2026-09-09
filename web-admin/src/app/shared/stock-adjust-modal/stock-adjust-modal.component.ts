@@ -14,7 +14,8 @@ import {
   Validators
 } from '@angular/forms';
 
-import { InventoryItem } from '../../core/models/inventory.model';
+import { backendDetail } from '../../core/http-error';
+import { InventoryStockRow } from '../../core/models/inventory.model';
 import { InventoryService } from '../../core/services/inventory.service';
 
 @Component({
@@ -29,7 +30,7 @@ export class StockAdjustModalComponent implements OnInit {
   private readonly inventoryService = inject(InventoryService);
   private readonly cdr = inject(ChangeDetectorRef);
 
-  @Input({ required: true }) item!: InventoryItem;
+  @Input({ required: true }) item!: InventoryStockRow;
 
   @Output() closed = new EventEmitter<void>();
   @Output() saved = new EventEmitter<void>();
@@ -47,14 +48,21 @@ export class StockAdjustModalComponent implements OnInit {
   ];
 
   readonly form = this.fb.nonNullable.group({
-    quantity: [0, [Validators.required, Validators.min(0)]],
-    reasonPreset: ['Recebimento de lote', Validators.required],
+    // `le=1_000_000` espelha `quantidade: int = Query(ge=0, le=1_000_000)`
+    // em `PATCH /admin/inventory/{id}/adjust` — sem o teto, um valor fora
+    // da faixa só falha no 422 do servidor, com mensagem genérica.
+    quantity: [0, [Validators.required, Validators.min(0), Validators.max(1_000_000)]],
+    // Sem valor inicial: um preset pré-selecionado satisfaria
+    // `Validators.required` sem o admin ter escolhido nada, e `motivo`
+    // gravaria uma constante em vez de uma decisão humana — exatamente o
+    // que a auditoria (task 3) existe para não deixar acontecer.
+    reasonPreset: ['', Validators.required],
     observations: ['', Validators.maxLength(220)]
   });
 
   ngOnInit(): void {
     this.form.patchValue({
-      quantity: this.item.quantity
+      quantity: this.item.quantidade
     });
   }
 
@@ -74,7 +82,9 @@ export class StockAdjustModalComponent implements OnInit {
       this.form.getRawValue();
 
     const cleanObservation = observations.trim();
-    const reason = cleanObservation
+    // `motivo` é obrigatório no backend (task 3, auditoria) — o preset
+    // sozinho já satisfaz isso; a observação é um complemento opcional.
+    const motivo = cleanObservation
       ? `${reasonPreset}: ${cleanObservation}`
       : reasonPreset;
 
@@ -82,10 +92,7 @@ export class StockAdjustModalComponent implements OnInit {
     this.errorMessage = '';
 
     this.inventoryService
-      .adjustInventory(this.item.productId, {
-        quantity: Number(quantity),
-        reason
-      })
+      .adjustInventory(this.item.id, Number(quantity), motivo)
       .subscribe({
         next: () => {
           this.saving = false;
@@ -96,12 +103,22 @@ export class StockAdjustModalComponent implements OnInit {
           this.saving = false;
           this.cdr.markForCheck();
 
-          if (error?.status === 400) {
-            this.errorMessage = 'Confira a quantidade e o motivo do ajuste.';
+          if (error?.status === 400 || error?.status === 422) {
+            // O 422 mais provável aqui é a recusa de estoque negativo, cuja
+            // sentença o servidor já escreve. O texto genérico só entra
+            // quando o `detail` não é exibível (422 de schema do Pydantic,
+            // que vem como lista).
+            this.errorMessage = backendDetail(
+              error,
+              'Confira a quantidade e o motivo do ajuste.'
+            );
             return;
           }
 
-          this.errorMessage = 'Não foi possível atualizar o estoque.';
+          this.errorMessage = backendDetail(
+            error,
+            'Não foi possível atualizar o estoque.'
+          );
         }
       });
   }

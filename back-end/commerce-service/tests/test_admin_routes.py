@@ -108,7 +108,14 @@ async def test_inventory_response_exposes_only_declared_fields(client, db_sessio
     response = await client.get("/admin/inventory", headers=headers_for("admin"))
     assert response.status_code == 200
     row = response.json()[0]
-    assert set(row) == {"id", "produto_id", "fornecedor_id", "quantidade", "atualizado_em"}
+    assert set(row) == {
+        "id",
+        "produto_id",
+        "fornecedor_id",
+        "quantidade",
+        "estoque_minimo",
+        "atualizado_em",
+    }
 
 
 async def test_orders_listing_is_paginated(client):
@@ -250,7 +257,7 @@ async def test_inventory_adjust_rejects_a_negative_quantity(client, db_session):
     quantidade_inicial = estoque.quantidade
 
     response = await client.patch(
-        f"/admin/inventory/{estoque.id}/adjust?quantidade=-50",
+        f"/admin/inventory/{estoque.id}/adjust?quantidade=-50&motivo=Teste",
         headers=headers_for("admin"),
     )
 
@@ -264,7 +271,7 @@ async def test_inventory_adjust_accepts_zero(client, db_session):
     "valor inválido". O piso é 0, não 1."""
     estoque = await _seed_estoque(db_session)
     response = await client.patch(
-        f"/admin/inventory/{estoque.id}/adjust?quantidade=0",
+        f"/admin/inventory/{estoque.id}/adjust?quantidade=0&motivo=Teste",
         headers=headers_for("admin"),
     )
     assert response.status_code == 200

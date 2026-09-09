@@ -9,10 +9,12 @@ from app.routers import (
     entrega,
     ocorrencias,
     pagamento,
+    parceiros,
     pedidos,
     produtos,
     rastreio,
     separacao,
+    transportadoras,
 )
 
 
@@ -33,7 +35,9 @@ app.include_router(rastreio.router)
 app.include_router(separacao.router)
 app.include_router(entrega.router)
 app.include_router(admin.router)
+app.include_router(parceiros.router)
 app.include_router(ocorrencias.router)
+app.include_router(transportadoras.router)
 
 
 @app.get("/health")

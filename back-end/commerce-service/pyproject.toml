@@ -49,10 +49,19 @@ ignore = ["S101"]
 # por todo router dos sete serviços. `requer_papel` entra na lista pelo
 # mesmo motivo: `Depends(requer_papel("admin"))` é chamada inline por
 # design, e sem isso todo endpoint com papel exigido carregaria um noqa.
+#
+# `fastapi.Query` entra por um caso diferente: o B008 pula a checagem
+# sozinho quando a anotação do parâmetro é um tipo imutável que o ruff já
+# conhece (`str`, `int`, `bool`...), o que é por que
+# `limit: int = Query(...)` nunca precisou de nada disto. Mas um enum
+# nosso (`status: CarrierStatus | None = Query(...)`, task 4) não está
+# nessa lista embutida, e sem esta entrada o mesmo `Query(...)` que já é
+# idiomático em todo router da frota dispararia B008 só por causa do tipo.
 [tool.ruff.lint.flake8-bugbear]
 extend-immutable-calls = [
     "fastapi.Depends",
     "fastapi.Security",
+    "fastapi.Query",
     "app.dependencies.requer_papel",
 ]
 

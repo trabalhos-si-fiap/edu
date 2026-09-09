@@ -9,19 +9,26 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.events.publisher import publish_event
-from app.exceptions import CartProductNotFoundError, EmptyCartError, OrderNotFoundError
+from app.exceptions import (
+    CarrinhoOrigemMistaError,
+    CartProductNotFoundError,
+    EmptyCartError,
+    OrderNotFoundError,
+)
 from app.models.pedido import Order, PedidoStatusHistorico
 from app.redis_client import get_redis
 from app.schemas.carrinho import QUANTIDADE_MAXIMA, CartItemIn, CartOut
 from app.schemas.pedido import (
     OrderCreateIn,
     OrderOut,
+    PagamentoConfirmadoOut,
     PedidoStatusHistoricoOut,
     PrevisaoEntregaOut,
 )
 from app.services import carrinho as cart_services
 from app.services import pedidos as services
 from app.services.auth_client import AuthServiceUnavailableError, get_address
+from app.services.codigos_pagamento import gerar_codigo_pagamento
 from app.services.media import presign_cart, presigned_image_url
 from app.services.previsao_entrega import MINIMO_AMOSTRAS, estimar_prazo_entrega
 from app.storage import ObjectStorage, get_storage
@@ -226,7 +233,12 @@ async def recomprar(
 
     Produto que saiu do catálogo é PULADO, não derruba a recompra — um
     pedido de meses atrás quase sempre tem pelo menos um item descontinuado,
-    e falhar por causa dele tornaria o botão inútil.
+    e falhar por causa dele tornaria o botão inútil. Produto DESATIVADO
+    (`products.active = false`) cai no mesmo caminho: `adicionar_item` o
+    recusa com `CartProductNotFoundError`, e o `continue` abaixo devolve ao
+    aluno o resto do pedido. É a mesma decisão pelo mesmo motivo — um item
+    fora da prateleira não vale um erro na cara de quem só queria repetir a
+    compra.
 
     NÃO É ATÔMICO, de propósito: `cart_services.adicionar_item` comita a
     cada item (`app/services/carrinho.py`), então uma recompra de N itens
@@ -237,6 +249,16 @@ async def recomprar(
     `CartProductNotFoundError` ANTES de qualquer escrita — o `select` do
     produto é a primeira coisa que ela faz —, então o `continue` abaixo não
     deixa a sessão em estado sujo.
+
+    A OUTRA recusa de `adicionar_item` é `CarrinhoOrigemMistaError` (regra de
+    origem única, spec B): o carrinho de hoje já tem item de um parceiro e a
+    recompra traz item de outro. Ela NÃO é pulada como o produto fora de
+    catálogo — pular deixaria a recompra "dar certo" repondo só parte do
+    pedido, sem nada dizer por quê. Vira 409 com a mesma sentença de
+    `POST /cart/items` (`app/routers/carrinho.py`), para o cliente exibir a
+    mensagem do servidor em vez de inventar uma. `adicionar_item` também
+    levanta esta ANTES de escrever o item recusado, mas a recompra não é
+    atômica: os itens já repostos antes da recusa ficam no carrinho.
 
     NÃO É IDEMPOTENTE (achado 4 do code review): chamar esta rota duas
     vezes para o MESMO pedido soma os itens duas vezes, não reconhece que
@@ -277,9 +299,51 @@ async def recomprar(
             )
         except CartProductNotFoundError:
             continue
+        except CarrinhoOrigemMistaError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail=CarrinhoOrigemMistaError.MENSAGEM
+            ) from exc
 
     if cart is None:
         # Nenhum produto do pedido existe mais — devolve o carrinho atual.
         cart = await cart_services.obter_carrinho(db, user_id)
 
     return await presign_cart(cart, storage=storage, redis=redis)
+
+
+@router.post("/{order_id}/confirm-payment", response_model=PagamentoConfirmadoOut)
+async def confirmar_pagamento(
+    order_id: uuid.UUID,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> PagamentoConfirmadoOut:
+    """Devolve ao ALUNO o código copia-e-cola do pedido dele.
+
+    NÃO confunda com `PATCH /admin/orders/{pedido_id}/confirm-payment`
+    (`app/routers/admin.py`), que é do ADMIN (`requer_papel("admin")`) e faz
+    `CRIADO -> CONFIRMADO -> AGUARDANDO_SEPARACAO`. A colisão é de nome, não
+    de comportamento: esta rota não toca em status nenhum.
+
+    Idempotente por construção — o código é derivado do `order_id`, então
+    chamar duas vezes devolve a mesma coisa e nada é gravado.
+
+    Sem `requer_papel(...)`: mesmo idioma de `listar_pedidos`,
+    `detalhe_pedido` e `recomprar` acima, que também só pedem
+    `Depends(get_current_user)`. O controle de acesso (regra 2 do CLAUDE.md)
+    vem do FILTRO POR DONO em `services.buscar_pedido` — reaproveita
+    `_buscar_com_itens`, o "único lugar que sabe filtrar pedido por dono" —
+    não de um gate de papel: pedido de outro aluno cai no mesmo 404 que
+    pedido inexistente, sem revelar qual dos dois é, e um staff/admin
+    autenticado com o PRÓPRIO token não é dono do pedido de ninguém, então
+    também cai em 404 ao tentar.
+    """
+    try:
+        pedido = await services.buscar_pedido(db, uuid.UUID(user["sub"]), order_id)
+    except OrderNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Pedido não encontrado") from exc
+
+    codigo = gerar_codigo_pagamento(pedido.id, pedido.payment_method)
+
+    return PagamentoConfirmadoOut(
+        order_id=pedido.id, payment_method=pedido.payment_method, payment_code=codigo
+    )

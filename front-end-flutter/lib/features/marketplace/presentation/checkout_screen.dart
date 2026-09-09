@@ -1,5 +1,3 @@
-import 'dart:math';
-
 import 'package:edu_ia/core/theme/app_colors.dart';
 import 'package:edu_ia/core/utils/currency.dart';
 import 'package:edu_ia/features/cart/data/cart_store.dart';
@@ -282,8 +280,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     final cart = context.read<CartStore>();
     if (cart.isEmpty) return;
 
+    final String orderId;
     try {
-      await CheckoutService().placeOrder(
+      orderId = await CheckoutService().placeOrder(
         paymentMethod: _paymentTitle(method),
         addressId: _selectedAddressId,
       );
@@ -295,30 +294,38 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     if (!mounted) return;
     cart.clear();
 
-    switch (method.type) {
-      case PaymentMethodType.pix:
-        _showCopyCodeDialog(
-          title: 'Pague com PIX',
-          description:
-              'Copie o código abaixo e cole no app do seu banco para concluir o pagamento.',
-          code: _generatePixCode(),
-          copiedMessage: 'Código PIX copiado',
-        );
-        break;
-      case PaymentMethodType.boleto:
-        _showCopyCodeDialog(
-          title: 'Pague com Boleto',
-          description:
-              'Copie a linha digitável abaixo e pague no app do seu banco. Compensação em até 2 dias úteis.',
-          code: _generateBoletoCode(),
-          copiedMessage: 'Linha digitável copiada',
-        );
-        break;
-      case PaymentMethodType.creditCard:
-        _snack('Pedido finalizado com sucesso!');
-        Navigator.pop(context);
-        break;
+    if (method.type == PaymentMethodType.creditCard) {
+      _snack('Pedido finalizado com sucesso!');
+      Navigator.pop(context);
+      return;
     }
+
+    final String? code;
+    try {
+      code = await CheckoutService().confirmPayment(orderId);
+    } on CheckoutException catch (e) {
+      if (mounted) _snack(e.message);
+      return;
+    }
+    if (!mounted) return;
+    if (code == null) {
+      // Não deveria acontecer para PIX/boleto (só cartão não tem código),
+      // mas o pedido já foi criado — silêncio aqui pareceria um bug de
+      // travamento. Avisa o aluno em vez de simplesmente não fazer nada.
+      _snack('Pedido finalizado, mas não veio um código de pagamento para copiar.');
+      Navigator.pop(context);
+      return;
+    }
+
+    final ehPix = method.type == PaymentMethodType.pix;
+    _showCopyCodeDialog(
+      title: ehPix ? 'Pague com PIX' : 'Pague com Boleto',
+      description: ehPix
+          ? 'Copie o código abaixo e cole no app do seu banco para concluir o pagamento.'
+          : 'Copie a linha digitável abaixo e pague no app do seu banco. Compensação em até 2 dias úteis.',
+      code: code,
+      copiedMessage: ehPix ? 'Código PIX copiado' : 'Linha digitável copiada',
+    );
   }
 
   void _showCopyCodeDialog({
@@ -438,31 +445,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       context,
     ).showSnackBar(SnackBar(content: Text(message)));
   }
-}
-
-// ---------------------------------------------------------------------------
-// Geração de códigos (mock). Portado de generatePixCopyPasteCode /
-// generateBoletoLinhaDigitavel do edu-kt.
-// ---------------------------------------------------------------------------
-
-String _generatePixCode() {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  final rng = Random();
-  final txid = List.generate(
-    25,
-    (_) => chars[rng.nextInt(chars.length)],
-  ).join();
-  return '00020126360014BR.GOV.BCB.PIX0114+55119999999995204000053039865802BR5909EDU STORE6009SAO PAULO62290525${txid}6304ABCD';
-}
-
-String _generateBoletoCode() {
-  final rng = Random();
-  final d = List.generate(47, (_) => rng.nextInt(10).toString()).join();
-  return '${d.substring(0, 5)}.${d.substring(5, 10)} '
-      '${d.substring(10, 15)}.${d.substring(15, 21)} '
-      '${d.substring(21, 26)}.${d.substring(26, 32)} '
-      '${d.substring(32, 33)} '
-      '${d.substring(33, 47)}';
 }
 
 String _paymentTitle(PaymentMethod m) {

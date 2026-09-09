@@ -14,6 +14,9 @@ import {
   Validators
 } from '@angular/forms';
 
+import { backendDetail } from '../../core/http-error';
+import { Partner } from '../../core/models/partner.model';
+import { PartnerService } from '../../core/services/partner.service';
 import { ProductService } from '../../core/services/product.service';
 
 export type ProductSaveMode = 'created' | 'updated';
@@ -28,25 +31,40 @@ export type ProductSaveMode = 'created' | 'updated';
 export class ProductFormModalComponent implements OnInit {
   private readonly fb = inject(FormBuilder);
   private readonly productService = inject(ProductService);
+  private readonly partnerService = inject(PartnerService);
   private readonly cdr = inject(ChangeDetectorRef);
 
-  @Input() productId: number | null = null;
+  @Input() productId: string | null = null;
 
   @Output() closed = new EventEmitter<void>();
   @Output() saved = new EventEmitter<ProductSaveMode>();
 
   loadingProduct = false;
+  loadingPartners = false;
   saving = false;
   errorMessage = '';
 
+  partners: Partner[] = [];
+
   readonly form = this.fb.nonNullable.group({
-    name: ['', [Validators.required, Validators.maxLength(150)]],
+    name: ['', [Validators.required, Validators.maxLength(160)]],
     sku: ['', [Validators.required, Validators.maxLength(60)]],
-    description: ['', Validators.maxLength(500)],
-    minimumStock: [0, [Validators.required, Validators.min(0)]],
-    initialQuantity: [0, [Validators.required, Validators.min(0)]],
-    price: [0, [Validators.required, Validators.min(0)]],
-    active: [true]
+    type: ['', [Validators.required, Validators.maxLength(64)]],
+    subtype: ['', Validators.maxLength(64)],
+    description: ['', Validators.maxLength(4000)],
+    // Backend não limita casas decimais (`price: Decimal`, sem `decimal_places`)
+    // — o Postgres arredondaria silenciosamente "10.999" para "11.00". O
+    // form normaliza para 2 casas antes de enviar (ver submit()) e volta o
+    // valor arredondado para o campo, então o que o admin VÊ na tela é
+    // sempre o que fica salvo. `max` espelha `ProductIn.price` (`le=99999999.99`).
+    price: [
+      0,
+      [Validators.required, Validators.min(0.01), Validators.max(99_999_999.99)]
+    ],
+    active: [true],
+    fornecedorId: this.fb.control<number | null>(null),
+    quantidadeInicial: [0, [Validators.required, Validators.min(0)]],
+    estoqueMinimo: [0, [Validators.required, Validators.min(0)]]
   });
 
   get isEdit(): boolean {
@@ -55,6 +73,11 @@ export class ProductFormModalComponent implements OnInit {
 
   ngOnInit(): void {
     if (this.productId === null) {
+      // `fornecedor_id` só é exigido na criação — editar um produto não
+      // troca o parceiro dono do estoque.
+      this.form.controls.fornecedorId.addValidators(Validators.required);
+      this.form.controls.fornecedorId.updateValueAndValidity();
+      this.loadPartners();
       return;
     }
 
@@ -65,9 +88,10 @@ export class ProductFormModalComponent implements OnInit {
         this.form.patchValue({
           name: product.name,
           sku: product.sku,
-          description: product.description ?? '',
-          minimumStock: product.minimumStock,
-          price: product.price ?? 0,
+          type: product.type,
+          subtype: product.subtype,
+          description: product.description,
+          price: Number(product.price),
           active: product.active
         });
 
@@ -99,6 +123,13 @@ export class ProductFormModalComponent implements OnInit {
     }
 
     const value = this.form.getRawValue();
+    // Normaliza para exatamente 2 casas — o que o admin vê ao enviar é o
+    // que o Postgres vai guardar, sem arredondamento silencioso. O valor
+    // arredondado volta para o campo: se `10.999` virou `11.00`, a tela
+    // passa a mostrar `11` em vez de manter o que foi digitado.
+    const price = Number(value.price).toFixed(2);
+    this.form.patchValue({ price: Number(price) });
+
     this.saving = true;
     this.errorMessage = '';
 
@@ -106,11 +137,15 @@ export class ProductFormModalComponent implements OnInit {
       this.productService
         .createProduct({
           name: value.name.trim(),
-          sku: value.sku.trim(),
+          type: value.type.trim(),
+          subtype: value.subtype.trim(),
           description: value.description.trim(),
-          minimumStock: Number(value.minimumStock),
-          initialQuantity: Number(value.initialQuantity),
-          price: Number(value.price)
+          price,
+          sku: value.sku.trim(),
+          active: value.active,
+          fornecedor_id: value.fornecedorId as number,
+          quantidade_inicial: Number(value.quantidadeInicial),
+          estoque_minimo: Number(value.estoqueMinimo)
         })
         .subscribe({
           next: () => {
@@ -118,9 +153,12 @@ export class ProductFormModalComponent implements OnInit {
             this.cdr.markForCheck();
             this.saved.emit('created');
           },
-          error: () => {
+          error: error => {
             this.saving = false;
-            this.errorMessage = 'Não foi possível adicionar o produto.';
+            this.errorMessage = backendDetail(
+              error,
+              'Não foi possível adicionar o produto.'
+            );
             this.cdr.markForCheck();
           }
         });
@@ -131,10 +169,11 @@ export class ProductFormModalComponent implements OnInit {
     this.productService
       .updateProduct(this.productId, {
         name: value.name.trim(),
-        sku: value.sku.trim(),
+        type: value.type.trim(),
+        subtype: value.subtype.trim(),
         description: value.description.trim(),
-        minimumStock: Number(value.minimumStock),
-        price: Number(value.price),
+        price,
+        sku: value.sku.trim(),
         active: value.active
       })
       .subscribe({
@@ -143,9 +182,12 @@ export class ProductFormModalComponent implements OnInit {
           this.cdr.markForCheck();
           this.saved.emit('updated');
         },
-        error: () => {
+        error: error => {
           this.saving = false;
-          this.errorMessage = 'Não foi possível editar o produto.';
+          this.errorMessage = backendDetail(
+            error,
+            'Não foi possível editar o produto.'
+          );
           this.cdr.markForCheck();
         }
       });
@@ -155,5 +197,29 @@ export class ProductFormModalComponent implements OnInit {
     if (event.target === event.currentTarget) {
       this.close();
     }
+  }
+
+  private loadPartners(): void {
+    this.loadingPartners = true;
+
+    // `active = false` significa "todos" no backend, não "só os inativos"
+    // (`GET /partners?active=false`, ver parceiros.py). O seletor de
+    // fornecedor precisa de TODOS: o fornecedor da própria loja é semeado
+    // como parceiro INATIVO — ele não é vitrine —, e um admin cadastrando
+    // produto próprio tem que poder escolhê-lo. Com `true` aqui, o produto
+    // próprio ficava impossível de cadastrar pelo painel.
+    this.partnerService.listPartners(false, 100, 0).subscribe({
+      next: list => {
+        this.partners = list.items;
+        this.loadingPartners = false;
+        this.cdr.markForCheck();
+      },
+      error: () => {
+        this.loadingPartners = false;
+        this.errorMessage =
+          'Não foi possível carregar a lista de parceiros. Feche e tente novamente.';
+        this.cdr.markForCheck();
+      }
+    });
   }
 }

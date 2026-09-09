@@ -9,8 +9,7 @@ import {
 } from '@angular/core';
 
 import {
-  CarrierOccurrence,
-  OccurrenceStatus,
+  Occurrence,
   OccurrenceType
 } from '../../core/models/occurrence.model';
 import { OccurrenceService } from '../../core/services/occurrence.service';
@@ -26,7 +25,8 @@ export class OccurrenceDetailModalComponent {
   private readonly occurrenceService = inject(OccurrenceService);
   private readonly cdr = inject(ChangeDetectorRef);
 
-  @Input({ required: true }) occurrence!: CarrierOccurrence;
+  @Input({ required: true }) occurrence!: Occurrence;
+  @Input() carrierName = '—';
 
   @Output() closed = new EventEmitter<void>();
   @Output() updated = new EventEmitter<void>();
@@ -37,35 +37,37 @@ export class OccurrenceDetailModalComponent {
     if (!this.saving) this.closed.emit();
   }
 
-  toggleStatus(): void {
-    const nextStatus: OccurrenceStatus =
-      this.occurrence.status === 'OPEN' ? 'RESOLVED' : 'OPEN';
+  /** Só fecha (ABERTA -> RESOLVIDA). Não existe "reabrir" no backend —
+   *  `POST /occurrences/{id}/close` é uma via só, diferente do toggle
+   *  bidirecional que a tela tinha contra a API Java. */
+  resolve(): void {
+    if (this.occurrence.status !== 'ABERTA' || this.saving) return;
 
     this.saving = true;
 
-    this.occurrenceService
-      .updateStatus(this.occurrence.id, nextStatus)
-      .subscribe({
-        next: () => {
-          this.saving = false;
-          this.cdr.markForCheck();
-          this.updated.emit();
-        },
-        error: () => {
-          this.saving = false;
-          this.cdr.markForCheck();
-        }
-      });
+    this.occurrenceService.close(this.occurrence.id).subscribe({
+      next: () => {
+        this.saving = false;
+        this.cdr.markForCheck();
+        this.updated.emit();
+      },
+      error: () => {
+        this.saving = false;
+        this.cdr.markForCheck();
+      }
+    });
   }
 
   typeLabel(type: OccurrenceType): string {
     switch (type) {
-      case 'DAMAGE':
+      case 'DANO':
         return 'Dano';
-      case 'DELIVERY_DELAY':
+      case 'ATRASO_ENTREGA':
         return 'Atraso';
-      case 'DELIVERY_FAILURE':
+      case 'FALHA_ENTREGA':
         return 'Falha na entrega';
+      case 'FALTA_ESTOQUE':
+        return 'Falta de estoque';
       default:
         return 'Outro';
     }

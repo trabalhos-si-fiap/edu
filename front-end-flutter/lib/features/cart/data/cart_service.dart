@@ -92,6 +92,14 @@ class CartService {
       throw CartException('Não foi possível conectar ao servidor');
     }
     if (res.statusCode != 200 && res.statusCode != 201) {
+      // 409 é a regra de origem única do carrinho: o backend manda a
+      // mensagem PRONTA para exibir (ver CarrinhoOrigemMistaError.MENSAGEM no
+      // commerce-service). Reescrevê-la aqui duplicaria a regra em dois
+      // lugares que divergiriam.
+      if (res.statusCode == 409) {
+        final message = _detailOrNull(res.body);
+        if (message != null) throw CartException(message);
+      }
       throw CartException('$error (${res.statusCode})');
     }
     return res;
@@ -104,4 +112,20 @@ class CartService {
     }
     return {'Authorization': 'Bearer $access'};
   }
+}
+
+/// Lê `detail` do corpo, ou `null` se o corpo não for um JSON com `detail`
+/// legível. Sem isso, uma página de erro HTML de um proxy viraria a mensagem
+/// que o aluno lê.
+String? _detailOrNull(String body) {
+  try {
+    final decoded = jsonDecode(body);
+    if (decoded is Map<String, dynamic>) {
+      final detail = decoded['detail'];
+      if (detail is String && detail.trim().isNotEmpty) return detail;
+    }
+  } on FormatException {
+    return null;
+  }
+  return null;
 }

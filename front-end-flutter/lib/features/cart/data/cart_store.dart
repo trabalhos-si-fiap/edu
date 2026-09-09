@@ -56,7 +56,10 @@ class CartStore extends ChangeNotifier {
     }
   }
 
-  void add(Product product, [int quantity = 1]) {
+  /// Otimista e não-bloqueante: o estado local muda na hora e o retorno
+  /// serve só para quem quer reagir a uma falha (ex.: mostrar a mensagem do
+  /// backend num SnackBar) — não é para ser `await`ado no fluxo principal.
+  Future<void> add(Product product, [int quantity = 1]) {
     final idx = _indexOf(product.id);
     if (idx >= 0) {
       _items[idx] = _items[idx].copyWith(
@@ -66,7 +69,7 @@ class CartStore extends ChangeNotifier {
       _items.add(CartItem(product: product, quantity: quantity));
     }
     notifyListeners();
-    _enqueue(() => _service.addItem(product.id, quantity));
+    return _enqueue(() => _service.addItem(product.id, quantity));
   }
 
   void decrement(String productId) {
@@ -106,14 +109,23 @@ class CartStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Enfileira uma operação de escrita para execução serializada.
-  void _enqueue(Future<List<CartItem>> Function() op) {
-    _writes = _writes.then((_) => _sync(op)).catchError((_) {});
+  /// Enfileira uma operação de escrita para execução serializada: uma de
+  /// cada vez, na ordem dos taps. O Future retornado aqui é o do CHAMADOR
+  /// (carrega o erro, se houver); a corrente `_writes` usa uma cópia com o
+  /// erro engolido, porque ela precisa continuar resolvendo mesmo quando uma
+  /// escrita falha — senão a próxima escrita enfileirada travaria esperando
+  /// um Future que nunca completa com sucesso.
+  Future<void> _enqueue(Future<List<CartItem>> Function() op) {
+    final result = _writes.then((_) => _sync(op));
+    _writes = result.catchError((_) {});
+    return result;
   }
 
   /// Dispara a escrita no backend; em sucesso, mantém o estado otimista. Em
-  /// falha, ressincroniza do servidor e preenche [errorMessage]. A mensagem é
-  /// definida *depois* do resync porque `load` zera [errorMessage] no sucesso.
+  /// falha, ressincroniza do servidor, preenche [errorMessage] e relança a
+  /// exceção para quem chamou (ex.: `add` → um `catchError` na UI que mostra
+  /// a mensagem do backend). A mensagem é definida *depois* do resync porque
+  /// `load` zera [errorMessage] no sucesso.
   /// Trade-off: em caso de falha, o carrinho é ressincronizado do servidor
   /// (fonte da verdade), o que pode descartar taps recentes não sincronizados.
   Future<void> _sync(Future<List<CartItem>> Function() op) async {
@@ -124,6 +136,7 @@ class CartStore extends ChangeNotifier {
       await load(force: true);
       _errorMessage = e.message;
       notifyListeners();
+      rethrow;
     }
   }
 }

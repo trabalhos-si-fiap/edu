@@ -25,7 +25,7 @@
             <strong>{{ item.productName }}</strong>
             <span>
               Estoque atual:
-              <b>{{ item.quantity }}</b>
+              <b>{{ item.quantidade }}</b>
               unidades
             </span>
           </div>
@@ -33,7 +33,12 @@
 
         <label class="field">
           <span>NOVA QUANTIDADE</span>
-          <input type="number" min="0" formControlName="quantity" />
+          <input
+            type="number"
+            min="0"
+            max="1000000"
+            formControlName="quantity"
+          />
         </label>
 
         <label class="field">
@@ -41,6 +46,7 @@
 
           <div class="select-shell">
             <select formControlName="reasonPreset">
+              <option value="" disabled>Selecione o motivo</option>
               @for (reason of reasonOptions; track reason) {
                 <option [value]="reason">{{ reason }}</option>
               }
@@ -80,7 +86,7 @@
         <button
           class="confirm"
           type="submit"
-          [disabled]="saving"
+          [disabled]="saving || form.invalid"
         >
           {{ saving ? 'SALVANDO...' : 'CONFIRMAR' }}
         </button>

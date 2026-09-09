@@ -94,13 +94,27 @@ void main() {
       ..failMutations = true;
     final cart = CartStore(service: service);
 
-    cart.add(_p('a'));
+    // add's returned future now carries the failure (task 12 fix round 1) —
+    // catchError it here since this test asserts through errorMessage, not
+    // through the future itself.
+    cart.add(_p('a')).catchError((_) {});
     expect(cart.totalQuantity, 1); // optimistic
 
     await pumpEventQueue();
     expect(cart.errorMessage, isNotNull);
     expect(service.calls, contains('fetch')); // resync via load(force: true)
     expect(cart.isEmpty, isTrue); // resynced to the empty server cart
+  });
+
+  test('a failed add rethrows so the UI layer can react (e.g. show a snack)',
+      () async {
+    final service = _FakeCartService()..failMutations = true;
+    final cart = CartStore(service: service);
+
+    await expectLater(
+      cart.add(_p('a')),
+      throwsA(isA<CartException>().having((e) => e.message, 'message', 'boom')),
+    );
   });
 
   test('clear zeroes local state without calling the service', () {

@@ -278,8 +278,8 @@ tabela, do arquivo que a B12 criou, medidas em `63f8977`.
 | `tests/test_products_routes.py:68` | `assert len(response.json()) == 2` | `assert len(response.json()["items"]) == 2` | idem |
 | `tests/test_products_routes.py:82` | `assert len(response.json()) <= 100` | `assert len(response.json()["items"]) == 20` | a original passava **vacuosamente** (contava as 4 chaves do envelope); alinhada ao default 20 do legacy |
 | `tests/test_products_routes.py:88` | `product = response.json()[0]` | `product = response.json()["items"][0]` | dict de envelope não é indexável por inteiro |
-| `tests/test_products_routes.py:120` | `item = response.json()[0]` | `item = response.json()["items"][0]` | idem |
-| `tests/test_products_routes.py:89-99` | `set(product) == {id,name,description,price,category,image_url}` | `set(product) == {id,name,type,subtype,description,price,image_url,rating_avg,rating_count}` | divergência 5 (`category`→`type`) + três campos de catálogo do legacy |
+| `tests/test_products_routes.py:122` | `item = response.json()[0]` | `item = response.json()["items"][0]` | idem |
+| `tests/test_products_routes.py:89-101` | `set(product) == {id,name,description,price,category,image_url}` | `set(product) == {id,name,type,subtype,description,price,image_url,rating_avg,rating_count}` — **a spec B (2026-09-08) acrescentou `sku` e `active`, então o bloco tem onze chaves hoje**; as nove aqui são o que a paridade adaptou | divergência 5 (`category`→`type`) + três campos de catálogo do legacy |
 | `tests/test_products_seed.py:131-143` | `test_solid_png_is_a_valid_image` via `validate_image_bytes` | leitura estrutural do PNG pela stdlib | divergência 4 |
 | `tests/test_products_services_parity.py:146` | `pytest.raises(ProductNotFound)` (`test_missing_raises`) | `pytest.raises(ProductNotFoundError)` | a exceção do commerce leva sufixo `Error` (regra N818 do `ruff`) — mesma classe de renome já registrada em `app/exceptions.py` |
 | `tests/test_products_services_parity.py:199` | `pytest.raises(ProductNotFound)` (`test_missing_product_raises`) | `pytest.raises(ProductNotFoundError)` | idem |

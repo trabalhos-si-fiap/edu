@@ -25,6 +25,26 @@ daquela branch em 2026-08-10, no commit `f7df208`; os do bloco D
 `feat/microservices-phase-2d`, no commit `12f3ccd`. Eles envelhecem; o nome do
 arquivo e o do símbolo, não. Quando divergirem, confie no símbolo.
 
+> **Medido em 2026-09-09, depois da spec B:** eles envelheceram. A spec B
+> (parceiros, estoque auditado, transportadora) alterou vários dos arquivos que
+> este documento cita, e **doze ponteiros deste inventário caem hoje numa linha
+> que não tem relação com o item que anunciam** — entre eles
+> `app/routers/admin.py:111` e `:128`, que hoje batem numa linha
+> `db: AsyncSession = Depends(get_db),`, e `tests/test_admin_routes.py:38`, que
+> hoje é uma linha em branco.
+>
+> **O que foi conferido e o que não foi:** conferi os PONTEIROS, um a um.
+> **Não** reverifiquei a substância dos doze itens de dívida — não sei dizer
+> quais deles continuam abertos e quais uma spec posterior já fechou. Trate
+> cada item como afirmação da fase 2, não como estado de hoje.
+>
+> Os números não foram reancorados de propósito: este é um ledger datado, e um
+> ponteiro reancorado hoje apodrece de novo no próximo refactor. Doze números
+> com cara de precisos e todos errados são piores que doze marcados como
+> históricos, porque os primeiros convidam a confiar em cada um. Localize o
+> código pelo **símbolo** — o nome da função, da classe ou da rota citada no
+> texto do item —, nunca pela linha.
+
 **Por que o bloco D está aqui e não num arquivo próprio:** boa parte do que ele
 deixou em aberto não é do `chatbot-service` — é da frota inteira, e três itens
 (a engine de módulo, o `dependency_overrides.clear()` e a ausência de

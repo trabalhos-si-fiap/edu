@@ -59,7 +59,7 @@ export class LoginComponent {
         }
 
         this.errorMessage =
-          'Não consegui falar com a API. Confirme se o Spring está rodando na porta 8080.';
+          'Não consegui falar com a API. Confirme se o gateway está rodando na porta 8100.';
       }
     });
   }

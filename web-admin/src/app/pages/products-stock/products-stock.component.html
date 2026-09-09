@@ -81,6 +81,13 @@
       </label>
     </div>
 
+    @if (inventoryTruncated) {
+      <div class="state-message">
+        Mostrando as primeiras 2000 linhas de estoque — há mais dados do que
+        o painel carregou.
+      </div>
+    }
+
     <div class="table-scroll">
       <table>
         <thead>
@@ -101,8 +108,8 @@
                 <div class="state-message">Carregando estoque...</div>
               </td>
             </tr>
-          } @else if (inventoryPage?.content?.length) {
-            @for (item of inventoryPage!.content; track item.productId) {
+          } @else if (pageRows.length) {
+            @for (item of pageRows; track item.id) {
               <tr [class.out-row]="item.status === 'OUT_OF_STOCK'">
                 <td>
                   <div class="product-cell">
@@ -122,10 +129,10 @@
                   class="quantity"
                   [class.danger]="item.status === 'LOW_STOCK'"
                 >
-                  {{ item.quantity }}
+                  {{ item.quantidade }}
                 </td>
 
-                <td>{{ item.minimumStock }}</td>
+                <td>{{ item.estoque_minimo }}</td>
 
                 <td>
                   <span

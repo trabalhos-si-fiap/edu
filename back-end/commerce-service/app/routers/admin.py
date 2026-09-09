@@ -6,11 +6,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import requer_papel
+from app.exceptions import EstoqueNotFoundError
+from app.ids import Int32Id
 from app.models.pedido import Order
 from app.models.produto import Estoque
 from app.routers.separacao import transicionar_pedido
 from app.schemas.estoque import EstoqueOut
 from app.schemas.pedido import PedidoStaffOut
+from app.services import estoque as estoque_services
 from app.services.status_pedido import StatusPedido
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -154,24 +157,46 @@ async def listar_estoque(
 
 @router.patch("/inventory/{estoque_id}/adjust", response_model=EstoqueOut)
 async def ajustar_estoque(
-    estoque_id: int,
+    estoque_id: Int32Id,
     # `ge=0`: sem piso, um admin gravava estoque negativo e a separação
     # passava a trabalhar contra um número que não existe no mundo físico.
-    quantidade: int = Query(ge=0),
+    # `le=1_000_000`: fix round 1, finding 2. `Estoque.quantidade` é
+    # `Integer` (int32) — sem teto, um valor fora da faixa (ex.: 3 bilhões)
+    # passa pela validação do Pydantic e só estoura em runtime, dentro da
+    # transação, como `asyncpg.exceptions.DataError` não tratado (500). O
+    # teto de um milhão não tem significado de negócio; existe só para
+    # manter o valor sempre dentro de int32 com folga enorme.
+    quantidade: int = Query(ge=0, le=1_000_000),
+    # Obrigatório desde a spec B: um ajuste sem motivo não é auditoria. O
+    # painel Angular já mandava um (`stock-adjust-modal` compõe
+    # "<preset>: <observação>") — só não havia onde gravar.
+    motivo: str = Query(min_length=1, max_length=300),
     user: dict = Depends(requer_papel("admin")),
     db: AsyncSession = Depends(get_db),
 ):
-    # `with_for_update()`: o ajuste é um read→write sobre recurso compartilhado
-    # (regra 3 do CLAUDE.md) — serializa dois ajustes concorrentes na mesma
-    # linha em vez de deixá-los correr em paralelo contra o mesmo SELECT.
-    # Não muda QUEM vence: esta rota grava um valor absoluto, não um delta,
-    # então o último commit sempre define o valor final, com ou sem lock —
-    # medido em task-11-report.md, não é apenas suposição.
-    result = await db.execute(select(Estoque).where(Estoque.id == estoque_id).with_for_update())
-    estoque = result.scalar_one_or_none()
-    if not estoque:
-        raise HTTPException(404, "Registro de estoque não encontrado")
-    estoque.quantidade = quantidade
-    await db.commit()
-    await db.refresh(estoque)
+    """Porta ABSOLUTA do ajuste de estoque. A porta de delta é
+    `POST /products/{id}/stock-adjustments`. As duas passam pelo mesmo núcleo
+    (`app/services/estoque.py`), então as duas deixam rastro em
+    `estoque_ajustes` — antes da spec B esta rota não deixava nenhum.
+    """
+    # Fix round 1, finding 4: `Query(min_length=1)` só barra string VAZIA —
+    # `"   "` tem length 3 e passa. Um motivo feito só de espaço em branco é
+    # um motivo vazio disfarçado, e uma auditoria sem motivo é o problema que
+    # esta task inteira existe para resolver. `AjusteEstoqueIn` (a porta de
+    # delta) valida isso com um `field_validator`; aqui, sem um schema
+    # Pydantic no meio (é um `Query`, não um body), a checagem é manual, mas
+    # a regra é a mesma.
+    motivo = motivo.strip()
+    if not motivo:
+        raise HTTPException(422, "motivo não pode ser vazio ou conter só espaços")
+    try:
+        estoque, _ = await estoque_services.definir_quantidade(
+            db,
+            estoque_id=estoque_id,
+            quantidade=quantidade,
+            motivo=motivo,
+            autor_id=uuid.UUID(user["sub"]),
+        )
+    except EstoqueNotFoundError as exc:
+        raise HTTPException(404, "Registro de estoque não encontrado") from exc
     return estoque

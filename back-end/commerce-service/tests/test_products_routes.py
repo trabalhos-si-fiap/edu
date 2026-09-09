@@ -89,6 +89,8 @@ async def test_product_response_exposes_only_declared_fields(client, db_session)
     assert set(product) == {
         "id",
         "name",
+        "sku",
+        "active",
         "type",
         "subtype",
         "description",

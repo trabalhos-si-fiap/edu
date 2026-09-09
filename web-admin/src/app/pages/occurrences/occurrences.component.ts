@@ -3,8 +3,8 @@ import { ChangeDetectorRef, Component, OnInit, inject } from '@angular/core';
 
 import { Carrier } from '../../core/models/carrier.model';
 import {
-  CarrierOccurrence,
-  OccurrencePage,
+  Occurrence,
+  OccurrenceList,
   OccurrenceStatus,
   OccurrenceType
 } from '../../core/models/occurrence.model';
@@ -24,9 +24,9 @@ export class OccurrencesComponent implements OnInit {
   private readonly carrierService = inject(CarrierService);
   private readonly cdr = inject(ChangeDetectorRef);
 
-  pageData: OccurrencePage | null = null;
+  pageData: OccurrenceList | null = null;
   carriers: Carrier[] = [];
-  selectedOccurrence: CarrierOccurrence | null = null;
+  selectedOccurrence: Occurrence | null = null;
 
   page = 0;
   readonly pageSize = 3;
@@ -51,8 +51,8 @@ export class OccurrencesComponent implements OnInit {
 
     this.occurrenceService
       .listOccurrences(
-        this.page,
         this.pageSize,
+        this.page * this.pageSize,
         this.carrierId,
         this.type,
         this.status
@@ -106,29 +106,42 @@ export class OccurrencesComponent implements OnInit {
   }
 
   get hasNext(): boolean {
-    return this.page + 1 < (this.pageData?.totalPages ?? 0);
+    return (this.page + 1) * this.pageSize < (this.pageData?.total ?? 0);
   }
 
   get startResult(): number {
-    const total = this.pageData?.totalElements ?? 0;
+    const total = this.pageData?.total ?? 0;
     return total === 0 ? 0 : this.page * this.pageSize + 1;
   }
 
   get endResult(): number {
     return Math.min(
       (this.page + 1) * this.pageSize,
-      this.pageData?.totalElements ?? 0
+      this.pageData?.total ?? 0
     );
+  }
+
+  /** `OcorrenciaOut` não traz o nome da transportadora — só
+   *  `transportadora_id`. Junção no cliente com a lista já carregada em
+   *  `ngOnInit`, mesma decisão do estoque (produtos-stock). */
+  carrierName(occurrence: Occurrence): string {
+    if (occurrence.transportadora_id === null) return '—';
+    const carrier = this.carriers.find(
+      c => c.id === occurrence.transportadora_id
+    );
+    return carrier?.name ?? `Transportadora #${occurrence.transportadora_id}`;
   }
 
   typeLabel(type: OccurrenceType): string {
     switch (type) {
-      case 'DAMAGE':
+      case 'DANO':
         return 'Dano';
-      case 'DELIVERY_DELAY':
+      case 'ATRASO_ENTREGA':
         return 'Atraso';
-      case 'DELIVERY_FAILURE':
+      case 'FALHA_ENTREGA':
         return 'Falha na entrega';
+      case 'FALTA_ESTOQUE':
+        return 'Falta de estoque';
       default:
         return 'Outro';
     }
@@ -136,19 +149,26 @@ export class OccurrencesComponent implements OnInit {
 
   typeClass(type: OccurrenceType): string {
     switch (type) {
-      case 'DAMAGE':
+      case 'DANO':
         return 'damage';
-      case 'DELIVERY_FAILURE':
+      case 'FALHA_ENTREGA':
         return 'failure';
-      case 'DELIVERY_DELAY':
+      case 'ATRASO_ENTREGA':
         return 'delay';
+      // `.type-badge` só define damage/delay/failure/other
+      // (occurrences.component.scss) — sem uma classe `.shortage`, a
+      // badge de FALTA_ESTOQUE ficava sem nenhum estilo aplicado. Mapear
+      // para 'other' evita mudar SCSS (que já geraria risco de um quarto
+      // aviso de budget) e ainda é o rótulo visualmente correto: FALTA_
+      // ESTOQUE é o único tipo aqui que não é fim-de-transportadora.
+      case 'FALTA_ESTOQUE':
       default:
         return 'other';
     }
   }
 
   statusLabel(status: OccurrenceStatus): string {
-    return status === 'OPEN' ? 'OPEN' : 'RESOLVED';
+    return status === 'ABERTA' ? 'ABERTA' : 'RESOLVIDA';
   }
 
   formatDate(value: string): string {

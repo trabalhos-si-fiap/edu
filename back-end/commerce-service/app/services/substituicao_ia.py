@@ -37,6 +37,12 @@ async def _buscar_por_categoria(
             Product.type == produto_original.type,
             Product.id != produto_original.id,
             Estoque.quantidade > 0,
+            # Mesmo filtro da consulta semântica, e ele PRECISA estar nas
+            # duas: este fallback é o que roda quando a similaridade fica
+            # abaixo do limiar ou o modelo de embeddings falha, ou seja
+            # exatamente quando algo já deu errado. Filtrar só a de cima
+            # deixaria a porta aberta pelo caminho degradado.
+            Product.active.is_(True),
         )
         .group_by(Product.id)
         .limit(limite)
@@ -62,11 +68,19 @@ async def sugerir_substitutos(
     if not produto_original:
         return []
 
-    # Candidatos: qualquer produto com estoque > 0, exceto o próprio.
+    # Candidatos: qualquer produto ATIVO com estoque > 0, exceto o próprio.
+    #
+    # `Product.active`: sugerir um produto que o admin tirou da prateleira
+    # colocaria a decisão do aluno numa lista da qual ele não deveria poder
+    # escolher — e o ramo `substituir` de `POST /occurrences/{id}/resolve`
+    # grava o escolhido DIRETO no `order_items`, sem passar por
+    # `services/carrinho.py::adicionar_item` e portanto sem a recusa que ela
+    # faz. Estado alcançável em dois cliques no painel: basta desativar um
+    # produto que ainda tem estoque.
     result = await db.execute(
         select(Product)
         .join(Estoque, Estoque.produto_id == Product.id)
-        .where(Product.id != produto_id, Estoque.quantidade > 0)
+        .where(Product.id != produto_id, Estoque.quantidade > 0, Product.active.is_(True))
         .group_by(Product.id)
     )
     candidatos = result.scalars().all()

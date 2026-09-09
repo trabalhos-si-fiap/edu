@@ -5,17 +5,28 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import get_current_user
-from app.exceptions import ProductNotFoundError
+from app.dependencies import get_current_user, requer_papel
+from app.exceptions import (
+    EstoqueNegativoError,
+    EstoqueNotFoundError,
+    ParceiroNotFoundError,
+    ProductNotFoundError,
+    SkuDuplicadoError,
+)
+from app.ids import Int32Id
 from app.models.produto import Product
 from app.redis_client import get_redis
+from app.schemas.estoque import AjusteEstoqueIn, EstoqueAjusteList, EstoqueAjusteOut
 from app.schemas.produto import (
     CategoryList,
     CategoryOut,
+    ProductIn,
     ProductList,
     ProductOut,
+    ProductPatch,
 )
 from app.schemas.review import ReviewIn, ReviewList, ReviewOut
+from app.services import estoque as estoque_services
 from app.services import produtos as services
 from app.services.auth_client import AuthServiceUnavailableError, get_me
 from app.services.media import presigned_image_url
@@ -36,11 +47,22 @@ async def _product_out(
 
 @router.get("", response_model=ProductList)
 async def listar_produtos(
-    _user: dict = Depends(get_current_user),
+    user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     storage: ObjectStorage = Depends(get_storage),
     redis: aioredis.Redis = Depends(get_redis),
     q: str | None = Query(default=None, max_length=160),
+    # A faixa vive em `app.ids.Int32Id`, não repetida aqui: este era o único
+    # id inteiro do serviço com teto, e o mesmo conceito ("id de parceiro")
+    # estava ilimitado em `ProductIn.fornecedor_id`. Ver o docstring do alias.
+    partner_id: Int32Id | None = Query(default=None),
+    # Escotilha do PAINEL. `GET /products` esconde produto inativo desde a
+    # correção do finding 6 da revisão final; o admin precisa vê-lo para
+    # reativá-lo, e ninguém mais precisa. Gate explícito em vez de
+    # `requer_papel` na rota inteira: o catálogo continua aberto a qualquer
+    # papel autenticado, só este parâmetro é de admin (regra 2 do CLAUDE.md —
+    # controle de acesso explícito, no ponto exato onde o poder aumenta).
+    include_inactive: bool = Query(default=False),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
 ) -> ProductList:
@@ -51,14 +73,58 @@ async def listar_produtos(
     `limit` 1-100 com default 20, `q` até 160 caracteres, envelope com
     `total`/`limit`/`offset`: os quatro são contrato, medidos contra o
     legacy. Mudar qualquer um quebra o app na fase 4.
+
+    `partner_id` filtra o catálogo pelo parceiro DONO do estoque (task 7,
+    spec B) — produto pertence ao parceiro através de `Estoque.fornecedor_id`,
+    não por coluna direta em `products`. Parceiro inativo ou inexistente
+    devolve lista vazia, nunca 404: ver app/services/produtos.py.
+
+    Produto INATIVO (`products.active = false`) não aparece — nem aqui nem sob
+    `partner_id`. `include_inactive=true` é a escotilha do painel e exige papel
+    `admin`.
     """
-    items, total = await services.listar_produtos(db, q=q, limit=limit, offset=offset)
+    if include_inactive and user.get("role") != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Sem permissão para esta ação"
+        )
+
+    items, total = await services.listar_produtos(
+        db,
+        q=q,
+        partner_id=partner_id,
+        include_inactive=include_inactive,
+        limit=limit,
+        offset=offset,
+    )
     return ProductList(
         items=[await _product_out(p, storage=storage, redis=redis) for p in items],
         total=total,
         limit=limit,
         offset=offset,
     )
+
+
+@router.post("", response_model=ProductOut, status_code=status.HTTP_201_CREATED)
+async def criar_produto(
+    payload: ProductIn,
+    _user: dict = Depends(requer_papel("admin")),
+    db: AsyncSession = Depends(get_db),
+    storage: ObjectStorage = Depends(get_storage),
+    redis: aioredis.Redis = Depends(get_redis),
+) -> ProductOut:
+    """Cria o produto E a linha de estoque no mesmo ato — admin-only. Ver
+    app/services/produtos.py::criar_produto."""
+    try:
+        product = await services.criar_produto(db, payload)
+    except ParceiroNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Parceiro não encontrado"
+        ) from exc
+    except SkuDuplicadoError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Já existe um produto com este SKU"
+        ) from exc
+    return await _product_out(product, storage=storage, redis=redis)
 
 
 @router.get("/categories", response_model=CategoryList)
@@ -68,6 +134,63 @@ async def listar_categorias(
 ) -> CategoryList:
     rows = await services.listar_categorias(db)
     return CategoryList(items=[CategoryOut(type=t, count=c) for t, c in rows])
+
+
+@router.post(
+    "/{product_id}/stock-adjustments",
+    response_model=EstoqueAjusteOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def ajustar_estoque(
+    product_id: uuid.UUID,
+    payload: AjusteEstoqueIn,
+    user: dict = Depends(requer_papel("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> EstoqueAjusteOut:
+    """Ajuste por DELTA, com auditoria, atômico. Ver app/services/estoque.py."""
+    try:
+        estoque_id = await estoque_services.obter_estoque_do_produto(db, product_id)
+        _, ajuste = await estoque_services.aplicar_ajuste(
+            db,
+            estoque_id=estoque_id,
+            delta=payload.delta,
+            motivo=payload.motivo,
+            autor_id=uuid.UUID(user["sub"]),
+        )
+    except EstoqueNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Registro de estoque não encontrado"
+        ) from exc
+    except EstoqueNegativoError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="O ajuste deixaria o estoque negativo",
+        ) from exc
+    return EstoqueAjusteOut.model_validate(ajuste)
+
+
+@router.get("/{product_id}/stock-adjustments", response_model=EstoqueAjusteList)
+async def listar_ajustes_estoque(
+    product_id: uuid.UUID,
+    _user: dict = Depends(requer_papel("admin")),
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+) -> EstoqueAjusteList:
+    try:
+        items, total = await estoque_services.listar_ajustes(
+            db, produto_id=product_id, limit=limit, offset=offset
+        )
+    except EstoqueNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Registro de estoque não encontrado"
+        ) from exc
+    return EstoqueAjusteList(
+        items=[EstoqueAjusteOut.model_validate(a) for a in items],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get("/{product_id}", response_model=ProductOut)
@@ -82,6 +205,28 @@ async def detalhe_produto(
         product = await services.buscar_produto(db, product_id)
     except ProductNotFoundError as exc:
         raise _NOT_FOUND from exc
+    return await _product_out(product, storage=storage, redis=redis)
+
+
+@router.put("/{product_id}", response_model=ProductOut)
+async def atualizar_produto(
+    product_id: uuid.UUID,
+    payload: ProductPatch,
+    _user: dict = Depends(requer_papel("admin")),
+    db: AsyncSession = Depends(get_db),
+    storage: ObjectStorage = Depends(get_storage),
+    redis: aioredis.Redis = Depends(get_redis),
+) -> ProductOut:
+    """Edita o catálogo — admin-only. NÃO toca em estoque; quantidade só
+    muda pelo ajuste auditado. Ver app/services/produtos.py::atualizar_produto."""
+    try:
+        product = await services.atualizar_produto(db, product_id, payload)
+    except ProductNotFoundError as exc:
+        raise _NOT_FOUND from exc
+    except SkuDuplicadoError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Já existe um produto com este SKU"
+        ) from exc
     return await _product_out(product, storage=storage, redis=redis)
 
 

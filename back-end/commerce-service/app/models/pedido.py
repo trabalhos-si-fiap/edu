@@ -105,6 +105,18 @@ class Order(Base):
     ship_city = Column(String(120), nullable=True)
     ship_state = Column(String(2), nullable=True)
 
+    # Origem de expedição, RESOLVIDA na criação do pedido a partir do
+    # fornecedor dos itens e congelada aqui. A spec C lê estas colunas para
+    # simular a rota e NÃO recalcula a origem — o estoque pode mudar de
+    # fornecedor depois que o pedido saiu. Mesmo espírito do snapshot
+    # `ship_*` logo acima: um pedido é registro histórico.
+    #
+    # Nullable: pedidos criados antes desta spec não têm origem, e o carrinho
+    # de um catálogo sem fornecedor cadastrado também não teria.
+    origem_rotulo = Column(String(120), nullable=True)
+    origem_lat = Column(Numeric(9, 6), nullable=True)
+    origem_lng = Column(Numeric(9, 6), nullable=True)
+
     items = relationship(
         "OrderItem",
         back_populates="order",
@@ -150,14 +162,15 @@ class OrderItem(Base):
     # nullable). Medido na cadeia de migrations aplicada a um banco
     # descartável, `\d pedido_itens`: `fornecedor_id | integer | | ` — sem
     # `not null`. `cart_items` não tem noção de fornecedor (ver
-    # models/carrinho.py), então um item que nasce do carrinho — o único
-    # jeito de criar um pedido desde a task C6 — chega aqui sem fornecedor.
-    # Reconfirmado depois da C6 (2026-08-09), `grep -rn "supplier_id" app/`
-    # não devolve nenhuma escrita na coluna em lugar nenhum do serviço — só
-    # esta declaração de coluna e o comentário "`supplier_id` fica None" em
-    # `app/services/pedidos.py::criar_pedido_do_carrinho`, que documenta a
-    # omissão de propósito. Quem a preenche é trabalho futuro da separação,
-    # ainda não implementado.
+    # models/carrinho.py).
+    #
+    # De C6 até a task 9 desta spec, `grep -rn "supplier_id" app/` não
+    # devolvia nenhuma escrita na coluna em lugar nenhum do serviço — só esta
+    # declaração de coluna, documentando a omissão de propósito. A task 9
+    # (`app/services/pedidos.py::criar_pedido_do_carrinho`) passa a
+    # preenchê-la, item a item, a partir do fornecedor resolvido no estoque
+    # do produto — `None` continua correto para um produto sem linha de
+    # estoque, ou para pedidos criados antes desta spec.
     supplier_id = Column(Integer, ForeignKey("fornecedores.id"), nullable=True)
 
     order = relationship("Order", back_populates="items")

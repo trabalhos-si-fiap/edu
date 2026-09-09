@@ -1,3 +1,4 @@
+import { CommonModule } from '@angular/common';
 import {
   ChangeDetectorRef,
   Component,
@@ -5,17 +6,17 @@ import {
   inject,
   OnInit
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
-import { debounceTime, distinctUntilChanged } from 'rxjs';
+import { debounceTime, distinctUntilChanged, forkJoin } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 import {
-  InventoryItem,
-  InventoryPage,
-  InventorySummary
+  InventoryStockRow,
+  InventorySummary,
+  inventoryStatus
 } from '../../core/models/inventory.model';
 import { InventoryService } from '../../core/services/inventory.service';
+import { ProductService } from '../../core/services/product.service';
 import { ProductFormModalComponent } from '../../shared/product-form-modal/product-form-modal.component';
 import { StockAdjustModalComponent } from '../../shared/stock-adjust-modal/stock-adjust-modal.component';
 import { SuccessToastComponent } from '../../shared/success-toast/success-toast.component';
@@ -35,12 +36,19 @@ import { SuccessToastComponent } from '../../shared/success-toast/success-toast.
 })
 export class ProductsStockComponent implements OnInit {
   private readonly inventoryService = inject(InventoryService);
+  private readonly productService = inject(ProductService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly cdr = inject(ChangeDetectorRef);
 
   readonly searchControl = new FormControl('', { nonNullable: true });
 
-  inventoryPage: InventoryPage | null = null;
+  /** Todas as linhas (estoque + produto, junção no cliente — ver
+   *  inventory.model.ts), antes de filtro e paginação, também aplicados no
+   *  cliente por falta de `search`/`lowStock` no backend. */
+  private allRows: InventoryStockRow[] = [];
+  filteredRows: InventoryStockRow[] = [];
+  pageRows: InventoryStockRow[] = [];
+
   summary: InventorySummary = {
     totalProducts: 0,
     lowStock: 0,
@@ -51,19 +59,24 @@ export class ProductsStockComponent implements OnInit {
   readonly pageSize = 3;
   lowStockOnly = false;
 
+  /** `true` só quando `InventoryService.listAllInventory()` bateu no corte
+   *  de segurança (2000 linhas) antes do fim real dos dados — nesse caso a
+   *  tela avisa, em vez de fingir que viu tudo. */
+  inventoryTruncated = false;
+
   loadingTable = false;
   loadingSummary = false;
 
-  selectedStockItem: InventoryItem | null = null;
+  selectedStockItem: InventoryStockRow | null = null;
   productFormOpen = false;
-  editingProductId: number | null = null;
+  editingProductId: string | null = null;
 
   successMessage = '';
   private successTimer: number | null = null;
 
   ngOnInit(): void {
     this.loadSummary();
-    this.loadPage();
+    this.loadAll();
 
     this.searchControl.valueChanges
       .pipe(
@@ -73,31 +86,56 @@ export class ProductsStockComponent implements OnInit {
       )
       .subscribe(() => {
         this.page = 0;
-        this.loadPage();
+        this.applyFilters();
       });
   }
 
-  loadPage(): void {
+  loadAll(): void {
     this.loadingTable = true;
 
-    this.inventoryService
-      .listInventory(
-        this.page,
-        this.pageSize,
-        this.searchControl.value,
-        this.lowStockOnly
-      )
-      .subscribe({
-        next: response => {
-          this.inventoryPage = response;
-          this.loadingTable = false;
-          this.cdr.markForCheck();
-        },
-        error: () => {
-          this.loadingTable = false;
-          this.cdr.markForCheck();
-        }
-      });
+    forkJoin({
+      inventory: this.inventoryService.listAllInventory(),
+      products: this.productService.listAllProducts()
+    }).subscribe({
+      next: ({ inventory, products }) => {
+        const productById = new Map(products.items.map(p => [p.id, p]));
+
+        this.allRows = inventory.items.map(item => {
+          const product = productById.get(item.produto_id);
+          return {
+            ...item,
+            productName: product?.name ?? 'Produto não encontrado',
+            sku: product?.sku ?? '—',
+            status: inventoryStatus(item)
+          };
+        });
+
+        this.inventoryTruncated = inventory.truncated;
+        this.page = 0;
+        this.applyFilters();
+        this.loadingTable = false;
+        this.cdr.markForCheck();
+      },
+      error: () => {
+        this.loadingTable = false;
+        this.cdr.markForCheck();
+      }
+    });
+  }
+
+  applyFilters(): void {
+    const term = this.searchControl.value.trim().toLowerCase();
+
+    this.filteredRows = this.allRows.filter(row => {
+      const matchesSearch =
+        !term ||
+        row.productName.toLowerCase().includes(term) ||
+        row.sku.toLowerCase().includes(term);
+      const matchesLowStock = !this.lowStockOnly || row.status !== 'NORMAL';
+      return matchesSearch && matchesLowStock;
+    });
+
+    this.paginate();
   }
 
   loadSummary(): void {
@@ -121,8 +159,8 @@ export class ProductsStockComponent implements OnInit {
     this.productFormOpen = true;
   }
 
-  openEditProduct(item: InventoryItem): void {
-    this.editingProductId = item.productId;
+  openEditProduct(item: InventoryStockRow): void {
+    this.editingProductId = item.produto_id;
     this.productFormOpen = true;
   }
 
@@ -133,8 +171,7 @@ export class ProductsStockComponent implements OnInit {
 
   productSaved(mode: 'created' | 'updated'): void {
     this.closeProductForm();
-    this.page = 0;
-    this.loadPage();
+    this.loadAll();
     this.loadSummary();
 
     this.showSuccess(
@@ -144,7 +181,7 @@ export class ProductsStockComponent implements OnInit {
     );
   }
 
-  openAdjust(item: InventoryItem): void {
+  openAdjust(item: InventoryStockRow): void {
     this.selectedStockItem = item;
   }
 
@@ -154,36 +191,34 @@ export class ProductsStockComponent implements OnInit {
 
   afterAdjusted(): void {
     this.selectedStockItem = null;
-    this.loadPage();
+    this.loadAll();
     this.loadSummary();
   }
 
   toggleLowStock(event: Event): void {
     this.lowStockOnly = (event.target as HTMLInputElement).checked;
     this.page = 0;
-    this.loadPage();
+    this.applyFilters();
   }
 
   previousPage(): void {
     if (this.page <= 0) return;
     this.page--;
-    this.loadPage();
+    this.paginate();
   }
 
   nextPage(): void {
-    const totalPages = this.inventoryPage?.totalPages ?? 0;
-    if (this.page + 1 >= totalPages) return;
-
+    if (this.page + 1 >= this.totalPages) return;
     this.page++;
-    this.loadPage();
+    this.paginate();
   }
 
   goToDisplayPage(displayPage: number): void {
     this.page = displayPage - 1;
-    this.loadPage();
+    this.paginate();
   }
 
-  statusLabel(item: InventoryItem): string {
+  statusLabel(item: InventoryStockRow): string {
     switch (item.status) {
       case 'LOW_STOCK':
         return 'Baixo';
@@ -194,7 +229,7 @@ export class ProductsStockComponent implements OnInit {
     }
   }
 
-  statusClass(item: InventoryItem): string {
+  statusClass(item: InventoryStockRow): string {
     switch (item.status) {
       case 'LOW_STOCK':
         return 'low';
@@ -205,7 +240,7 @@ export class ProductsStockComponent implements OnInit {
     }
   }
 
-  productImage(item: InventoryItem): string {
+  productImage(item: InventoryStockRow): string {
     const name = item.productName.toLowerCase();
 
     if (
@@ -226,9 +261,13 @@ export class ProductsStockComponent implements OnInit {
     return '/assets/images/product-book.png';
   }
 
+  get totalPages(): number {
+    return Math.max(1, Math.ceil(this.filteredRows.length / this.pageSize));
+  }
+
   get displayPages(): number[] {
-    const total = this.inventoryPage?.totalPages ?? 0;
-    if (total <= 0) return [];
+    const total = this.totalPages;
+    if (this.filteredRows.length === 0) return [];
 
     const current = this.page + 1;
 
@@ -239,17 +278,16 @@ export class ProductsStockComponent implements OnInit {
   }
 
   get startResult(): number {
-    const total = this.inventoryPage?.totalElements ?? 0;
+    const total = this.filteredRows.length;
     return total === 0 ? 0 : this.page * this.pageSize + 1;
   }
 
   get endResult(): number {
-    const total = this.inventoryPage?.totalElements ?? 0;
-    return Math.min((this.page + 1) * this.pageSize, total);
+    return Math.min((this.page + 1) * this.pageSize, this.filteredRows.length);
   }
 
   get totalResults(): number {
-    return this.inventoryPage?.totalElements ?? 0;
+    return this.filteredRows.length;
   }
 
   get hasPrevious(): boolean {
@@ -257,7 +295,13 @@ export class ProductsStockComponent implements OnInit {
   }
 
   get hasNext(): boolean {
-    return this.page + 1 < (this.inventoryPage?.totalPages ?? 0);
+    return this.page + 1 < this.totalPages;
+  }
+
+  private paginate(): void {
+    const start = this.page * this.pageSize;
+    this.pageRows = this.filteredRows.slice(start, start + this.pageSize);
+    this.cdr.markForCheck();
   }
 
   private showSuccess(message: string): void {

@@ -1,50 +1,22 @@
-export interface ActivityHistoryItem {
-  date: string;
-  studyActivities: number;
-  newRegistrations: number;
+/** Espelha `ResumoMetricasOut` (analytics-service). */
+export interface DashboardMetrics {
+  pedidos_criados: number;
+  pedidos_por_status: Record<string, number>;
+  ocorrencias_abertas: number;
+  ocorrencias_resolvidas: number;
+  diagnosticos_por_acao: Record<string, number>;
 }
 
-export interface LowStockProduct {
-  productId: number;
-  productName: string;
-  sku: string;
-  currentQuantity: number;
-  minimumStock: number;
-  status: 'NORMAL' | 'LOW_STOCK' | 'OUT_OF_STOCK';
-}
-
-export interface DashboardCarrier {
-  carrierId: number;
-  name: string;
-  rating: number;
-  slaPercentage: number;
-  averageDeliveryDays: number;
-}
-
-export interface RecentOccurrence {
-  occurrenceId: number;
-  type: 'DELIVERY_DELAY' | 'DAMAGE' | 'DELIVERY_FAILURE' | 'OTHER';
-  carrierName: string;
-  createdAt: string;
-  status: 'OPEN' | 'RESOLVED';
-}
-
+/** Espelha `ResumoExecutivoOut` — `GET /analytics/executive-summary`.
+ *
+ *  Não existe `/dashboard`: os campos educacionais e boa parte dos
+ *  operacionais do painel antigo (alunos cadastrados/ativos, histórico de
+ *  atividade, produtos cadastrados/estoque baixo, lista de transportadoras,
+ *  ocorrências recentes) não têm fonte aqui — nenhum é inventado no
+ *  cliente. Ver task-13-report.md / task 14 para a lista completa do que
+ *  saiu de tela. */
 export interface DashboardResponse {
-  educational: {
-    registeredStudents: number;
-    activeStudents: number;
-    newRegistrations: number;
-    inactiveRiskStudents: number;
-    activityHistory: ActivityHistoryItem[];
-  };
-  operational: {
-    registeredProducts: number;
-    lowStockProducts: number;
-    activeCarriers: number;
-    openOccurrences: number;
-    lowStock: LowStockProduct[];
-    carriers: DashboardCarrier[];
-    recentOccurrences: RecentOccurrence[];
-  };
-  executiveSummary: string;
+  periodo_dias: number;
+  metricas: DashboardMetrics;
+  resumo_executivo: string;
 }

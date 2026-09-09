@@ -6,7 +6,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.exceptions import CartItemNotFoundError, CartProductNotFoundError
+from app.exceptions import (
+    CarrinhoOrigemMistaError,
+    CartItemNotFoundError,
+    CartProductNotFoundError,
+)
 from app.redis_client import get_redis
 from app.schemas.carrinho import CartItemIn, CartOut
 from app.services import carrinho as services
@@ -41,6 +45,10 @@ async def adicionar_item(
     except CartProductNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Product not found"
+        ) from exc
+    except CarrinhoOrigemMistaError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=CarrinhoOrigemMistaError.MENSAGEM
         ) from exc
 
 
