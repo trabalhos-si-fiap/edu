@@ -12,6 +12,7 @@ desenvolvimento do usuário sobrevive a ela sem tocar em dado nenhum.
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import UUID
 
 from alembic import op
 
@@ -39,7 +40,7 @@ def upgrade() -> None:
         sa.Column("entregador_nome", sa.String(length=120), nullable=True),
         sa.Column("entregador_contato", sa.String(length=120), nullable=True),
         sa.Column("aberto_em", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("criado_por", sa.dialects.postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("criado_por", UUID(as_uuid=True), nullable=False),
         sa.Column(
             "criado_em",
             sa.DateTime(timezone=True),
