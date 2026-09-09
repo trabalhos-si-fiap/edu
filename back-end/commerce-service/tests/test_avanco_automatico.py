@@ -195,3 +195,42 @@ async def test_a_hop_that_is_not_the_collect_never_touches_the_destination(
     await avancar_parados(db_session, datetime.now(UTC), 600)
 
     assert chamadas == []
+
+
+# ── Fix final: um pedido ruim não pode abortar o resto da varredura. ───────
+
+
+async def test_one_bad_order_does_not_abort_the_rest_of_the_tick(
+    db_session, seed_pedido_parado, monkeypatch, _stub_publish_event
+):
+    """O `select` é feito sem lock; `transicionar_pedido` relê com lock. Um
+    pedido cujo status mudou nessa janela levanta `HTTPException(400)` — e
+    esse 400 escapava do laço, então TODO pedido ainda não visitado era
+    pulado naquele tique. Um estado inconsistente de um pedido não pode
+    calar a rede de segurança para os outros."""
+    from fastapi import HTTPException
+
+    from app.services import avanco_automatico as avanco_module
+
+    ruim = await seed_pedido_parado(
+        status=StatusPedido.AGUARDANDO_SEPARACAO.value, parado_ha=timedelta(minutes=20)
+    )
+    bom = await seed_pedido_parado(
+        status=StatusPedido.AGUARDANDO_SEPARACAO.value, parado_ha=timedelta(minutes=20)
+    )
+    real = avanco_module.transicionar_pedido
+
+    async def _falha_so_no_ruim(db, pedido_id, *args, **kwargs):
+        if pedido_id == ruim.id:
+            raise HTTPException(400, "Transição inválida: AGUARDANDO_SEPARACAO → EM_SEPARACAO")
+        return await real(db, pedido_id, *args, **kwargs)
+
+    monkeypatch.setattr("app.services.avanco_automatico.transicionar_pedido", _falha_so_no_ruim)
+
+    avancados = await avancar_parados(db_session, datetime.now(UTC), 600)
+
+    assert avancados == [bom.id]
+    await db_session.refresh(bom)
+    assert bom.status == StatusPedido.EM_SEPARACAO.value
+    await db_session.refresh(ruim)
+    assert ruim.status == StatusPedido.AGUARDANDO_SEPARACAO.value

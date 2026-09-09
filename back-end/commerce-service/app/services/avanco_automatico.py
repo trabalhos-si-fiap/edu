@@ -18,6 +18,7 @@ comentário no laço e `docs/back-end/order-flow.md` §4.
 import uuid
 from datetime import datetime, timedelta
 
+from fastapi import HTTPException
 from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -72,9 +73,28 @@ async def avancar_parados(
     for pedido in pedidos:
         origem = StatusPedido(pedido.status)
         destino = PROXIMO_ESTADO[origem]
-        atualizado = await transicionar_pedido(
-            db, pedido.id, destino.value, None, observacao=OBSERVACAO
-        )
+        try:
+            atualizado = await transicionar_pedido(
+                db, pedido.id, destino.value, None, observacao=OBSERVACAO
+            )
+        except HTTPException as exc:
+            # O `select` acima é sem lock; `transicionar_pedido` relê a linha
+            # COM lock. Um pedido cujo status mudou nessa janela (ação manual,
+            # outra transição concorrente) faz o funil autoritativo recusar
+            # com 400 — o comportamento certo. O que estava errado era deixar
+            # esse 400 escapar do laço: um único pedido em estado
+            # inconsistente pulava todos os pedidos ainda não visitados
+            # naquele tique. A rede de segurança de um pedido não pode
+            # depender do estado de outro.
+            if exc.status_code != 400:
+                raise
+            logger.warning(
+                "avanco_automatico: pedido {} não avançou para {} — o status mudou "
+                "entre a varredura e a transição; o tique segue nos demais.",
+                pedido.id,
+                destino.value,
+            )
+            continue
 
         if origem is StatusPedido.AGUARDANDO_COLETA:
             # Este salto SUBSTITUI `PATCH /delivery/{id}/collect`, e a coleta
