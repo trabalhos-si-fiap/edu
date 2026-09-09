@@ -114,6 +114,8 @@ mapeado é repassado, e aí o 404 (se houver) vem do serviço de destino.
 | `picking` | commerce-service | OK |
 | `delivery` | commerce-service | OK |
 | `occurrences` | commerce-service | OK |
+| `partners` | commerce-service | OK — spec B |
+| `carriers` | commerce-service | OK — spec B |
 | `admin` | commerce-service | OK |
 | `notifications` | notification-service | OK |
 | `analytics` | analytics-service | OK |
@@ -141,13 +143,14 @@ Saída dos seis comandos, um por serviço, colada como veio:
 ```
 auth-users-service -> ['auth', 'health', 'users']
 learning-service -> ['diagnostic', 'health', 'recommendations', 'reviews', 'subjects', 'subtopics', 'topics']
-commerce-service -> ['admin', 'cart', 'delivery', 'health', 'occurrences', 'orders', 'payment-methods', 'picking', 'products']
+commerce-service -> ['admin', 'carriers', 'cart', 'delivery', 'health', 'occurrences', 'orders', 'partners', 'payment-methods', 'picking', 'products']
 chatbot-service -> ['chat', 'health', 'support']
 notification-service -> ['health', 'notifications']
 analytics-service -> ['analytics', 'health']
 ```
 
-Os 20 prefixos do `SERVICE_MAP` aparecem nessa lista. O 404 do gateway continua
+Os 22 prefixos do `SERVICE_MAP` aparecem nessa lista (eram 20 até a spec B
+acrescentar `partners` e `carriers`). O 404 do gateway continua
 existindo, mas hoje ele é **sempre** sobre prefixo não mapeado — nunca sobre
 prefixo mapeado e vazio. `addresses` é o exemplo vivo disso.
 
@@ -375,6 +378,47 @@ services-seed-demo` de novo, dessa vez com os passos 4 e 5 já feitos.
 Um broker que nunca rodou a versão anterior (stack novo, volume novo) não
 tem passo 4/5: as filas já nascem com `x-dead-letter-exchange` e o
 `PRECONDITION_FAILED` nunca aparece.
+
+### Aplicando a spec B a um stack existente
+
+A spec B acrescenta colunas e duas tabelas ao `commerce_db`, e reescreve o
+painel Angular. **O código no disco não basta**: a imagem do
+`commerce-service` precisa ser reconstruída, e a migration precisa ser
+aplicada. Esta é a mesma fronteira que a spec A documentou na §11 — cada task
+provou o próprio trabalho com `pytest` no host, enquanto o artefato que o
+usuário opera é uma imagem de container construída —, e aqui ela é mais
+afiada, porque esta spec **muda schema**.
+
+Na ordem exata:
+
+```bash
+make stack-rebuild      # 1. a imagem carrega o código
+make stack-up           # 2.
+make services-migrate   # 3. aplica b1a2c3d4e5f6
+make services-seed      # 4. parceiros, catálogo do parceiro e adoção
+cd web-admin && npm install && npm run build   # 5.
+```
+
+1. **`make stack-rebuild`** — sem isto o container continua rodando o commerce
+   de antes da spec B, e o `alembic` do passo 3 não enxerga a revision nova.
+2. **`make stack-up`**.
+3. **`make services-migrate`** — aplica `b1a2c3d4e5f6`. É **aditiva**: colunas
+   com `server_default` e duas tabelas novas (`estoque_ajustes`, `carriers`).
+   Nenhum dado é reescrito, e o `downgrade` desta revision é real (ao
+   contrário das três reconstruções a montante, que levantam por construção).
+4. **`make services-seed`** — cria os dois fornecedores (o próprio e o
+   parceiro externo), o catálogo do parceiro, e **adota** os produtos próprios
+   sob o fornecedor próprio. Idempotente, inclusive no laço de adoção. Sem
+   este passo, **nenhum produto pertence a parceiro nenhum**: a seção de
+   parceiros do app fica vazia e todo pedido novo sai sem origem.
+5. **`cd web-admin && npm install && npm run build`**.
+
+**A ordem 3 antes de 4 é obrigatória:** o seed escreve em
+`fornecedores.origem_*` e em `estoque.estoque_minimo`, colunas que só existem
+depois da migration.
+
+O detalhe do que cada peça faz está em
+[`partners-inventory-carriers.md`](partners-inventory-carriers.md).
 
 ---
 
@@ -705,6 +749,7 @@ limite.
 | **2** | Paridade do commerce: `products` com reviews e imagem, `cart`, `orders`, `payment-methods` e `tracking` portados do legacy; `support` para o chatbot-service; PKs UUID; o estado `CONFIRMADO`; reconciliação de contrato campo a campo |
 | **3** | E-mail real e rate limit no reset de senha; push FCM; Celery + Redis com primitivas atômicas; painel SQLAdmin; upload de imagem; idempotência dos consumidores de evento |
 | **4** (spec A, 2026-09-07) | Feito: Flutter apontando para o gateway e remoção de `back-end/legacy/`. Em aberto: tradução dos campos de schema que passarem a ter cliente (§4) |
+| **4** (spec B, 2026-09-08) | Feito: parceiro com origem de expedição, estoque com trilha de auditoria, transportadora e ocorrência de transportadora, catálogo por parceiro no app, códigos de pagamento emitidos pelo servidor, e o `web-admin` falando com o gateway. Detalhe e pendências em [`partners-inventory-carriers.md`](partners-inventory-carriers.md) |
 
 Até a spec A (2026-09-07), `back-end/legacy/` foi **referência viva**: as
 suítes dele foram a especificação executável da paridade que o
