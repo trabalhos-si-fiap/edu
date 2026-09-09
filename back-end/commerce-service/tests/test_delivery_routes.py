@@ -367,3 +367,42 @@ async def test_collect_never_fails_when_the_provider_is_unreachable(
 
     await db_session.refresh(pedido)
     assert pedido.destino_lat is None
+
+
+async def test_collect_never_fails_when_the_provider_returns_an_unusable_coordinate(
+    client, db_session, monkeypatch, seed_carregamento
+):
+    """Fix round 1 (Important, plan-mandated): a resposta da Google pode
+    formalmente ter `status: OK` e ainda assim carregar um valor que não vira
+    `Decimal` — a conversão em `congelar_destino` estourava
+    `decimal.InvalidOperation` FORA do `try`, e a coleta virava um 500 para um
+    pedido que, na verdade, já tinha sido coletado (`transicionar_pedido` já
+    tinha commitado antes de `congelar_destino` rodar). `congelar_destino`
+    promete nunca levantar; este teste força o pior caso do lado de dentro do
+    próprio parsing, não só da chamada de rede."""
+    carregamento = await seed_carregamento()
+    pedido = await _seed_pedido_com_endereco_e_carregamento(db_session, carregamento.id)
+    monkeypatch.setattr(settings, "google_maps_api_key", "test-key")
+
+    async def fake_fetch_valor_invalido(client, *, origin, destination, api_key):
+        return DirectionsResult(
+            polyline="enc-poly",
+            distance_text="10 km",
+            distance_km=10.0,
+            duration_text="20 min",
+            duration_minutes=20,
+            destination_latitude="não é número",
+            destination_longitude=-46.897800,
+        )
+
+    monkeypatch.setattr(
+        "app.services.posicao.directions.fetch_directions", fake_fetch_valor_invalido
+    )
+
+    response = await client.patch(
+        f"/delivery/{pedido.id}/collect", headers=headers_for("entregador", sub=DELIVERER_A)
+    )
+    assert response.status_code == 200
+
+    await db_session.refresh(pedido)
+    assert pedido.destino_lat is None

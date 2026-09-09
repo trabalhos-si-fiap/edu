@@ -78,13 +78,23 @@ async def congelar_destino(db: AsyncSession, order: Order) -> None:
                 destination=_destination_query(order),
                 api_key=settings.google_maps_api_key,
             )
+        # A conversão e o commit ficam DENTRO do mesmo `try` (fix round 1,
+        # achado Important): um valor que a Google devolve com `status: OK`
+        # mas que não vira `Decimal` (`decimal.InvalidOperation`), ou uma
+        # falha pontual no commit, são exatamente o mesmo tipo de "o
+        # provedor/a infra não cooperou" que o bloco de cima já protege — a
+        # garantia é da FUNÇÃO, não de quem a chama (`confirmar_coleta` não
+        # tem, nem deveria precisar de, um guard próprio aqui). As duas
+        # conversões ficam em variáveis locais antes de tocar `order`: se a
+        # segunda falhar, a primeira nunca chega a mutar o objeto rastreado
+        # pela sessão.
+        lat = Decimal(str(resultado.destination_latitude)).quantize(_CASAS)
+        lng = Decimal(str(resultado.destination_longitude)).quantize(_CASAS)
+        order.destino_lat = lat
+        order.destino_lng = lng
+        await db.commit()
     except Exception:
         # Sem `str(exc)` no log: o detalhe do provedor pode carregar a chave
         # da API ou o endereço completo do aluno (regra 5 do CLAUDE.md, mesma
         # razão registrada em `app/routers/rastreio.py`).
         logger.warning("posicao: destino não resolvido para o pedido {}", order.id)
-        return
-
-    order.destino_lat = Decimal(str(resultado.destination_latitude)).quantize(_CASAS)
-    order.destino_lng = Decimal(str(resultado.destination_longitude)).quantize(_CASAS)
-    await db.commit()
