@@ -45,8 +45,8 @@ nomeados de antemão, os defeitos que as tasks anteriores tinham custado caro.
 Medida do zero em 2026-09-09, depois do último commit de código, serviço a
 serviço. **Números de `2a6c236`**, o HEAD da branch quando a task 14 fechou;
 a rodada de correção da revisão final de branch levou o commerce de 491 a
-**513** e não moveu mais nada — ver "O que a revisão de branch inteira pegou".
- **Nenhum número foi copiado de documento anterior.** O bloco de
+**526** e não moveu mais nada — ver "O que a revisão de branch inteira pegou".
+**Nenhum número foi copiado de documento anterior.** O bloco de
 baselines do plano tinha dois erros, e os dois estão corrigidos aqui: o
 `flutter analyze` era **7** avisos `info`, não 6 (ver a decisão 16), e o plano
 diz "os outros **cinco** serviços" antes de listar **seis**. Nenhum dos dois
@@ -657,6 +657,19 @@ números com cara de precisos e todos errados convidam a confiar em cada um.
 Onde só uma minoria derivou (dois de seis, no `commerce-parity.md`), datar
 jogaria fora a exatidão que os outros quatro ainda têm, e **corrigir os dois**
 custa menos que a nota que explicaria por que não foram corrigidos.
+
+**E este documento fez exatamente o que ensina, entre a própria escrita e o
+fecho da branch.** A frase acima dizia que a rodada de correção levou o
+commerce "de 491 a 513" — verdade quando foi escrita, e falsa dois commits
+depois, quando o fechamento das duas metades restantes do finding 6
+acrescentou mais onze testes. O parágrafo que anuncia "nenhum número foi
+copiado de documento anterior" ficou por cima de um número copiado da própria
+medição de uma hora antes, e uma edição posterior neste mesmo arquivo passou
+pela linha sem remedir. Quem pegou não foi o autor: foi a re-revisão, lendo a
+árvore em vez do documento. É a primeira lição deste registro — um número
+medido envelhece — aplicada ao registro que a formula, e a moral prática é
+estreita e útil: **o número de manchete de um documento tem que ser remedido
+no último commit da branch, não no commit em que foi escrito.**
 
 E uma armadilha que só aparece **enquanto se conserta**: reancorar um ponteiro
 sem reler o que ele aponta deixa a citação certa e a descrição velha — e o
