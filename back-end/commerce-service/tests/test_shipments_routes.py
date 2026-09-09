@@ -36,7 +36,11 @@ async def _seed_pedido(
     db_session,
     *,
     status: str = StatusPedido.AGUARDANDO_COLETA.value,
-    origem: tuple[str, str, str] = ("Cajamar, SP", "-23.355800", "-46.876900"),
+    origem: tuple[str | None, str | None, str | None] = (
+        "Cajamar, SP",
+        "-23.355800",
+        "-46.876900",
+    ),
 ) -> Order:
     rotulo, lat, lng = origem
     pedido = Order(
@@ -44,8 +48,8 @@ async def _seed_pedido(
         status=status,
         total=Decimal("100.00"),
         origem_rotulo=rotulo,
-        origem_lat=Decimal(lat),
-        origem_lng=Decimal(lng),
+        origem_lat=Decimal(lat) if lat is not None else None,
+        origem_lng=Decimal(lng) if lng is not None else None,
     )
     db_session.add(pedido)
     await db_session.commit()
@@ -156,6 +160,64 @@ async def test_a_shipment_carries_one_origin_only(client, db_session):
     assert response.status_code == 409
     await db_session.refresh(outro)
     assert outro.carregamento_id is None
+
+
+async def test_a_null_origin_first_order_still_freezes_the_shipment_origin(client, db_session):
+    """Fix round 1: a sentinela de congelamento é "o lote já tem pedido?",
+    não "o rótulo está vazio?". Um primeiro pedido sem fornecedor resolvido
+    (origem nula) tem que congelar o lote em "sem origem" — não deixar a
+    porta aberta para um segundo pedido, de origem real, se misturar."""
+    carrier = await _seed_transportadora(db_session)
+    criado = (
+        await client.post(
+            "/shipments", headers=headers_for("admin"), json={"transportadora_id": carrier.id}
+        )
+    ).json()
+    sem_origem = await _seed_pedido(db_session, origem=(None, None, None))
+    com_origem = await _seed_pedido(db_session)
+
+    primeira = await client.post(
+        f"/shipments/{criado['id']}/orders",
+        headers=headers_for("admin"),
+        json={"pedido_id": str(sem_origem.id)},
+    )
+    segunda = await client.post(
+        f"/shipments/{criado['id']}/orders",
+        headers=headers_for("admin"),
+        json={"pedido_id": str(com_origem.id)},
+    )
+
+    assert primeira.status_code == 200
+    assert segunda.status_code == 409
+    await db_session.refresh(com_origem)
+    assert com_origem.carregamento_id is None
+
+
+async def test_two_null_origin_orders_share_a_shipment(client, db_session):
+    """Um lote de pedidos sem origem é um lote coerente (o simulador de
+    posição degrada para posição nula) — a regra proíbe MISTURAR origens,
+    não proíbe origem nula."""
+    carrier = await _seed_transportadora(db_session)
+    criado = (
+        await client.post(
+            "/shipments", headers=headers_for("admin"), json={"transportadora_id": carrier.id}
+        )
+    ).json()
+    primeiro = await _seed_pedido(db_session, origem=(None, None, None))
+    segundo = await _seed_pedido(db_session, origem=(None, None, None))
+
+    primeira = await client.post(
+        f"/shipments/{criado['id']}/orders",
+        headers=headers_for("admin"),
+        json={"pedido_id": str(primeiro.id)},
+    )
+    segunda = await client.post(
+        f"/shipments/{criado['id']}/orders",
+        headers=headers_for("admin"),
+        json={"pedido_id": str(segundo.id)},
+    )
+
+    assert (primeira.status_code, segunda.status_code) == (200, 200)
 
 
 async def test_an_order_belongs_to_one_shipment(client, db_session):

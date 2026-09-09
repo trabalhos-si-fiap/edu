@@ -110,7 +110,22 @@ async def atribuir_pedido(db: AsyncSession, *, carregamento_id: int, pedido_id: 
     if pedido.carregamento_id is not None and pedido.carregamento_id != carregamento.id:
         raise PedidoJaCarregadoError()
 
-    if not carregamento.origem_rotulo:
+    # A sentinela de "origem ainda não congelada" é "este lote já tem algum
+    # pedido?", não "o rótulo está vazio?". `orders.origem_rotulo` é
+    # NULLABLE — checkout sem fornecedor resolvido deixa `origem_*` como
+    # None (`app/services/pedidos.py`) — então um primeiro pedido de origem
+    # nula fazia `origem_rotulo or ""` continuar vazio e o congelamento
+    # nunca "pegava": um SEGUNDO pedido, de origem real, caía no mesmo ramo
+    # "ainda não congelado" e sobrescrevia a origem do lote em silêncio, sem
+    # 409 nenhum. Um lote de pedidos sem origem é um lote coerente — o
+    # simulador de posição (task 6) e o rastreio degradam para posição
+    # nula — só não pode se misturar com um lote de origem real, e é essa
+    # mistura que a query abaixo, e não a string, detecta.
+    ja_tem_pedido = (
+        await db.execute(select(Order.id).where(Order.carregamento_id == carregamento.id).limit(1))
+    ).scalar_one_or_none()
+
+    if ja_tem_pedido is None:
         carregamento.origem_rotulo = pedido.origem_rotulo or ""
         carregamento.origem_lat = pedido.origem_lat
         carregamento.origem_lng = pedido.origem_lng
