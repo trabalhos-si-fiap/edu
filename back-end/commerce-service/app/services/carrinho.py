@@ -143,7 +143,25 @@ async def adicionar_item(db: AsyncSession, user_id: uuid.UUID, data: CartItemIn)
     produto = (
         await db.execute(select(Product).where(Product.id == data.product_id))
     ).scalar_one_or_none()
-    if produto is None:
+    # Produto INATIVO é recusado como produto inexistente, e de propósito
+    # reusando `CartProductNotFoundError` em vez de uma quinta forma de erro:
+    # para o cliente, um produto que `GET /products` não lista mais NÃO está no
+    # catálogo, e "Product not found" é exatamente o que a rota já responde
+    # nesse caso. Duas consequências que valem escrever:
+    #
+    # 1. `POST /orders/{id}/rebuy` já captura esta exceção e faz `continue`
+    #    (`app/routers/pedidos.py`), então a recompra de um pedido antigo cujo
+    #    produto foi desativado devolve o RESTO do pedido em vez de um erro —
+    #    o comportamento certo, sem um segundo caminho de código. `adicionar_item`
+    #    tem DOIS chamadores, e foi ignorar isso que produziu o finding 3.
+    # 2. A recusa acontece ANTES de qualquer escrita — nenhuma linha de
+    #    carrinho é criada —, que é a propriedade de que aquele `continue`
+    #    depende para não deixar a sessão suja.
+    #
+    # NADA é retroativo: carrinho já montado e pedido já feito não são tocados
+    # (ver tests/test_inactive_product_rule.py). Remover item de carrinho alheio
+    # por desativação de catálogo seria regra de negócio que ninguém pediu.
+    if produto is None or not produto.active:
         raise CartProductNotFoundError()
 
     cart = await get_or_create_cart(db, user_id)

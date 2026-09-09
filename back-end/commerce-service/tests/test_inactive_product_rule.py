@@ -1,0 +1,196 @@
+"""Produto inativo não entra em carrinho novo, e a recompra o pula.
+
+A outra metade da correção do finding 6 da revisão final de branch. O filtro
+de LISTAGEM (`GET /products`, com e sem `partner_id`) está em
+`tests/test_products_partner_filter.py`; aqui está a metade que o switch do
+painel também promete: um produto tirado da prateleira não pode ser comprado
+por quem tem o id dele.
+
+Sem isto, o switch fecha só metade do caminho — o admin desativa o produto,
+ele some da vitrine, e o aluno com a tela velha aberta ainda fecha o pedido.
+
+**Carrinho e pedido JÁ EXISTENTES não são tocados.** Nada de varredura, nada
+de remoção retroativa: um carrinho montado antes da desativação mantém o item
+e fecha normalmente. Decidir o contrário seria regra de negócio sobre estorno
+e estoque que ninguém pediu.
+"""
+
+import uuid
+from decimal import Decimal
+
+from edu_common.security import create_access_token
+from sqlalchemy import select
+
+from app.config import settings
+from app.models.carrinho import Cart, CartItem
+from app.models.pedido import Order, OrderItem
+from app.models.produto import Estoque, Fornecedor, Product
+
+_ALUNO = "00000000-0000-0000-0000-0000000000ee"
+
+
+def headers_for(sub: str = _ALUNO) -> dict[str, str]:
+    return {"Authorization": f"Bearer {create_access_token(sub, 'student', settings.jwt_secret)}"}
+
+
+async def _parceiro(db_session) -> Fornecedor:
+    fornecedor = Fornecedor(nome="Leroy Merlin", origem_rotulo="Cajamar, SP")
+    db_session.add(fornecedor)
+    await db_session.commit()
+    await db_session.refresh(fornecedor)
+    return fornecedor
+
+
+async def _produto(db_session, fornecedor, *, nome: str, active: bool = True) -> Product:
+    produto = Product(
+        name=nome,
+        type="mobiliario",
+        price=Decimal("10.00"),
+        sku=nome[:60],
+        active=active,
+    )
+    db_session.add(produto)
+    await db_session.commit()
+    await db_session.refresh(produto)
+    db_session.add(Estoque(produto_id=produto.id, fornecedor_id=fornecedor.id, quantidade=50))
+    await db_session.commit()
+    return produto
+
+
+# ── POST /cart/items ───────────────────────────────────────────────────────
+
+
+async def test_an_inactive_product_cannot_be_added_to_the_cart(client, db_session):
+    fornecedor = await _parceiro(db_session)
+    inativo = await _produto(db_session, fornecedor, nome="Cadeira aposentada", active=False)
+
+    response = await client.post(
+        "/cart/items", json={"product_id": str(inativo.id), "quantity": 1}, headers=headers_for()
+    )
+
+    assert response.status_code == 404
+
+
+async def test_the_refused_item_never_lands_in_the_cart(client, db_session):
+    fornecedor = await _parceiro(db_session)
+    inativo = await _produto(db_session, fornecedor, nome="Cadeira aposentada", active=False)
+
+    await client.post(
+        "/cart/items", json={"product_id": str(inativo.id), "quantity": 1}, headers=headers_for()
+    )
+
+    itens = (await client.get("/cart", headers=headers_for())).json()["items"]
+    assert itens == []
+
+
+async def test_an_active_product_is_still_added(client, db_session):
+    """O controle positivo: a recusa não pode alcançar o caminho normal."""
+    fornecedor = await _parceiro(db_session)
+    ativo = await _produto(db_session, fornecedor, nome="Luminária")
+
+    response = await client.post(
+        "/cart/items", json={"product_id": str(ativo.id), "quantity": 1}, headers=headers_for()
+    )
+
+    assert response.status_code == 201
+    assert [i["name"] for i in response.json()["items"]] == ["Luminária"]
+
+
+# ── POST /orders/{id}/rebuy ────────────────────────────────────────────────
+
+
+async def test_rebuy_skips_a_product_that_was_deactivated(client, db_session):
+    """Mesmo tratamento que o produto que saiu do catálogo: o aluno recebe o
+    RESTO do pedido, não um erro. Um pedido de meses atrás quase sempre tem
+    pelo menos um item fora de linha, e falhar por causa dele tornaria o botão
+    inútil — a razão pela qual o `continue` já existia."""
+    fornecedor = await _parceiro(db_session)
+    ativo = await _produto(db_session, fornecedor, nome="Luminária")
+    inativo = await _produto(db_session, fornecedor, nome="Cadeira aposentada", active=False)
+
+    pedido = Order(user_id=uuid.UUID(_ALUNO), status="CRIADO", total=Decimal("20.00"))
+    db_session.add(pedido)
+    await db_session.commit()
+    await db_session.refresh(pedido)
+    for produto in (ativo, inativo):
+        db_session.add(
+            OrderItem(
+                order_id=pedido.id,
+                product_id=produto.id,
+                product_name=produto.name,
+                unit_price=Decimal("10.00"),
+                quantity=1,
+            )
+        )
+    await db_session.commit()
+
+    response = await client.post(f"/orders/{pedido.id}/rebuy", headers=headers_for())
+
+    assert response.status_code == 200
+    assert [i["name"] for i in response.json()["items"]] == ["Luminária"]
+
+
+# ── O que NÃO muda ─────────────────────────────────────────────────────────
+
+
+async def test_an_item_already_in_the_cart_survives_deactivation_and_checks_out(client, db_session):
+    """Sem varredura e sem remoção retroativa. O carrinho montado antes da
+    desativação continua fechando o pedido."""
+    fornecedor = await _parceiro(db_session)
+    produto = await _produto(db_session, fornecedor, nome="Luminária")
+
+    adicionado = await client.post(
+        "/cart/items", json={"product_id": str(produto.id), "quantity": 1}, headers=headers_for()
+    )
+    assert adicionado.status_code == 201
+
+    produto.active = False
+    await db_session.commit()
+
+    ainda_la = (await client.get("/cart", headers=headers_for())).json()["items"]
+    assert [i["name"] for i in ainda_la] == ["Luminária"]
+
+    pedido = await client.post("/orders", json={"payment_method": "PIX"}, headers=headers_for())
+    assert pedido.status_code == 201
+    assert [i["product_name"] for i in pedido.json()["items"]] == ["Luminária"]
+
+
+async def test_a_past_order_still_lists_its_deactivated_item(client, db_session):
+    """Pedido é registro histórico. Desativar o produto não pode reescrevê-lo."""
+    fornecedor = await _parceiro(db_session)
+    inativo = await _produto(db_session, fornecedor, nome="Cadeira aposentada", active=False)
+
+    pedido = Order(user_id=uuid.UUID(_ALUNO), status="CRIADO", total=Decimal("10.00"))
+    db_session.add(pedido)
+    await db_session.commit()
+    await db_session.refresh(pedido)
+    db_session.add(
+        OrderItem(
+            order_id=pedido.id,
+            product_id=inativo.id,
+            product_name=inativo.name,
+            unit_price=Decimal("10.00"),
+            quantity=1,
+        )
+    )
+    await db_session.commit()
+
+    detalhe = await client.get(f"/orders/{pedido.id}", headers=headers_for())
+
+    assert detalhe.status_code == 200
+    assert [i["product_name"] for i in detalhe.json()["items"]] == ["Cadeira aposentada"]
+
+
+async def test_the_service_refuses_before_creating_a_cart_row(client, db_session):
+    """A recusa acontece ANTES de qualquer escrita — é essa propriedade que o
+    `continue` de `recomprar` depende para não deixar a sessão suja, e a mesma
+    que o docstring de `POST /orders/{id}/rebuy` declara."""
+    fornecedor = await _parceiro(db_session)
+    inativo = await _produto(db_session, fornecedor, nome="Cadeira aposentada", active=False)
+
+    await client.post(
+        "/cart/items", json={"product_id": str(inativo.id), "quantity": 1}, headers=headers_for()
+    )
+
+    assert (await db_session.execute(select(CartItem))).scalars().all() == []
+    assert (await db_session.execute(select(Cart))).scalars().first() is None

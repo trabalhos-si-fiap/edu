@@ -233,7 +233,12 @@ async def recomprar(
 
     Produto que saiu do catálogo é PULADO, não derruba a recompra — um
     pedido de meses atrás quase sempre tem pelo menos um item descontinuado,
-    e falhar por causa dele tornaria o botão inútil.
+    e falhar por causa dele tornaria o botão inútil. Produto DESATIVADO
+    (`products.active = false`) cai no mesmo caminho: `adicionar_item` o
+    recusa com `CartProductNotFoundError`, e o `continue` abaixo devolve ao
+    aluno o resto do pedido. É a mesma decisão pelo mesmo motivo — um item
+    fora da prateleira não vale um erro na cara de quem só queria repetir a
+    compra.
 
     NÃO É ATÔMICO, de propósito: `cart_services.adicionar_item` comita a
     cada item (`app/services/carrinho.py`), então uma recompra de N itens
