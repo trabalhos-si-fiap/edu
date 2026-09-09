@@ -2,6 +2,7 @@ import pytest
 
 from app.services.status_pedido import (
     FLUXO_CONTRATO,
+    TRANSICOES_VALIDAS,
     StatusContrato,
     StatusPedido,
     status_do_contrato,
@@ -59,4 +60,42 @@ def test_the_visible_flow_excludes_cancelled():
         StatusContrato.SEPARATING,
         StatusContrato.OUT_FOR_DELIVERY,
         StatusContrato.DELIVERED,
+    )
+
+
+def test_the_substitution_wait_is_reachable_only_from_picking():
+    """Só quem está separando descobre que faltou item. Entrar em
+    AGUARDANDO_SUBSTITUICAO de qualquer outro estado seria uma ocorrência
+    aberta sobre um pedido que ninguém está separando."""
+    origens = [
+        s for s in StatusPedido if StatusPedido.AGUARDANDO_SUBSTITUICAO in TRANSICOES_VALIDAS[s]
+    ]
+    assert origens == [StatusPedido.EM_SEPARACAO]
+
+
+def test_the_substitution_wait_returns_to_picking_or_cancels():
+    """Os dois desfechos da spec: o aluno decidiu (volta ao separador, que
+    ainda precisa pegar o substituto da prateleira) ou cancelou o pedido."""
+    assert TRANSICOES_VALIDAS[StatusPedido.AGUARDANDO_SUBSTITUICAO] == [
+        StatusPedido.EM_SEPARACAO,
+        StatusPedido.CANCELADO,
+    ]
+
+
+def test_the_substitution_wait_never_jumps_the_picker():
+    """Ir direto a SEPARADO tornaria `/picking/{id}/finish` inalcançável:
+    ela exige EM_SEPARACAO e encadeia SEPARADO -> AGUARDANDO_COLETA. Ver D7."""
+    assert not validar_transicao(
+        StatusPedido.AGUARDANDO_SUBSTITUICAO.value, StatusPedido.SEPARADO.value
+    )
+    assert not validar_transicao(
+        StatusPedido.AGUARDANDO_SUBSTITUICAO.value, StatusPedido.AGUARDANDO_COLETA.value
+    )
+
+
+def test_the_substitution_wait_reads_as_separating_to_the_student():
+    """No contrato público o aluno continua vendo "em separação"; a decisão
+    pendente aparece como AÇÃO na tela, não como um sexto passo na timeline."""
+    assert (
+        status_do_contrato(StatusPedido.AGUARDANDO_SUBSTITUICAO.value) == StatusContrato.SEPARATING
     )
