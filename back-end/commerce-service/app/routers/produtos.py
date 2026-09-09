@@ -51,6 +51,12 @@ async def listar_produtos(
     storage: ObjectStorage = Depends(get_storage),
     redis: aioredis.Redis = Depends(get_redis),
     q: str | None = Query(default=None, max_length=160),
+    # `le=2_147_483_647` (int32 max): `Fornecedor.id`/`Estoque.fornecedor_id`
+    # são `Integer` (int32). Sem teto, um `partner_id` fora da faixa (ex.: 3
+    # bilhões) passaria da validação do Pydantic direto para o `WHERE` do
+    # join e estouraria `asyncpg.exceptions.DataError` não tratado (500) —
+    # mesma classe de bug que a task 3 corrigiu em `AjusteEstoqueIn.delta`.
+    partner_id: int | None = Query(default=None, ge=1, le=2_147_483_647),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
 ) -> ProductList:
@@ -61,8 +67,15 @@ async def listar_produtos(
     `limit` 1-100 com default 20, `q` até 160 caracteres, envelope com
     `total`/`limit`/`offset`: os quatro são contrato, medidos contra o
     legacy. Mudar qualquer um quebra o app na fase 4.
+
+    `partner_id` filtra o catálogo pelo parceiro DONO do estoque (task 7,
+    spec B) — produto pertence ao parceiro através de `Estoque.fornecedor_id`,
+    não por coluna direta em `products`. Parceiro inativo ou inexistente
+    devolve lista vazia, nunca 404: ver app/services/produtos.py.
     """
-    items, total = await services.listar_produtos(db, q=q, limit=limit, offset=offset)
+    items, total = await services.listar_produtos(
+        db, q=q, partner_id=partner_id, limit=limit, offset=offset
+    )
     return ProductList(
         items=[await _product_out(p, storage=storage, redis=redis) for p in items],
         total=total,

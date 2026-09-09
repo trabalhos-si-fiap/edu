@@ -13,10 +13,37 @@ from app.schemas.review import ReviewIn
 
 
 async def listar_produtos(
-    db: AsyncSession, *, q: str | None = None, limit: int, offset: int
+    db: AsyncSession,
+    *,
+    q: str | None = None,
+    partner_id: int | None = None,
+    limit: int,
+    offset: int,
 ) -> tuple[list[Product], int]:
     stmt = select(Product)
     count_stmt = select(func.count()).select_from(Product)
+
+    if partner_id is not None:
+        # Produto pertence ao parceiro ATRAVÉS do estoque — não há coluna de
+        # fornecedor em `products`, e não deve haver: um produto pode ser
+        # estocado por mais de um fornecedor (a unicidade de `estoque` é do
+        # PAR produto+fornecedor, `uq_produto_fornecedor`). Por isso o filtro
+        # é um subselect de `produto_id` (`WHERE id IN (...)`), não um
+        # `join(Estoque)` direto na listagem: um join duplicaria a linha do
+        # produto uma vez por fornecedor que o estoca — inflando `items` E
+        # `total`, e fazendo a paginação repetir linha entre páginas.
+        #
+        # O join com `fornecedores` dentro do subselect é o que faz do
+        # "ativo" uma REGRA em vez de um `if` na tela: parceiro inativo
+        # simplesmente não casa, e a listagem sai vazia — sem 404, sem ramo
+        # especial, sem nome de parceiro em lugar nenhum do código.
+        vinculo = (
+            select(Estoque.produto_id)
+            .join(Fornecedor, Fornecedor.id == Estoque.fornecedor_id)
+            .where(Estoque.fornecedor_id == partner_id, Fornecedor.ativo.is_(True))
+        )
+        stmt = stmt.where(Product.id.in_(vinculo))
+        count_stmt = count_stmt.where(Product.id.in_(vinculo))
 
     if q:
         # `ilike` com parâmetro bound — o pattern vai como valor, nunca
