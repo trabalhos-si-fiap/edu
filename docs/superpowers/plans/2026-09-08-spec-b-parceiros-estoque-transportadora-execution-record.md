@@ -550,14 +550,29 @@ identificador citado no comentário — ela sobrevive ao refactor. Onde não pud
 a verificação final de cada spec tem que reconferir as citações que caem em
 arquivos que a spec tocou.
 
-E a varredura mostrou que **não é caso isolado**: cruzando toda citação
+E a varredura mostrou que **não é caso isolado**. Cruzando toda citação
 `arquivo.py:linha` dos documentos vivos contra
-`git diff --name-only 0a082ea..HEAD`, a deriva é **uma** no `smoke-test.md`,
-**doze** no `phase-2-debt.md` e **duas** no `commerce-parity.md` — quinze ao
-todo, de uma spec só. Ela se concentra nos documentos que **sobrevivem ao
-código que citam**: o ledger de dívida da fase 2 e o de paridade acumulam
-ponteiros que ninguém revisita, enquanto o `microservices.md`, reescrito a cada
-spec, tinha uma única citação em arquivo tocado e ela continuava certa. A
-conclusão prática não é reancorar — ponteiro reancorado apodrece de novo — é
-datar o documento inteiro de uma vez e mandar o leitor localizar por símbolo,
-que foi o que a spec B fez com o `phase-2-debt.md`.
+`git diff --name-only 0a082ea..HEAD`:
+
+| Documento vivo | Citações em arquivo que a spec B alterou | Derivadas |
+|---|---|---|
+| `docs/smoke-test.md` | 4 | **1** |
+| `docs/back-end/phase-2-debt.md` | 12 | **12** |
+| `docs/back-end/commerce-parity.md` | 6 | **2** |
+| `docs/back-end/microservices.md` | 1 | **0** |
+
+**Quinze citações derivadas de uma spec só.** E o padrão diz em qual documento
+desconfiar, que é mais útil do que só dizer que documento apodrece: **a deriva
+se concentra nos documentos que sobrevivem ao código que citam.** Os dois
+ledgers datados — o de dívida da fase 2 e o de paridade — acumulam ponteiros
+que ninguém revisita depois de fechada a fase que os escreveu. O
+`microservices.md`, que é reescrito a cada spec porque descreve o sistema
+vivo, tinha a sua única citação em arquivo tocado e ela continuava exata.
+
+O remédio não é único, e a aritmética decide qual: onde quase tudo derivou
+(doze de doze, no `phase-2-debt.md`), reancorar compra uma propriedade que o
+documento não consegue manter, e **datar tudo de uma vez** é honesto — doze
+números com cara de precisos e todos errados convidam a confiar em cada um.
+Onde só uma minoria derivou (dois de seis, no `commerce-parity.md`), datar
+jogaria fora a exatidão que os outros quatro ainda têm, e **corrigir os dois**
+custa menos que a nota que explicaria por que não foram corrigidos.
