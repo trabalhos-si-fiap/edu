@@ -28,10 +28,22 @@ export class ProductService {
    *  folga generosa, não limite de negócio. */
   private static readonly MAX_ITEMS = 2000;
 
-  listProducts(limit = ProductService.PAGE_LIMIT, offset = 0): Observable<ProductList> {
+  /** `include_inactive` é a escotilha de admin de `GET /products`: desde a
+   *  correção do finding 6 da revisão final da spec B, o catálogo esconde
+   *  produto com `active = false`. O PAINEL precisa do contrário — ele é a
+   *  única tela onde se reativa um produto desativado, e uma linha que some
+   *  da lista assim que o switch é desligado é uma linha que ninguém
+   *  consegue ligar de volta. Sempre `true` aqui porque todo consumidor
+   *  deste serviço é o painel, autenticado como admin. */
+  listProducts(
+    limit = ProductService.PAGE_LIMIT,
+    offset = 0,
+    includeInactive = true
+  ): Observable<ProductList> {
     const params = new HttpParams()
       .set('limit', String(limit))
-      .set('offset', String(offset));
+      .set('offset', String(offset))
+      .set('include_inactive', String(includeInactive));
 
     return this.http.get<ProductList>(`${this.apiUrl}/products`, { params });
   }
