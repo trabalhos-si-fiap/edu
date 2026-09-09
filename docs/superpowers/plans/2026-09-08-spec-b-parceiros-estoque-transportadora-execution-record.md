@@ -456,7 +456,7 @@ argumento mais forte deste registro para a próxima spec — a revisão final n�
 | 3 | alta | `POST /orders/{id}/rebuy` não capturava o `CarrinhoOrigemMistaError` da task 8 ⇒ 500 | A task 8 revisou `carrinho.py` e o seu único chamador visível; o segundo chamador estava em `pedidos.py`, escrito numa spec anterior |
 | 4 | média | Overflow de int32 corrigido em três sites e aberto em oito (nove, medido ao corrigir) | Cada task corrigiu **o seu** site e passou. Ninguém tinha o mapa dos dez |
 | 5 | média | `Edu` semeado ativo ⇒ o app mostra todo produto duas vezes | Costura entre a task 11 (seed) e a task 12 (a seção de parceiros do app). Nenhuma das duas vê a tela montada |
-| 6 | média | `products.active` escrito pela task 6, exibido pelo painel da task 13, lido por nada | Três tasks tocaram as três pontas; nenhuma possuía a quarta |
+| 6 | média | `products.active` escrito pela task 6, exibido pelo painel da task 13, lido por nada — nem pela listagem, nem pela adição ao carrinho | Três tasks tocaram as três pontas; nenhuma possuía a quarta |
 | 7 | baixa-média | O painel descartava todo `detail` do backend, contradizendo a ruling 17 desta própria branch | A ruling 17 foi decidida para o cliente Flutter (task 12); o painel é a task 13 |
 | 8 | baixa | Idioma das mensagens dividido entre rotas novas — duas portas do mesmo núcleo de estoque, e duas linhas a quatro de distância | Cada arquivo é internamente coerente. A incoerência só existe entre arquivos |
 
@@ -491,10 +491,15 @@ esquecida.
   abstração desta branch que se justifica — não porque é elegante, mas porque
   o mesmo erro já foi cometido nove vezes e um tipo com nome é o que impede o
   décimo.
-- **Toda coluna nova precisa de um leitor nomeado.** `products.active` foi
-  escrita, persistida, exibida e nunca lida. A pergunta "quem LÊ isto, e o que
-  muda quando o valor muda?" cabe no brief da task que cria a coluna e teria
-  pego o finding 6 catorze tasks antes.
+- **Toda coluna nova precisa de um leitor nomeado, e a pergunta tem que ser
+  feita até o fim.** `products.active` foi escrita, persistida, exibida e
+  nunca lida. A pergunta "quem LÊ isto, e o que muda quando o valor muda?"
+  cabe no brief da task que cria a coluna e teria pego o finding 6 catorze
+  tasks antes. Vale notar como ela quase ficou pela metade: filtrar a
+  LISTAGEM parecia fechar o finding, mas o produto continuava adicionável por
+  id — meia resposta tem a mesma forma do defeito original, um controle que
+  promete mais do que faz. A pergunta certa não é "onde isto é lido?" e sim
+  "de quantas portas se compra este produto?".
 - **Um princípio decidido para um cliente vale para os dois.** A ruling 17
   ("o servidor é dono da sentença") foi aplicada ao Flutter e não ao painel,
   que foi escrito depois. Decisão de produto registrada num ledger não se
