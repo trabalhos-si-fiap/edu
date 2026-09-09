@@ -81,3 +81,23 @@ class ParceiroNotFoundError(Exception):
 
     Sufixo `Error` por N818, como todas as outras deste módulo.
     """
+
+
+class EstoqueNotFoundError(Exception):
+    """Não há linha de estoque para o produto (ou id de estoque) pedido. O
+    router traduz em 404 "Stock record not found".
+
+    Sufixo `Error` por N818.
+    """
+
+
+class EstoqueNegativoError(Exception):
+    """O ajuste levaria a quantidade abaixo de zero. O router traduz em 422.
+
+    Levantada DENTRO da transação, antes de qualquer escrita — nem o estoque
+    nem a linha de auditoria são gravados. Auditar um ajuste recusado faria a
+    trilha mentir. Mesma regra do Java (`Inventory.adjustTo` levanta
+    `BusinessException` antes de construir o `InventoryAdjustment`).
+
+    Sufixo `Error` por N818.
+    """

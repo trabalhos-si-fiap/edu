@@ -6,11 +6,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import requer_papel
+from app.exceptions import EstoqueNotFoundError
 from app.models.pedido import Order
 from app.models.produto import Estoque
 from app.routers.separacao import transicionar_pedido
 from app.schemas.estoque import EstoqueOut
 from app.schemas.pedido import PedidoStaffOut
+from app.services import estoque as estoque_services
 from app.services.status_pedido import StatusPedido
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -158,20 +160,26 @@ async def ajustar_estoque(
     # `ge=0`: sem piso, um admin gravava estoque negativo e a separação
     # passava a trabalhar contra um número que não existe no mundo físico.
     quantidade: int = Query(ge=0),
+    # Obrigatório desde a spec B: um ajuste sem motivo não é auditoria. O
+    # painel Angular já mandava um (`stock-adjust-modal` compõe
+    # "<preset>: <observação>") — só não havia onde gravar.
+    motivo: str = Query(min_length=1, max_length=300),
     user: dict = Depends(requer_papel("admin")),
     db: AsyncSession = Depends(get_db),
 ):
-    # `with_for_update()`: o ajuste é um read→write sobre recurso compartilhado
-    # (regra 3 do CLAUDE.md) — serializa dois ajustes concorrentes na mesma
-    # linha em vez de deixá-los correr em paralelo contra o mesmo SELECT.
-    # Não muda QUEM vence: esta rota grava um valor absoluto, não um delta,
-    # então o último commit sempre define o valor final, com ou sem lock —
-    # medido em task-11-report.md, não é apenas suposição.
-    result = await db.execute(select(Estoque).where(Estoque.id == estoque_id).with_for_update())
-    estoque = result.scalar_one_or_none()
-    if not estoque:
-        raise HTTPException(404, "Registro de estoque não encontrado")
-    estoque.quantidade = quantidade
-    await db.commit()
-    await db.refresh(estoque)
+    """Porta ABSOLUTA do ajuste de estoque. A porta de delta é
+    `POST /products/{id}/stock-adjustments`. As duas passam pelo mesmo núcleo
+    (`app/services/estoque.py`), então as duas deixam rastro em
+    `estoque_ajustes` — antes da spec B esta rota não deixava nenhum.
+    """
+    try:
+        estoque, _ = await estoque_services.definir_quantidade(
+            db,
+            estoque_id=estoque_id,
+            quantidade=quantidade,
+            motivo=motivo,
+            autor_id=uuid.UUID(user["sub"]),
+        )
+    except EstoqueNotFoundError as exc:
+        raise HTTPException(404, "Registro de estoque não encontrado") from exc
     return estoque

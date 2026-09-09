@@ -5,10 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import get_current_user
-from app.exceptions import ProductNotFoundError
+from app.dependencies import get_current_user, requer_papel
+from app.exceptions import EstoqueNegativoError, EstoqueNotFoundError, ProductNotFoundError
 from app.models.produto import Product
 from app.redis_client import get_redis
+from app.schemas.estoque import AjusteEstoqueIn, EstoqueAjusteList, EstoqueAjusteOut
 from app.schemas.produto import (
     CategoryList,
     CategoryOut,
@@ -16,6 +17,7 @@ from app.schemas.produto import (
     ProductOut,
 )
 from app.schemas.review import ReviewIn, ReviewList, ReviewOut
+from app.services import estoque as estoque_services
 from app.services import produtos as services
 from app.services.auth_client import AuthServiceUnavailableError, get_me
 from app.services.media import presigned_image_url
@@ -68,6 +70,63 @@ async def listar_categorias(
 ) -> CategoryList:
     rows = await services.listar_categorias(db)
     return CategoryList(items=[CategoryOut(type=t, count=c) for t, c in rows])
+
+
+@router.post(
+    "/{product_id}/stock-adjustments",
+    response_model=EstoqueAjusteOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def ajustar_estoque(
+    product_id: uuid.UUID,
+    payload: AjusteEstoqueIn,
+    user: dict = Depends(requer_papel("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> EstoqueAjusteOut:
+    """Ajuste por DELTA, com auditoria, atômico. Ver app/services/estoque.py."""
+    try:
+        estoque = await estoque_services.obter_estoque_do_produto(db, product_id)
+        _, ajuste = await estoque_services.aplicar_ajuste(
+            db,
+            estoque_id=estoque.id,
+            delta=payload.delta,
+            motivo=payload.motivo,
+            autor_id=uuid.UUID(user["sub"]),
+        )
+    except EstoqueNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Stock record not found"
+        ) from exc
+    except EstoqueNegativoError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="O ajuste deixaria o estoque negativo",
+        ) from exc
+    return EstoqueAjusteOut.model_validate(ajuste)
+
+
+@router.get("/{product_id}/stock-adjustments", response_model=EstoqueAjusteList)
+async def listar_ajustes_estoque(
+    product_id: uuid.UUID,
+    _user: dict = Depends(requer_papel("admin")),
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+) -> EstoqueAjusteList:
+    try:
+        items, total = await estoque_services.listar_ajustes(
+            db, produto_id=product_id, limit=limit, offset=offset
+        )
+    except EstoqueNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Stock record not found"
+        ) from exc
+    return EstoqueAjusteList(
+        items=[EstoqueAjusteOut.model_validate(a) for a in items],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get("/{product_id}", response_model=ProductOut)
