@@ -1,10 +1,11 @@
 """Regra de parceiro. O filtro por ativo é uma REGRA, não um `if` por nome.
 
-A spec proíbe `if parceiro == "leroy"` em qualquer caminho de decisão: quem
-decide se uma seção aparece é a coluna `ativo`, e desativar o parceiro no
-painel esvazia a seção sem tocar em código. A string "leroy" só existe em
-dado de seed (`app/seeds/parceiros.py`) — o teste
-`test_no_partner_name_in_a_decision_path` (task 11) trava isso.
+A spec proíbe `if parceiro.nome == "<nome do parceiro>"` em qualquer caminho
+de decisão: quem decide se uma seção aparece é a coluna `ativo`, e desativar
+o parceiro no painel esvazia a seção sem tocar em código. O nome de um
+parceiro só existe em dado de seed (`app/seeds/parceiros.py`) — o teste
+`test_no_partner_name_appears_in_a_decision_path` (task 11) trava isso
+varrendo `app/` por nomes de parceiro fora daquele arquivo.
 """
 
 from sqlalchemy import func, select
