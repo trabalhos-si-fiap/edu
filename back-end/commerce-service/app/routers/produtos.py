@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import get_current_user, requer_papel
+from app.dependencies import get_current_user, requer_papel, uuid_do_usuario
 from app.exceptions import (
     EstoqueNegativoError,
     EstoqueNotFoundError,
@@ -155,7 +155,7 @@ async def ajustar_estoque(
             estoque_id=estoque_id,
             delta=payload.delta,
             motivo=payload.motivo,
-            autor_id=uuid.UUID(user["sub"]),
+            autor_id=uuid_do_usuario(user),
         )
     except EstoqueNotFoundError as exc:
         raise HTTPException(
@@ -273,7 +273,7 @@ async def criar_review(
         review = await services.criar_review(
             db,
             product_id,
-            user_id=uuid.UUID(user["sub"]),
+            user_id=uuid_do_usuario(user),
             author=me["name"],
             data=payload,
         )

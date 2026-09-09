@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import get_db
-from app.dependencies import requer_papel
+from app.dependencies import requer_papel, uuid_do_usuario
 from app.events.publisher import publish_event
 from app.exceptions import (
     CarregamentoNotFoundError,
@@ -85,7 +85,7 @@ async def criar_carregamento(
         carregamento, senha = await services.criar_carregamento(
             db,
             transportadora_id=payload.transportadora_id,
-            criado_por=uuid.UUID(user["sub"]),
+            criado_por=uuid_do_usuario(user),
         )
     except TransportadoraNotFoundError as exc:
         raise HTTPException(404, "Transportadora não encontrada") from exc

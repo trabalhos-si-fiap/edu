@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import requer_papel
+from app.dependencies import requer_papel, uuid_do_usuario
 from app.exceptions import EstoqueNotFoundError
 from app.ids import Int32Id
 from app.models.pedido import Order
@@ -195,7 +195,7 @@ async def ajustar_estoque(
             estoque_id=estoque_id,
             quantidade=quantidade,
             motivo=motivo,
-            autor_id=uuid.UUID(user["sub"]),
+            autor_id=uuid_do_usuario(user),
         )
     except EstoqueNotFoundError as exc:
         raise HTTPException(404, "Registro de estoque não encontrado") from exc

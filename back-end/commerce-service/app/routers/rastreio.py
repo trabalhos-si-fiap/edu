@@ -17,7 +17,7 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, uuid_do_usuario
 from app.exceptions import OrderNotFoundError, RouteUnavailableError
 from app.redis_client import get_redis
 from app.schemas.rastreio import CourierLocationIn, ETAPredictionOut, OrderTrackingOut, RouteOut
@@ -44,7 +44,7 @@ async def rastreio_pedido(
     histórico se mudou para `GET /orders/{id}/status-history` — task C8.
     """
     try:
-        order = await pedidos_services.buscar_pedido(db, uuid.UUID(user["sub"]), order_id)
+        order = await pedidos_services.buscar_pedido(db, uuid_do_usuario(user), order_id)
     except OrderNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Pedido não encontrado") from exc
     # Log de auditoria: achado 4 da revisão da task C8 — o legacy
@@ -77,7 +77,7 @@ async def rota_pedido(
 ) -> RouteOut:
     """Rota de rua do centro de distribuição até o endereço do pedido."""
     try:
-        return await services.rota_do_pedido(db, redis, uuid.UUID(user["sub"]), order_id)
+        return await services.rota_do_pedido(db, redis, uuid_do_usuario(user), order_id)
     except OrderNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Pedido não encontrado") from exc
     except RouteUnavailableError as exc:
@@ -109,6 +109,6 @@ async def prever_eta(
     do usuário de 2026-08-08. Ver `app/services/rastreio.py::prever_eta`.
     """
     try:
-        return await services.prever_eta(db, uuid.UUID(user["sub"]), order_id, payload)
+        return await services.prever_eta(db, uuid_do_usuario(user), order_id, payload)
     except OrderNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Pedido não encontrado") from exc

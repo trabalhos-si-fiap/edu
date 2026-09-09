@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import get_current_user_id, requer_papel
+from app.dependencies import get_current_user_id, requer_papel, uuid_do_usuario
 from app.events.publisher import publish_event
 from app.ids import Int32Id
 from app.models.ocorrencia import Ocorrencia
@@ -116,7 +116,7 @@ async def abrir_ocorrencia_transportadora(
         tipo=payload.tipo,
         status="ABERTA",
         motivo=payload.motivo,
-        criado_por=uuid.UUID(user["sub"]),
+        criado_por=uuid_do_usuario(user),
     )
     db.add(ocorrencia)
     await db.commit()

@@ -1,5 +1,6 @@
 """Dependências de auth do serviço — construídas a partir de edu-common."""
 
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -19,6 +20,29 @@ get_current_user_id = _auth.get_current_user_id
 requer_papel = _auth.require_role
 
 PAPEL_CARREGAMENTO = "carregamento"
+
+
+def uuid_do_usuario(user: dict) -> uuid.UUID:
+    """O `sub` autenticado como `uuid.UUID`, ou 403 quando ele não é um.
+
+    Nem todo token desta frota tem um usuário por trás. O de carregamento
+    (`POST /shipments/login`, D8 do plano) usa o `sub` para carregar o id do
+    LOTE — um inteiro —, porque `edu_common.security.create_access_token` não
+    aceita claim extra. `uuid.UUID("7")` levanta `ValueError`, e um
+    `ValueError` que sobe de dentro de uma rota é 500.
+
+    Um 500 aqui seria mentira em dois sentidos: não houve falha do servidor, e
+    a resposta correta ("este token não é de um usuário desta rota") existe e
+    é 403. A guarda mora numa função só, e não em dezoito `try/except`
+    espalhados, porque a pergunta é sempre a mesma e a resposta também.
+
+    Não usar em `/delivery/*`: lá o token de lote é um ator LEGÍTIMO, e quem
+    classifica os dois tipos é `ator_de_entrega`, abaixo.
+    """
+    try:
+        return uuid.UUID(str(user.get("sub")))
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise HTTPException(403, "Este token não pertence a um usuário desta rota") from exc
 
 
 @dataclass(frozen=True)
