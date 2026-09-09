@@ -8,6 +8,13 @@ class Notificacao(Base):
     __tablename__ = "notificacoes"
 
     id = Column(Integer, primary_key=True)
+    # `aluno_id` é o DESTINATÁRIO, não necessariamente um aluno: desde a spec C
+    # ele também guarda id de staff (admin, separador, entregador), porque a
+    # tabela de destinatário por transição
+    # (`app/services/destinatarios.py::PAPEIS_POR_STATUS`) endereça os quatro
+    # perfis pela mesma coluna. O nome ficou por compatibilidade com o schema
+    # e com `GET /notifications`; renomeá-lo custaria uma migration e uma
+    # quebra de contrato sem nenhum cliente pedindo.
     aluno_id = Column(UUID(as_uuid=True), nullable=False, index=True)
     titulo = Column(String(150), nullable=False)
     descricao = Column(Text, nullable=False)

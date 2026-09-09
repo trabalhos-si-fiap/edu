@@ -7,8 +7,8 @@ conferem que a timeline reflete o status real do pedido.
 Porte de `legacy/tests/test_tracking_builders.py` (task C8). Adaptações:
 `OrderStatus` (legacy, cinco valores, é ao mesmo tempo o status interno e o
 do contrato) vira dois conceitos aqui — o SEED do pedido usa o status
-INTERNO (`StatusPedido`, nove valores, o que `order.status` guarda de
-verdade) e as asserções sobre `payload.steps`/`headline` usam a linguagem
+INTERNO (`StatusPedido`, dez valores desde a task 2 da spec C — o que
+`order.status` guarda de verdade) e as asserções sobre `payload.steps`/`headline` usam a linguagem
 do CONTRATO (`StatusContrato`, seis valores), porque é sobre isso que
 `build_order_tracking` opera (`status_do_contrato` traduz um no outro).
 """
@@ -172,7 +172,7 @@ def test_tracking_of_a_cancelled_order_does_not_raise() -> None:
 def test_payload_status_mirrors_the_contract_status(status: StatusPedido) -> None:
     """`OrderTrackingOut.status` (divergência deliberada nº 7 — o legacy não
     tem esse campo) espelha o valor público de `status_do_contrato`, para
-    todos os nove estados internos, não só `cancelled`."""
+    todos os dez estados internos, não só `cancelled`."""
     payload = build_order_tracking(_order_falso(status.value))
     assert payload.status == status_do_contrato(status.value)
 

@@ -37,7 +37,8 @@ class Order(Base):
 
     `pedido_status_historico` continua em português: sem cliente.
 
-    `status` guarda o estado INTERNO (nove valores, `StatusPedido`). Quem
+    `status` guarda o estado INTERNO (dez valores, `StatusPedido` —
+    `AGUARDANDO_SUBSTITUICAO` entrou na task 2 da spec C). Quem
     traduz para os seis do contrato (`StatusContrato`) é
     `app/services/status_pedido.py::status_do_contrato`, e a ligação com a
     resposta do aluno foi feita pela task C6 em `OrderOut.de_order`
