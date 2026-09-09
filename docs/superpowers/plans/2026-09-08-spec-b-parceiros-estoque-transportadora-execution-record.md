@@ -576,3 +576,15 @@ números com cara de precisos e todos errados convidam a confiar em cada um.
 Onde só uma minoria derivou (dois de seis, no `commerce-parity.md`), datar
 jogaria fora a exatidão que os outros quatro ainda têm, e **corrigir os dois**
 custa menos que a nota que explicaria por que não foram corrigidos.
+
+E uma armadilha que só aparece **enquanto se conserta**: reancorar um ponteiro
+sem reler o que ele aponta deixa a citação certa e a descrição velha — e o
+resultado lê como mais confiável que qualquer um dos dois erros sozinhos,
+porque o número confere. Aconteceu aqui: corrigir `89-99` para `89-101` no
+`commerce-parity.md` deu ponteiro exato para um bloco que a mesma linha
+descrevia com nove chaves, quando a task 6 já o tinha deixado com onze. A
+correção certa não foi reescrever a célula — ela registra o que a paridade
+adaptou, não o estado de hoje, e reescrevê-la falsificaria o registro — foi um
+sufixo datado nomeando a spec que acrescentou as duas chaves. **Ao reancorar,
+releia o alvo:** um ponteiro só está consertado quando a frase que o acompanha
+também descreve o que há lá.
