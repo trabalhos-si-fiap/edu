@@ -13,6 +13,7 @@ from app.models.ocorrencia import Ocorrencia
 from app.models.pedido import Order, OrderItem, PedidoStatusHistorico
 from app.models.produto import Product
 from app.models.transportadora import Carrier
+from app.routers.separacao import transicionar_pedido
 from app.schemas.ocorrencia import (
     AtrasoEntregaIn,
     FaltaEstoqueIn,
@@ -165,6 +166,20 @@ async def reportar_falta_estoque(
     db.add(ocorrencia)
     await db.commit()
     await db.refresh(ocorrencia)
+
+    # O pedido para até o aluno decidir. Só de EM_SEPARACAO: a rota também
+    # aceita `admin`, que pode abrir a ocorrência sobre um pedido em qualquer
+    # estado, e uma transição inválida derrubaria a abertura da ocorrência com
+    # 400 — a ocorrência é o registro do fato, e ela não pode depender de o
+    # pedido estar num estado específico.
+    if pedido.status == StatusPedido.EM_SEPARACAO.value:
+        await transicionar_pedido(
+            db,
+            pedido.id,
+            StatusPedido.AGUARDANDO_SUBSTITUICAO.value,
+            user["sub"],
+            observacao=f"Falta de estoque, ocorrência #{ocorrencia.id}",
+        )
 
     # `str(...)` nos dois ids: `orders.id` e `products.id` são UUID desde a
     # fase 2 e JSON não tem tipo UUID — o transporte
@@ -462,6 +477,21 @@ async def resolver_ocorrencia(
 
     await db.commit()
     await db.refresh(ocorrencia)
+
+    # Devolve o pedido ao separador. Depois do commit, e pelo mesmo funil das
+    # outras transições (`transicionar_pedido` valida, carimba
+    # `status_updated_at`, grava histórico e publica) — o caminho de
+    # `cancelar_pedido` acima é a exceção documentada, não o padrão.
+    if resolucao in ("substituir", "remover_item") and (
+        pedido.status == StatusPedido.AGUARDANDO_SUBSTITUICAO.value
+    ):
+        await transicionar_pedido(
+            db,
+            pedido.id,
+            StatusPedido.EM_SEPARACAO.value,
+            aluno_id,
+            observacao=f"Substituição decidida na ocorrência #{ocorrencia.id}",
+        )
 
     # Os dois publishes ficam DEPOIS do commit. Publicar antes fazia o
     # notification-service avisar "seu pedido foi cancelado" mesmo quando a

@@ -5,11 +5,12 @@ from decimal import Decimal
 
 import pytest
 from edu_common.security import create_access_token
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models.ocorrencia import Ocorrencia
-from app.models.pedido import Order, OrderItem
+from app.models.pedido import Order, OrderItem, PedidoStatusHistorico
 from app.models.produto import Product
 from app.services.status_pedido import StatusPedido
 
@@ -300,6 +301,156 @@ async def _seed_ocorrencia_falta_estoque(db_session, pedido, produto) -> Ocorren
     await db_session.commit()
     await db_session.refresh(ocorrencia)
     return ocorrencia
+
+
+async def _seed_pedido_aguardando_substituicao(
+    db_session,
+) -> tuple[Order, Ocorrencia, Product]:
+    """Cenário completo da task 3: pedido já parado em
+    AGUARDANDO_SUBSTITUICAO (task 2), com o item que falta, um produto
+    substituto ativo para o aluno escolher, e a ocorrência FALTA_ESTOQUE
+    ABERTA que amarra os dois — o estado que `reportar_falta_estoque`
+    produz e que `resolver_ocorrencia` recebe."""
+    produto = await _seed_produto(db_session)
+    substituto = Product(
+        name="Substituto",
+        description="Caderno substituto",
+        price=Decimal("24.90"),
+        type="papelaria",
+    )
+    db_session.add(substituto)
+    pedido = await _seed_pedido(
+        db_session,
+        StatusPedido.AGUARDANDO_SUBSTITUICAO.value,
+        user_id=ALUNO,
+        picker_id=PICKER_A,
+    )
+    item = OrderItem(
+        order_id=pedido.id,
+        product_id=produto.id,
+        product_name=produto.name,
+        unit_price=produto.price,
+        quantity=1,
+    )
+    db_session.add(item)
+    ocorrencia = await _seed_ocorrencia_falta_estoque(db_session, pedido, produto)
+    await db_session.commit()
+    await db_session.refresh(substituto)
+    return pedido, ocorrencia, substituto
+
+
+async def test_stock_shortage_parks_the_order_in_the_substitution_wait(client, db_session):
+    pedido = await _seed_pedido(db_session, StatusPedido.EM_SEPARACAO.value, picker_id=PICKER_A)
+    produto = await _seed_produto(db_session)
+
+    response = await client.post(
+        "/occurrences/stock-shortage",
+        headers=headers_for("separador", sub=str(pedido.picker_id)),
+        json={
+            "pedido_id": str(pedido.id),
+            "produto_id": str(produto.id),
+            "motivo": "Prateleira vazia",
+        },
+    )
+
+    assert response.status_code == 201
+    await db_session.refresh(pedido)
+    assert pedido.status == StatusPedido.AGUARDANDO_SUBSTITUICAO.value
+
+
+async def test_stock_shortage_leaves_an_order_outside_picking_alone(client, db_session):
+    """Admin pode abrir a ocorrência sobre um pedido em qualquer estado. Só
+    EM_SEPARACAO tem para onde ir — o resto seria transição inválida, e a
+    ocorrência não pode falhar por causa disso."""
+    pedido = await _seed_pedido(db_session, StatusPedido.AGUARDANDO_COLETA.value)
+    produto = await _seed_produto(db_session)
+
+    response = await client.post(
+        "/occurrences/stock-shortage",
+        headers=headers_for("admin"),
+        json={
+            "pedido_id": str(pedido.id),
+            "produto_id": str(produto.id),
+            "motivo": "Conferência do estoque",
+        },
+    )
+
+    assert response.status_code == 201
+    await db_session.refresh(pedido)
+    assert pedido.status == StatusPedido.AGUARDANDO_COLETA.value
+
+
+async def test_accepting_a_substitute_returns_the_order_to_the_picker(client, db_session):
+    pedido, ocorrencia, substituto = await _seed_pedido_aguardando_substituicao(db_session)
+
+    response = await client.post(
+        f"/occurrences/{ocorrencia.id}/resolve",
+        headers=headers_for("student", sub=str(pedido.user_id)),
+        json={"resolucao": "substituir", "produto_escolhido_id": str(substituto.id)},
+    )
+
+    assert response.status_code == 200
+    await db_session.refresh(pedido)
+    assert pedido.status == StatusPedido.EM_SEPARACAO.value
+
+
+async def test_removing_the_item_also_returns_the_order_to_the_picker(client, db_session):
+    pedido, ocorrencia, _ = await _seed_pedido_aguardando_substituicao(db_session)
+
+    response = await client.post(
+        f"/occurrences/{ocorrencia.id}/resolve",
+        headers=headers_for("student", sub=str(pedido.user_id)),
+        json={"resolucao": "remover_item"},
+    )
+
+    assert response.status_code == 200
+    await db_session.refresh(pedido)
+    assert pedido.status == StatusPedido.EM_SEPARACAO.value
+
+
+async def test_cancelling_from_the_substitution_wait_cancels_the_order(client, db_session):
+    pedido, ocorrencia, _ = await _seed_pedido_aguardando_substituicao(db_session)
+
+    response = await client.post(
+        f"/occurrences/{ocorrencia.id}/resolve",
+        headers=headers_for("student", sub=str(pedido.user_id)),
+        json={"resolucao": "cancelar_pedido"},
+    )
+
+    assert response.status_code == 200
+    await db_session.refresh(pedido)
+    assert pedido.status == StatusPedido.CANCELADO.value
+
+
+async def test_the_return_to_picking_is_published_and_recorded(
+    client, db_session, _stub_publish_event
+):
+    """A volta ao fluxo é uma transição como qualquer outra: linha de
+    histórico e evento. Sem o evento, o separador não é avisado de que o
+    pedido voltou para a fila dele."""
+    pedido, ocorrencia, substituto = await _seed_pedido_aguardando_substituicao(db_session)
+
+    await client.post(
+        f"/occurrences/{ocorrencia.id}/resolve",
+        headers=headers_for("student", sub=str(pedido.user_id)),
+        json={"resolucao": "substituir", "produto_escolhido_id": str(substituto.id)},
+    )
+
+    status_changed = [
+        payload for chave, payload in _stub_publish_event if chave == "order.status_changed"
+    ]
+    assert [p["status"] for p in status_changed] == [StatusPedido.EM_SEPARACAO.value]
+
+    historico = (
+        (
+            await db_session.execute(
+                select(PedidoStatusHistorico).where(PedidoStatusHistorico.order_id == pedido.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert StatusPedido.EM_SEPARACAO.value in [h.status for h in historico]
 
 
 async def test_concurrent_resolves_apply_the_price_delta_once(client, db_session, monkeypatch):
