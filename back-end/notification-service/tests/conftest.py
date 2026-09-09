@@ -18,6 +18,7 @@ from app.main import app
 async def test_engine() -> AsyncIterator[AsyncEngine]:
     from app.models import device_token as device_token_models  # noqa: F401
     from app.models import notificacao as notificacao_models  # noqa: F401
+    from app.models import staff as staff_models  # noqa: F401
 
     engine = create_async_engine(settings.database_url_test, echo=False, future=True)
     async with engine.begin() as conn:
