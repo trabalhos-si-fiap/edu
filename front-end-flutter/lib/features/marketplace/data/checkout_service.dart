@@ -46,6 +46,28 @@ class CheckoutService {
     return (jsonDecode(res.body) as Map<String, dynamic>)['id'] as String;
   }
 
+  /// Pede ao backend o código copia-e-cola do pedido. `null` quando não há
+  /// nada para copiar (cartão).
+  ///
+  /// O app NÃO gera mais código de pagamento. Os dois geradores mock que
+  /// viviam em `checkout_screen.dart` foram para
+  /// `commerce-service/app/services/codigos_pagamento.py`, onde o dado
+  /// nasce. Se esta chamada falhar, a tela mostra o erro — ela nunca monta o
+  /// payload por conta própria, porque isso reintroduziria o mock.
+  Future<String?> confirmPayment(String orderId) async {
+    final headers = await _headers();
+    final res = await _send(
+      () => _client.post(
+        Uri.parse('${ApiConfig.baseUrl}/orders/$orderId/confirm-payment'),
+        headers: {'Content-Type': 'application/json', ...headers},
+      ),
+      accept: const {200},
+      error: 'Falha ao emitir o código de pagamento',
+    );
+    return (jsonDecode(res.body) as Map<String, dynamic>)['payment_code']
+        as String?;
+  }
+
   Future<http.Response> _send(
     Future<http.Response> Function() request, {
     required Set<int> accept,
