@@ -81,6 +81,13 @@
       </label>
     </div>
 
+    @if (inventoryTruncated) {
+      <div class="state-message">
+        Mostrando as primeiras 2000 linhas de estoque — há mais dados do que
+        o painel carregou.
+      </div>
+    }
+
     <div class="table-scroll">
       <table>
         <thead>

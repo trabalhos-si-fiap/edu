@@ -59,6 +59,11 @@ export class ProductsStockComponent implements OnInit {
   readonly pageSize = 3;
   lowStockOnly = false;
 
+  /** `true` só quando `InventoryService.listAllInventory()` bateu no corte
+   *  de segurança (2000 linhas) antes do fim real dos dados — nesse caso a
+   *  tela avisa, em vez de fingir que viu tudo. */
+  inventoryTruncated = false;
+
   loadingTable = false;
   loadingSummary = false;
 
@@ -89,13 +94,13 @@ export class ProductsStockComponent implements OnInit {
     this.loadingTable = true;
 
     forkJoin({
-      inventory: this.inventoryService.listInventory(100, 0),
-      products: this.productService.listProducts(100, 0)
+      inventory: this.inventoryService.listAllInventory(),
+      products: this.productService.listAllProducts()
     }).subscribe({
       next: ({ inventory, products }) => {
         const productById = new Map(products.items.map(p => [p.id, p]));
 
-        this.allRows = inventory.map(item => {
+        this.allRows = inventory.items.map(item => {
           const product = productById.get(item.produto_id);
           return {
             ...item,
@@ -105,6 +110,7 @@ export class ProductsStockComponent implements OnInit {
           };
         });
 
+        this.inventoryTruncated = inventory.truncated;
         this.page = 0;
         this.applyFilters();
         this.loadingTable = false;
