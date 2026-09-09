@@ -101,3 +101,11 @@ class EstoqueNegativoError(Exception):
 
     Sufixo `Error` por N818.
     """
+
+
+class TransportadoraNotFoundError(Exception):
+    """Nenhuma transportadora com o id dado. O router traduz em 404
+    "Carrier not found".
+
+    Sufixo `Error` por N818.
+    """
