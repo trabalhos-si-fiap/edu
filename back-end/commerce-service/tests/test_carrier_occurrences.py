@@ -11,6 +11,7 @@ pelo aluno) não podem mudar de comportamento.
 """
 
 import uuid
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from edu_common.security import create_access_token
@@ -372,3 +373,97 @@ async def test_every_new_occurrence_route_requires_a_credential(client, db_sessi
             kwargs["json"] = corpo
         response = await getattr(client, metodo)(url, **kwargs)
         assert response.status_code == 403, f"{metodo} {url} sem credencial"
+
+
+# ── Fix round 1: a fronteira também vale na direção contrária ────────────
+#
+# O texto de `resolver_ocorrencia` (`POST /occurrences/{id}/resolve`) é
+# anterior a esta task e não mudou — mas o comportamento EFETIVO dele mudou
+# no instante em que a ocorrência de transportadora passou a viver na mesma
+# tabela. Sem guarda, o aluno "resolvia" (inclusive cancelando o pedido) uma
+# ocorrência que o admin abriu sobre a transportadora, e o `/close`
+# admin-only virava decoração — o reviewer reproduziu isso ao vivo contra o
+# banco de teste.
+
+# sub padrão de headers_for("student")
+_ALUNO_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
+
+
+async def _seed_pedido_do_aluno(db_session, **overrides) -> Order:
+    defaults = {
+        "user_id": _ALUNO_ID,
+        "status": StatusPedido.EM_TRANSITO.value,
+        "total": Decimal("100.00"),
+    }
+    defaults.update(overrides)
+    pedido = Order(**defaults)
+    db_session.add(pedido)
+    await db_session.commit()
+    await db_session.refresh(pedido)
+    return pedido
+
+
+async def test_student_resolve_refuses_a_carrier_occurrence(client, db_session):
+    """Achado #1 do reviewer: admin abre `DANO` no pedido do aluno; o aluno
+    chama `/resolve` com `cancelar_pedido` e, sem a guarda, o pedido ia para
+    `CANCELADO` e a ocorrência do admin virava `RESOLVIDA` por baixo dele.
+    O `cancelar_pedido` não checava `ocorrencia.tipo` nenhum."""
+    pedido = await _seed_pedido_do_aluno(db_session)
+    carrier = await _seed_carrier(db_session)
+    criada = await client.post(
+        "/occurrences/carrier",
+        json={
+            "pedido_id": str(pedido.id),
+            "transportadora_id": carrier.id,
+            "tipo": "DANO",
+            "motivo": "Caixa amassada",
+        },
+        headers=headers_for("admin"),
+    )
+    ocorrencia_id = criada.json()["id"]
+
+    resolvido = await client.post(
+        f"/occurrences/{ocorrencia_id}/resolve",
+        json={"resolucao": "cancelar_pedido"},
+        headers=headers_for("student"),
+    )
+    assert resolvido.status_code == 400
+
+    await db_session.refresh(pedido)
+    assert pedido.status == StatusPedido.EM_TRANSITO.value
+
+    ocorrencia_db = await db_session.get(Ocorrencia, ocorrencia_id)
+    assert ocorrencia_db.status == "ABERTA"
+
+
+async def test_student_resolve_refuses_accepting_a_new_date_without_one(client, db_session):
+    """Achado #2 do reviewer: `POST /occurrences/carrier` nunca preenche
+    `nova_data_sugerida` (só `POST /occurrences/delivery-delay`, do
+    entregador, preenche). Sem a guarda, `aceitar_nova_data` gravava
+    `pedido.estimated_delivery_at = None` silenciosamente — o `tipo ==
+    "ATRASO_ENTREGA"` era checado, a presença da data não."""
+    entrega_estimada = datetime(2026, 1, 1, tzinfo=UTC)
+    pedido = await _seed_pedido_do_aluno(db_session, estimated_delivery_at=entrega_estimada)
+    carrier = await _seed_carrier(db_session)
+    criada = await client.post(
+        "/occurrences/carrier",
+        json={
+            "pedido_id": str(pedido.id),
+            "transportadora_id": carrier.id,
+            "tipo": "ATRASO_ENTREGA",
+            "motivo": "Atraso da transportadora",
+        },
+        headers=headers_for("admin"),
+    )
+    ocorrencia_id = criada.json()["id"]
+    assert criada.json()["nova_data_sugerida"] is None
+
+    resolvido = await client.post(
+        f"/occurrences/{ocorrencia_id}/resolve",
+        json={"resolucao": "aceitar_nova_data"},
+        headers=headers_for("student"),
+    )
+    assert resolvido.status_code == 400
+
+    await db_session.refresh(pedido)
+    assert pedido.estimated_delivery_at == entrega_estimada

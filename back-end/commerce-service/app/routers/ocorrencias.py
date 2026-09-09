@@ -338,6 +338,18 @@ async def resolver_ocorrencia(
     if not pedido or str(pedido.user_id) != aluno_id:
         raise HTTPException(403, "Sem permissão para resolver esta ocorrência")
 
+    # Fix round 1 (reviewer, task 5): esta rota é do ALUNO e decide o
+    # destino do ITEM/pedido (substituir, remover, cancelar, aceitar nova
+    # data) — nenhuma dessas decisões é dele quando a ocorrência é de
+    # TRANSPORTADORA (aberta pelo admin, fechada por `POST
+    # /{id}/close`). Sem esta guarda o aluno "resolvia" por baixo do admin:
+    # `cancelar_pedido` não checava `ocorrencia.tipo` nenhum e cancelava o
+    # pedido, e a ocorrência do admin virava `RESOLVIDA` como efeito
+    # colateral. Mesmo 400 que as guardas de tipo abaixo já usam — não é uma
+    # convenção nova.
+    if ocorrencia.transportadora_id is not None:
+        raise HTTPException(400, "Resolução inválida para este tipo de ocorrência")
+
     resolucao = payload.resolucao
     cancelou = False
 
@@ -401,6 +413,15 @@ async def resolver_ocorrencia(
     elif resolucao == "aceitar_nova_data":
         if ocorrencia.tipo != "ATRASO_ENTREGA":
             raise HTTPException(400, "Resolução inválida para este tipo de ocorrência")
+        # Fix round 1 (reviewer, task 5): checava o `tipo`, não a presença
+        # da data. Uma ATRASO_ENTREGA sem `nova_data_sugerida` gravava
+        # `estimated_delivery_at = None` silenciosamente — reachable hoje
+        # via ocorrência de transportadora (bloqueada acima), mas a guarda
+        # fica aqui também porque não depende de carrier: qualquer
+        # ATRASO_ENTREGA sem data é, por definição, uma resolução que este
+        # endpoint não pode executar.
+        if ocorrencia.nova_data_sugerida is None:
+            raise HTTPException(400, "Esta ocorrência não tem nova data sugerida")
         pedido.estimated_delivery_at = ocorrencia.nova_data_sugerida
 
     elif resolucao == "cancelar_pedido":
