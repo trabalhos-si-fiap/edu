@@ -536,3 +536,16 @@ O dispatch que produz isso é o que diz **o que provar**, não o que ler:
 passaria com o lock removido", "prove o snapshot mudando a origem depois",
 "confirme a premissa em vez de aceitar meu raciocínio". Limite declarado que
 não é alcançado não prova nada.
+
+**Uma citação `arquivo.py:linha` num documento vivo é uma afirmação com prazo
+de validade.** A revisão desta própria task encontrou uma: o `smoke-test.md`
+apontava a task Celery de avanço automático não portada em
+`pedidos.py:155-158`, verdadeiro em `0a082ea` — mas a task 9 inseriu linhas
+mais acima em `criar_pedido`, e o comentário desceu para
+`services/pedidos.py:208-211`. A substância continuou verdadeira; só o ponteiro
+apodreceu, em silêncio, num commit que não tinha nada a ver com ele. Nenhuma
+suíte checa isso, e a asserção parece precisa justamente enquanto está errada.
+Onde a âncora puder ser um símbolo em vez de um número — o nome da função, o
+identificador citado no comentário — ela sobrevive ao refactor. Onde não puder,
+a verificação final de cada spec tem que reconferir as citações que caem em
+arquivos que a spec tocou.

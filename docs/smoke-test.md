@@ -274,7 +274,7 @@ entrega; cada um é lacuna conhecida com dono.
 | "Esqueci minha senha" não manda e-mail | O OTP é gerado, hasheado e guardado, e a resposta é sempre 200 — mas não existe provedor de e-mail configurado (`auth.py:229-231`). O remetente morreu com o monolito. | não agendado |
 | Sem notificação ao confirmar pagamento, coletar ou entregar | `admin.py` e `entrega.py` não publicam evento nenhum. Só `separacao.py` (fim da separação) e as rotas de ocorrência publicam. | spec C |
 | `order.created` e `order.occurrence_resolved` não geram nada | São publicados, mas nenhuma fila está ligada a essas routing keys. | spec C |
-| O pedido não avança sozinho | A task Celery de avanço automático do monolito não foi portada de propósito (`pedidos.py:155-158`). Todo avanço é dirigido por um perfil de staff. | spec C |
+| O pedido não avança sozinho | A task Celery de avanço automático do monolito não foi portada de propósito (`services/pedidos.py:208-211`). Todo avanço é dirigido por um perfil de staff. | spec C |
 | Meta, prazo e pontuação da home e do perfil são fixos | Valores escritos na tela, sem backend por trás. | spec D |
 | Os códigos de PIX e boleto não são pagáveis | São emitidos pelo backend (`codigos_pagamento.py`) com a **forma** de um EMV e de uma linha digitável, sem provedor de pagamento por trás. O CRC do EMV é fixo e falso. Deliberado. | ninguém — é o desenho |
 | O `web-admin` não tem suíte de teste | A spec B não criou uma (decisão D11). A verificação é `npm install && npm run build`: o build AOT faz type-check de template. Baseline: exit 0 com **três** avisos de budget SCSS. | não agendado |
