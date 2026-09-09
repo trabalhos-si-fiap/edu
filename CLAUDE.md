@@ -16,6 +16,7 @@ App educacional com Flutter (frontend) e Python + FastAPI (backend em microservi
 | **Entrega** | [docs/smoke-test.md](docs/smoke-test.md) | Roteiro manual de ponta a ponta pelos quatro perfis, com as lacunas conhecidas que nao sao bug |
 | | [docs/smoke-test-spec-b.md](docs/smoke-test-spec-b.md) | Plano de smoke test da spec B: as bordas e costuras que o roteiro de caminho feliz nao alcanca |
 | **Backend** | [docs/back-end/microservices.md](docs/back-end/microservices.md) | Arquitetura de microservicos: gateway, servicos, edu-common, como subir e testar |
+| | [docs/back-end/order-flow.md](docs/back-end/order-flow.md) | Spec C: pedido de CRIADO a ENTREGUE pelos quatro perfis — maquina de estados, carregamento/credencial do entregador, posicao (declarada como simulacao), avanco automatico, push por transicao |
 | | [docs/back-end/start-here.md](docs/back-end/start-here.md) | Documento histórico: setup e padrões do monolito, apagado na spec A |
 | | [docs/back-end/password-reset.md](docs/back-end/password-reset.md) | Documento histórico: envio de e-mail (Celery + adapter) do monolito, apagado na spec A — o OTP em si sobrevive em auth-users-service, sem envio |
 | | [docs/back-end/demo-accounts.md](docs/back-end/demo-accounts.md) | Contas fixas de apresentação, uma por papel; senha via DEMO_ACCOUNTS_PASSWORD |
