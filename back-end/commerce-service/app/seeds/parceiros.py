@@ -19,6 +19,7 @@ Rodar dentro do container do commerce-service (`make services-seed`):
     uv run python -m app.seeds.parceiros
 """
 
+from collections.abc import Awaitable, Callable
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
@@ -115,7 +116,7 @@ async def seed_parceiros(
     session: AsyncSession,
     *,
     storage: "ObjectStorage | None" = None,
-    fetch_image=_fetch_image,
+    fetch_image: Callable[[str], Awaitable[bytes]] = _fetch_image,
 ) -> dict[str, int]:
     """Cria os dois fornecedores, o catálogo da Leroy e as linhas de estoque.
 

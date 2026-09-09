@@ -101,7 +101,16 @@ async def test_the_seed_adopts_the_pre_existing_edu_catalog(db_session):
 async def test_running_in_the_other_order_gives_the_same_result(db_session):
     """`seed_parceiros` antes de `seed_products` também tem que fechar. O
     Makefile roda os dois, e a ordem entre eles não pode ser um detalhe que
-    só quem escreveu conhece."""
+    só quem escreveu conhece.
+
+    A terceira chamada, no fim, prova que a ADOÇÃO em si é idempotente: as
+    duas primeiras chamadas já cobrem "duas passadas completas" no sentido
+    do seed como um todo, mas nenhuma delas roda a adoção duas vezes — a
+    primeira não tem produto para adotar (ainda não existem), a segunda
+    adota os seis pela primeira e única vez. Sem uma terceira chamada depois
+    da adoção já ter acontecido, um bug que duplicasse a linha de estoque
+    adotada a cada repetição passaria os outros testes deste arquivo em
+    silêncio."""
     await seed_parceiros(db_session)
     await seed_products(db_session)
     await seed_parceiros(db_session)
@@ -115,6 +124,16 @@ async def test_running_in_the_other_order_gives_the_same_result(db_session):
         )
     ).scalar_one()
     assert adotados == len(SEED_PRODUCTS)
+
+    terceira = await seed_parceiros(db_session)
+    assert terceira == {"parceiros": 0, "produtos": 0, "estoques": 0}
+
+    adotados_apos_repeticao = (
+        await db_session.execute(
+            select(func.count()).select_from(Estoque).where(Estoque.fornecedor_id == edu.id)
+        )
+    ).scalar_one()
+    assert adotados_apos_repeticao == len(SEED_PRODUCTS)
 
 
 def test_no_partner_name_appears_in_a_decision_path():
