@@ -549,3 +549,15 @@ Onde a âncora puder ser um símbolo em vez de um número — o nome da função
 identificador citado no comentário — ela sobrevive ao refactor. Onde não puder,
 a verificação final de cada spec tem que reconferir as citações que caem em
 arquivos que a spec tocou.
+
+E a varredura mostrou que **não é caso isolado**: cruzando toda citação
+`arquivo.py:linha` dos documentos vivos contra
+`git diff --name-only 0a082ea..HEAD`, a deriva é **uma** no `smoke-test.md`,
+**doze** no `phase-2-debt.md` e **duas** no `commerce-parity.md` — quinze ao
+todo, de uma spec só. Ela se concentra nos documentos que **sobrevivem ao
+código que citam**: o ledger de dívida da fase 2 e o de paridade acumulam
+ponteiros que ninguém revisita, enquanto o `microservices.md`, reescrito a cada
+spec, tinha uma única citação em arquivo tocado e ela continuava certa. A
+conclusão prática não é reancorar — ponteiro reancorado apodrece de novo — é
+datar o documento inteiro de uma vez e mandar o leitor localizar por símbolo,
+que foi o que a spec B fez com o `phase-2-debt.md`.
