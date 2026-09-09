@@ -316,23 +316,22 @@ async def test_a_product_stocked_by_two_suppliers_still_resolves_to_one_row(clie
     await db_session.commit()
     await db_session.refresh(produto)
 
-    db_session.add_all(
-        [
-            Estoque(
-                produto_id=produto.id,
-                fornecedor_id=fornecedor_a.id,
-                quantidade=5,
-                estoque_minimo=1,
-            ),
-            Estoque(
-                produto_id=produto.id,
-                fornecedor_id=fornecedor_b.id,
-                quantidade=7,
-                estoque_minimo=1,
-            ),
-        ]
+    estoque_a = Estoque(
+        produto_id=produto.id,
+        fornecedor_id=fornecedor_a.id,
+        quantidade=5,
+        estoque_minimo=1,
     )
+    estoque_b = Estoque(
+        produto_id=produto.id,
+        fornecedor_id=fornecedor_b.id,
+        quantidade=7,
+        estoque_minimo=1,
+    )
+    db_session.add_all([estoque_a, estoque_b])
     await db_session.commit()
+    await db_session.refresh(estoque_a)
+    await db_session.refresh(estoque_b)
 
     response = await client.post(
         f"/products/{produto.id}/stock-adjustments",
@@ -341,3 +340,14 @@ async def test_a_product_stocked_by_two_suppliers_still_resolves_to_one_row(clie
     )
 
     assert response.status_code == 201
+    # Fix round 1, finding 3: o status 201 sozinho não prova QUAL linha se
+    # moveu — inverter `order_by(Estoque.id)` para `.desc()` também
+    # devolveria 201, só que sobre a linha do fornecedor B. `estoque_a` é a
+    # linha mais antiga (id menor), então é ela que `obter_estoque_do_produto`
+    # deve resolver.
+    assert response.json()["quantidade_anterior"] == 5
+
+    await db_session.refresh(estoque_a)
+    await db_session.refresh(estoque_b)
+    assert estoque_a.quantidade == 6
+    assert estoque_b.quantidade == 7
