@@ -509,16 +509,41 @@ async def resolver_ocorrencia(
     # outras transições (`transicionar_pedido` valida, carimba
     # `status_updated_at`, grava histórico e publica) — o caminho de
     # `cancelar_pedido` acima é a exceção documentada, não o padrão.
+    #
+    # O `try/except HTTPException` é o espelho do guard de
+    # `reportar_falta_estoque` (mesmo raciocínio, outro lado do desvio): a
+    # decisão do aluno JÁ está commitada quando esta transição roda — a
+    # ocorrência está `RESOLVIDA`, o item já foi trocado ou removido e o
+    # total já foi ajustado. Se o pedido saiu de AGUARDANDO_SUBSTITUICAO
+    # nessa janela (um cancelamento do admin, por exemplo), o funil
+    # autoritativo recusa com 400 — e deixar esse 400 virar a resposta da
+    # rota diria ao aluno que a decisão dele falhou, quando ela não falhou.
+    # Pior: a ocorrência ficaria `RESOLVIDA` e o pedido preso em
+    # AGUARDANDO_SUBSTITUICAO, sem nenhuma rota capaz de movê-lo (o próprio
+    # `resolve` recusa ocorrência que não esteja ABERTA).
     if resolucao in ("substituir", "remover_item") and (
         pedido.status == StatusPedido.AGUARDANDO_SUBSTITUICAO.value
     ):
-        await transicionar_pedido(
-            db,
-            pedido.id,
-            StatusPedido.EM_SEPARACAO.value,
-            aluno_id,
-            observacao=f"Substituição decidida na ocorrência #{ocorrencia.id}",
-        )
+        try:
+            await transicionar_pedido(
+                db,
+                pedido.id,
+                StatusPedido.EM_SEPARACAO.value,
+                aluno_id,
+                observacao=f"Substituição decidida na ocorrência #{ocorrencia.id}",
+            )
+        except HTTPException as exc:
+            if exc.status_code != 400:
+                raise
+            logger.warning(
+                "Ocorrência #{} resolvida ({}) mas o pedido {} não pôde voltar a "
+                "EM_SEPARACAO: a rota acreditava no status {} ao chamar a "
+                "transição, e o funil (autoritativo, com lock) já não concordava.",
+                ocorrencia.id,
+                resolucao,
+                pedido.id,
+                pedido.status,
+            )
 
     # Os dois publishes ficam DEPOIS do commit. Publicar antes fazia o
     # notification-service avisar "seu pedido foi cancelado" mesmo quando a

@@ -463,6 +463,43 @@ async def test_cancelling_from_the_substitution_wait_cancels_the_order(client, d
     assert pedido.status == StatusPedido.CANCELADO.value
 
 
+async def test_the_return_to_picking_still_succeeds_when_the_transition_races_and_loses(
+    client, db_session, monkeypatch
+):
+    """Espelho do guard de `reportar_falta_estoque` (commit 7e97630), do lado
+    do `resolve` — o teste que o registro de execução listava como faltando.
+
+    A transição de volta a EM_SEPARACAO roda DEPOIS do `db.commit()` que já
+    gravou `RESOLVIDA` e já aplicou a substituição. Se ela perder uma corrida
+    (o pedido saiu de AGUARDANDO_SUBSTITUICAO nessa janela — um cancelamento
+    do admin, por exemplo), sem guard o 400 viraria a resposta da rota: o
+    aluno veria um erro sobre uma decisão que JÁ foi gravada, e a ocorrência
+    ficaria `RESOLVIDA` com o pedido preso em AGUARDANDO_SUBSTITUICAO, sem
+    rota capaz de movê-lo (o `resolve` recusa ocorrência não-ABERTA).
+    """
+    pedido, ocorrencia, substituto = await _seed_pedido_aguardando_substituicao(db_session)
+
+    async def _transicao_que_perde_a_corrida(*args, **kwargs):
+        raise HTTPException(
+            400, "Transição inválida: pedido não está mais em AGUARDANDO_SUBSTITUICAO"
+        )
+
+    monkeypatch.setattr(
+        "app.routers.ocorrencias.transicionar_pedido", _transicao_que_perde_a_corrida
+    )
+
+    response = await client.post(
+        f"/occurrences/{ocorrencia.id}/resolve",
+        headers=headers_for("student", sub=str(pedido.user_id)),
+        json={"resolucao": "substituir", "produto_escolhido_id": str(substituto.id)},
+    )
+
+    assert response.status_code == 200, response.text
+    await db_session.refresh(ocorrencia)
+    assert ocorrencia.status == "RESOLVIDA"
+    assert ocorrencia.produto_escolhido_id == substituto.id
+
+
 async def test_the_return_to_picking_is_published_and_recorded(
     client, db_session, _stub_publish_event
 ):

@@ -68,6 +68,16 @@ entre `EM_SEPARACAO` e o resto do fluxo, e só é alcançável de lá:
   - `cancelar_pedido` → `AGUARDANDO_SUBSTITUICAO → CANCELADO` (transição já
     existia; esta task só a tornou alcançável a partir do novo estado).
 
+  A volta a `EM_SEPARACAO` roda **depois** do `db.commit()` que já gravou a
+  decisão, e por isso tem o **mesmo guard** que a abertura da ocorrência tem
+  do outro lado: um 400 do funil (o pedido saiu de
+  `AGUARDANDO_SUBSTITUICAO` na janela — um cancelamento do admin, por
+  exemplo) vira `logger.warning`, não a resposta da rota. Sem ele o aluno
+  veria um erro sobre uma decisão que já foi gravada, e a ocorrência ficaria
+  `RESOLVIDA` com o pedido preso em `AGUARDANDO_SUBSTITUICAO` — sem nenhuma
+  rota capaz de movê-lo, porque o próprio `resolve` recusa ocorrência que
+  não esteja `ABERTA`.
+
 **No contrato público, `AGUARDANDO_SUBSTITUICAO` resolve para `SEPARATING`** —
 o mesmo valor que `EM_SEPARACAO` e `SEPARADO`. O aluno vê o pedido "em
 separação"; a tela de resolução de ocorrência (já existente,
