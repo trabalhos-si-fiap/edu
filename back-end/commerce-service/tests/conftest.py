@@ -52,6 +52,7 @@ def _block_real_network_calls(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture(scope="session")
 async def test_engine() -> AsyncIterator[AsyncEngine]:
+    from app.models import carregamento as carregamento_models  # noqa: F401
     from app.models import carrinho as carrinho_models  # noqa: F401
     from app.models import estoque_ajuste as estoque_ajuste_models  # noqa: F401
     from app.models import ocorrencia as ocorrencia_models  # noqa: F401
