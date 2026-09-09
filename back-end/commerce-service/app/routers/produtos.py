@@ -6,15 +6,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import get_current_user, requer_papel
-from app.exceptions import EstoqueNegativoError, EstoqueNotFoundError, ProductNotFoundError
+from app.exceptions import (
+    EstoqueNegativoError,
+    EstoqueNotFoundError,
+    ParceiroNotFoundError,
+    ProductNotFoundError,
+    SkuDuplicadoError,
+)
 from app.models.produto import Product
 from app.redis_client import get_redis
 from app.schemas.estoque import AjusteEstoqueIn, EstoqueAjusteList, EstoqueAjusteOut
 from app.schemas.produto import (
     CategoryList,
     CategoryOut,
+    ProductIn,
     ProductList,
     ProductOut,
+    ProductPatch,
 )
 from app.schemas.review import ReviewIn, ReviewList, ReviewOut
 from app.services import estoque as estoque_services
@@ -61,6 +69,29 @@ async def listar_produtos(
         limit=limit,
         offset=offset,
     )
+
+
+@router.post("", response_model=ProductOut, status_code=status.HTTP_201_CREATED)
+async def criar_produto(
+    payload: ProductIn,
+    _user: dict = Depends(requer_papel("admin")),
+    db: AsyncSession = Depends(get_db),
+    storage: ObjectStorage = Depends(get_storage),
+    redis: aioredis.Redis = Depends(get_redis),
+) -> ProductOut:
+    """Cria o produto E a linha de estoque no mesmo ato — admin-only. Ver
+    app/services/produtos.py::criar_produto."""
+    try:
+        product = await services.criar_produto(db, payload)
+    except ParceiroNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Partner not found"
+        ) from exc
+    except SkuDuplicadoError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Já existe um produto com este SKU"
+        ) from exc
+    return await _product_out(product, storage=storage, redis=redis)
 
 
 @router.get("/categories", response_model=CategoryList)
@@ -141,6 +172,28 @@ async def detalhe_produto(
         product = await services.buscar_produto(db, product_id)
     except ProductNotFoundError as exc:
         raise _NOT_FOUND from exc
+    return await _product_out(product, storage=storage, redis=redis)
+
+
+@router.put("/{product_id}", response_model=ProductOut)
+async def atualizar_produto(
+    product_id: uuid.UUID,
+    payload: ProductPatch,
+    _user: dict = Depends(requer_papel("admin")),
+    db: AsyncSession = Depends(get_db),
+    storage: ObjectStorage = Depends(get_storage),
+    redis: aioredis.Redis = Depends(get_redis),
+) -> ProductOut:
+    """Edita o catálogo — admin-only. NÃO toca em estoque; quantidade só
+    muda pelo ajuste auditado. Ver app/services/produtos.py::atualizar_produto."""
+    try:
+        product = await services.atualizar_produto(db, product_id, payload)
+    except ProductNotFoundError as exc:
+        raise _NOT_FOUND from exc
+    except SkuDuplicadoError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Já existe um produto com este SKU"
+        ) from exc
     return await _product_out(product, storage=storage, redis=redis)
 
 

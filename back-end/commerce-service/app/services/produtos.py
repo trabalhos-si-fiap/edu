@@ -2,11 +2,13 @@ import uuid
 
 from loguru import logger
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.exceptions import ProductNotFoundError
-from app.models.produto import Product
+from app.exceptions import ParceiroNotFoundError, ProductNotFoundError, SkuDuplicadoError
+from app.models.produto import Estoque, Fornecedor, Product
 from app.models.review import Review
+from app.schemas.produto import ProductIn, ProductPatch
 from app.schemas.review import ReviewIn
 
 
@@ -42,6 +44,72 @@ async def buscar_produto(db: AsyncSession, product_id: uuid.UUID) -> Product:
     product = await db.get(Product, product_id)
     if product is None:
         raise ProductNotFoundError()
+    return product
+
+
+async def criar_produto(db: AsyncSession, data: ProductIn) -> Product:
+    """Cria o produto e a linha de estoque na MESMA transação.
+
+    `sku` é único por um índice PARCIAL do banco (`uq_products_sku`, `WHERE
+    sku <> ''`) — a detecção de duplicata é pelo `IntegrityError` do INSERT,
+    não por um SELECT prévio: SELECT-então-INSERT é uma corrida (regra 3 do
+    CLAUDE.md), e o índice é a única coisa que resolve duas criações
+    concorrentes do mesmo sku.
+    """
+    fornecedor = await db.get(Fornecedor, data.fornecedor_id)
+    if fornecedor is None:
+        raise ParceiroNotFoundError()
+
+    product = Product(
+        name=data.name,
+        type=data.type,
+        subtype=data.subtype,
+        description=data.description,
+        price=data.price,
+        sku=data.sku,
+        active=data.active,
+    )
+    db.add(product)
+    try:
+        # Flush, não commit: o produto e o estoque sobem na MESMA transação.
+        # Um produto sem linha de estoque quebraria a invariante da spec
+        # ("todo produto tem estoque") no intervalo entre os dois commits.
+        await db.flush()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise SkuDuplicadoError() from exc
+
+    db.add(
+        Estoque(
+            produto_id=product.id,
+            fornecedor_id=fornecedor.id,
+            quantidade=data.quantidade_inicial,
+            estoque_minimo=data.estoque_minimo,
+        )
+    )
+    await db.commit()
+    await db.refresh(product)
+    logger.info("products: produto criado id={} sku={}", product.id, product.sku)
+    return product
+
+
+async def atualizar_produto(db: AsyncSession, product_id: uuid.UUID, data: ProductPatch) -> Product:
+    """Edita o catálogo. NÃO toca em estoque — quantidade só muda pelo ajuste
+    auditado (`app/services/estoque.py`); um PUT que mexesse no saldo
+    contornaria a trilha que a task 3 existe para garantir.
+
+    Mesma detecção de duplicata de `criar_produto`: `IntegrityError` do
+    commit, não SELECT prévio.
+    """
+    product = await buscar_produto(db, product_id)  # levanta ProductNotFoundError
+    for campo, valor in data.model_dump().items():
+        setattr(product, campo, valor)
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise SkuDuplicadoError() from exc
+    await db.refresh(product)
     return product
 
 

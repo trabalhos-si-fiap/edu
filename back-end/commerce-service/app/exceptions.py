@@ -109,3 +109,17 @@ class TransportadoraNotFoundError(Exception):
 
     Sufixo `Error` por N818.
     """
+
+
+class SkuDuplicadoError(Exception):
+    """Já existe produto com este `sku`. O router traduz em 409.
+
+    A unicidade é do BANCO (índice parcial `uq_products_sku`), e o serviço a
+    detecta pelo `IntegrityError` em vez de por um SELECT prévio: um SELECT
+    seguido de INSERT é uma corrida, e o índice é a única coisa que resolve
+    duas criações simultâneas do mesmo sku. Mesmo idioma de
+    `get_or_create_cart` (`app/services/carrinho.py`) e de `criar_metodo`
+    (`app/services/pagamento.py`).
+
+    Sufixo `Error` por N818.
+    """
