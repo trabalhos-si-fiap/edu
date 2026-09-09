@@ -39,6 +39,16 @@ no painel esvazia a seção do app sem recompilar nada.
 próprios pertencem a um fornecedor chamado `Edu`, criado pelo seed como
 qualquer outro. Um `if` por nome de parceiro é proibido e testado — ver §8.
 
+**`Edu` é semeado com `ativo=False`, de propósito** (revisão final de branch,
+finding 5). Ele é o fornecedor da própria loja, não uma vitrine de parceiro:
+ativo, a seção de parceiros do app renderizava um bloco `Edu` repetindo os
+seis produtos que a grade principal já mostra, mais um bloco `Leroy`
+repetindo os outros quatro — dez produtos, vinte cards, onde a spec previa
+"uma lista de um elemento". Desativá-lo **não** tira origem de pedido nenhum:
+a origem resolve por `Estoque → Fornecedor` sem olhar `ativo`. A consequência
+para o painel está na §10 (o seletor de fornecedor pede `active=false`, que
+no backend significa "todos").
+
 ## 2. Um produto pertence a um parceiro **através do estoque**
 
 Não existe `products.fornecedor_id`. A travessia é sempre
@@ -262,6 +272,7 @@ Todas atrás do gateway em `/api/<prefixo>/...`. Sem credencial: **403**
 | `POST /partners` | admin | Cria parceiro com origem. |
 | `PUT /partners/{id}` | admin | Atualiza parceiro e origem. |
 | `GET /products?partner_id=` | autenticado | Catálogo filtrado por parceiro. Parceiro inativo/inexistente ⇒ 200 com lista vazia. |
+| `GET /products?include_inactive=true` | admin | Escotilha do painel: inclui produto com `active = false`. Papel errado ⇒ 403. |
 | `POST /products` | admin | Cria produto. Exige `fornecedor_id` — a linha de estoque nasce na mesma transação. |
 | `PUT /products/{id}` | admin | Atualiza produto. **Não** toca estoque. |
 | `POST /products/{id}/stock-adjustments` | admin | Ajuste por **delta**, com `motivo`. Grava a auditoria. |
@@ -276,6 +287,23 @@ Todas atrás do gateway em `/api/<prefixo>/...`. Sem credencial: **403**
 | `POST /occurrences/carrier` | admin | Abre ocorrência de transportadora sobre um pedido. |
 | `POST /occurrences/{id}/close` | admin | Fecha sem lógica de substituição. Sob lock de linha. |
 | `POST /orders/{id}/confirm-payment` | dono do pedido | Devolve o código de PIX/boleto. Idempotente. |
+
+Três regras valem para a superfície inteira que esta spec acrescentou, e
+foram fechadas na revisão final de branch:
+
+- **Produto inativo não aparece.** `products.active` era escrito, exibido e
+  lido por nada; `GET /products` agora filtra `active IS TRUE` no catálogo E
+  no filtro por parceiro. `include_inactive=true` é do painel e exige `admin`.
+- **Todo id inteiro é `app.ids.Int32Id`** (`ge=1, le=2_147_483_647`). Um id
+  fora da faixa chegava no asyncpg e virava `DataError` — 500 onde cabe 422.
+  A classe foi corrigida ponto a ponto três vezes e deixada aberta em nove
+  sites; o alias é o que impede a décima. Quem acrescentar rota com id
+  inteiro anota `Int32Id` e herda a faixa.
+- **`detail` exibível é em português** nas rotas que esta spec criou —
+  "Parceiro não encontrado", "Transportadora não encontrada", "Registro de
+  estoque não encontrado". É o que os dois clientes mostram a usuário
+  brasileiro, e o que `CarrinhoOrigemMistaError.MENSAGEM` já fazia. Rotas
+  herdadas não foram varridas (§10).
 
 `SkuDuplicadoError` ⇒ **409**. `products.sku` tem índice único **parcial**
 (`WHERE sku <> ''`): dois produtos com `sku` vazio são legais, e só `sku`
@@ -310,6 +338,23 @@ Nenhuma é regressão desta entrega; cada uma foi medida e deixada de propósito
   da spec B é a única desta cadeia com prova de aplicação registrada
   (`upgrade` do zero, `alembic current`, `\d` das sete tabelas e round-trip de
   `downgrade -1`, contra `commerce_test`).
+- **Os produtos da Leroy continuam na grade principal do app.**
+  `GET /products` sem filtro devolve o catálogo inteiro, `Edu` e Leroy
+  juntos, e a seção de parceiros mostra os da Leroy uma segunda vez logo
+  abaixo. Semear `Edu` inativo tirou a duplicação de BLOCO (a seção agora tem
+  um elemento só, como a spec previa); se a grade principal deveria ou não
+  se restringir ao catálogo próprio é outra pergunta, e ela fica em aberto —
+  decisão explícita, não esquecimento.
+- **Produto inativo continua adicionável ao carrinho e comprável.** O filtro
+  de `active` está na LISTAGEM (`listar_produtos`); `POST /cart/items` e
+  `POST /orders` resolvem o produto por id e não consultam a coluna. Quem
+  tiver o id de um produto recém-desativado — ou um carrinho montado antes da
+  desativação — ainda fecha o pedido. Fechar isso é regra de negócio a mais
+  (o que fazer com o carrinho de quem já tinha o item?), não uma linha.
+- **As rotas anteriores à spec B continuam respondendo em inglês.**
+  `GET /products/{id}` e `POST /cart/items` devolvem `"Product not found"`.
+  Só a superfície nova foi alinhada para o português; varrer o herdado é uma
+  mudança maior do que esta rodada de correção deveria carregar.
 - **Um `DeprecationWarning` do Starlette** aparece na suíte do commerce:
   `HTTP_422_UNPROCESSABLE_ENTITY` foi renomeado para
   `HTTP_422_UNPROCESSABLE_CONTENT`. É a biblioteca, não o código do projeto.
@@ -324,8 +369,10 @@ Nenhuma é regressão desta entrega; cada uma foi medida e deixada de propósito
   `/occurrences` travam `limit` em 100. O painel pagina até vir uma página
   curta, então as **telas** enxergam tudo. Mas três consumidores carregam uma
   página só e truncam a partir de 100 registros:
-  - o seletor de parceiro do formulário de produto (`listPartners(true, 100, 0)`)
-    — além de 100 parceiros ativos, alguns ficam impossíveis de escolher;
+  - o seletor de parceiro do formulário de produto (`listPartners(false, 100, 0)`
+    — `false` é "todos", porque o fornecedor da própria loja é um parceiro
+    inativo e o admin precisa poder escolhê-lo) — além de 100 parceiros,
+    alguns ficam impossíveis de escolher;
   - a exportação CSV de transportadoras (`getAllCarriers()`);
   - o filtro por transportadora da tela de ocorrências (`getAllCarriers()`).
 - **O aviso de truncamento do estoque tem um falso positivo.** O painel pagina
@@ -340,7 +387,9 @@ Nenhuma é regressão desta entrega; cada uma foi medida e deixada de propósito
   `carrier_id`.
 - **"PARCEIROS ATIVOS" e "TRANSPORTADORAS ATIVAS" do dashboard são totais
   atuais**, exibidos sob um cabeçalho que diz "(últimos N dias)". Os números
-  estão certos; o rótulo acima deles é que não se aplica a eles.
+  estão certos; o rótulo acima deles é que não se aplica a eles. Com o seed
+  atual, "PARCEIROS ATIVOS" mostra **1** — `Edu` é parceiro inativo (§1), e
+  o tile conta vitrines.
 - **O dashboard perdeu o bloco educacional, o gráfico de atividade e três
   mini-painéis**, porque não existe rota `/dashboard` — ele é construído a
   partir de `GET /analytics/executive-summary?dias=30` mais os dois `total`

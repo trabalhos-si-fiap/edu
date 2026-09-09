@@ -43,7 +43,10 @@ nomeados de antemão, os defeitos que as tasks anteriores tinham custado caro.
 ## Medição final
 
 Medida do zero em 2026-09-09, depois do último commit de código, serviço a
-serviço. **Nenhum número foi copiado de documento anterior.** O bloco de
+serviço. **Números de `2a6c236`**, o HEAD da branch quando a task 14 fechou;
+a rodada de correção da revisão final de branch levou o commerce de 491 a
+**513** e não moveu mais nada — ver "O que a revisão de branch inteira pegou".
+ **Nenhum número foi copiado de documento anterior.** O bloco de
 baselines do plano tinha dois erros, e os dois estão corrigidos aqui: o
 `flutter analyze` era **7** avisos `info`, não 6 (ver a decisão 16), e o plano
 diz "os outros **cinco** serviços" antes de listar **seis**. Nenhum dos dois
@@ -431,6 +434,79 @@ integração do plano e a única task sem suíte de teste — o review era o gat
 forte que aquele código ia receber. O revisor conferiu cada interface declarada
 **campo a campo** contra o schema Pydantic, que é exatamente o que o build AOT
 não pega: um tipo declarado errado compila feliz.
+
+---
+
+## O que a revisão de branch inteira pegou, e as catorze de task não
+
+Catorze tasks, cada uma revisada por um subagente dedicado, oito delas com
+rodada de correção. Depois disso, **uma revisão da branch inteira como um só
+objeto** achou mais oito defeitos, três altos. Nenhum deles era invisível por
+descuido do revisor da task: os oito são propriedades de PARES de tasks, e uma
+revisão escopada a um diff não pode enxergá-las por construção. Este é o
+argumento mais forte deste registro para a próxima spec — a revisão final não
+é uma formalidade de fechamento, é a única que olha para o produto.
+
+### A forma dos oito
+
+| # | Sev | O defeito | Por que a revisão da task não podia vê-lo |
+|---|---|---|---|
+| 1 | alta | `scalar_one_or_none()` sobre `(pedido_id, status='ABERTA')` em `PATCH /picking/{id}/finish`: duas ocorrências abertas ⇒ `MultipleResultsFound` ⇒ 500 | **Nenhuma task editou `separacao.py`.** A task 5 só acrescentou um TERCEIRO produtor de linha `ABERTA` — o defeito nasceu num arquivo com diff vazio |
+| 2 | média-alta | Ocorrência de transportadora travava a separação, com mensagem mandando esperar decisão do aluno | O guard é da fase 2; o que o tornou impossível de satisfazer foi o fix round da task 5, noutro arquivo |
+| 3 | alta | `POST /orders/{id}/rebuy` não capturava o `CarrinhoOrigemMistaError` da task 8 ⇒ 500 | A task 8 revisou `carrinho.py` e o seu único chamador visível; o segundo chamador estava em `pedidos.py`, escrito numa spec anterior |
+| 4 | média | Overflow de int32 corrigido em três sites e aberto em oito (nove, medido ao corrigir) | Cada task corrigiu **o seu** site e passou. Ninguém tinha o mapa dos dez |
+| 5 | média | `Edu` semeado ativo ⇒ o app mostra todo produto duas vezes | Costura entre a task 11 (seed) e a task 12 (a seção de parceiros do app). Nenhuma das duas vê a tela montada |
+| 6 | média | `products.active` escrito pela task 6, exibido pelo painel da task 13, lido por nada | Três tasks tocaram as três pontas; nenhuma possuía a quarta |
+| 7 | baixa-média | O painel descartava todo `detail` do backend, contradizendo a ruling 17 desta própria branch | A ruling 17 foi decidida para o cliente Flutter (task 12); o painel é a task 13 |
+| 8 | baixa | Idioma das mensagens dividido entre rotas novas — duas portas do mesmo núcleo de estoque, e duas linhas a quatro de distância | Cada arquivo é internamente coerente. A incoerência só existe entre arquivos |
+
+### A causa-raiz que explica por que 491 testes passaram por cima
+
+Os três findings altos compartilham uma causa, e ela não é falta de teste — é
+**um estado de fixture que a produção não tem**. `grep -c Estoque` devolve
+**zero** nos três arquivos de paridade de carrinho, pedido e produto: a suíte
+herdada monta carrinho e pedido a partir de produtos **sem linha de estoque**,
+porque quando ela foi portada `Estoque` ainda não participava do fluxo. O seed
+da spec B torna esse estado impossível em produção — todo produto tem estoque —
+e é exatamente através do estoque que passam a regra de origem única, a
+resolução de fornecedor e a origem do pedido. Meia suíte exercitava um mundo
+que a outra metade tinha acabado de eliminar.
+
+**Foi decisão explícita não retrofitar estoque nas fixtures de paridade.** Elas
+são o registro portado da paridade com o legado, são grandes, e dar estoque a
+elas mexeria em dezenas de asserções para comprar uma cobertura que testes
+dirigidos compram por uma fração do risco. Os testes desta rodada são
+dirigidos: montam produto **com** estoque, no arquivo que já possui a regra. A
+lacuna nas fixtures de paridade fica, conhecida e escrita — que é diferente de
+esquecida.
+
+### O que fazer diferente na próxima spec
+
+- **Uma classe de defeito rastreada não termina quando a task acaba.** O
+  `LIMIT 1` sem `ORDER BY` reincidiu em quatro tasks e o `scalar_one_or_none()`
+  numa quinta, num arquivo que ninguém abriu. O int32 foi corrigido três vezes
+  e deixado aberto em nove. O remédio que funcionou nos dois casos foi o mesmo:
+  **varrer a classe inteira de uma vez**, e onde o conceito é literalmente o
+  mesmo em todo lugar, dar-lhe um nome (`app.ids.Int32Id`). É a única
+  abstração desta branch que se justifica — não porque é elegante, mas porque
+  o mesmo erro já foi cometido nove vezes e um tipo com nome é o que impede o
+  décimo.
+- **Toda coluna nova precisa de um leitor nomeado.** `products.active` foi
+  escrita, persistida, exibida e nunca lida. A pergunta "quem LÊ isto, e o que
+  muda quando o valor muda?" cabe no brief da task que cria a coluna e teria
+  pego o finding 6 catorze tasks antes.
+- **Um princípio decidido para um cliente vale para os dois.** A ruling 17
+  ("o servidor é dono da sentença") foi aplicada ao Flutter e não ao painel,
+  que foi escrito depois. Decisão de produto registrada num ledger não se
+  propaga sozinha para a próxima task.
+- **Quem escreve dado de seed tem que descrever a tela que ele produz.** O
+  finding 5 é um `ativo=True` de uma linha, e o efeito é a loja inteira
+  duplicada. A task do seed nunca abriu o app.
+- **Estado de fixture é premissa, e premissa envelhece.** Quando uma spec
+  torna um estado impossível em produção, toda suíte que ainda o constrói
+  passou a testar outro sistema. Vale medir isso de propósito — um
+  `grep -c` pelo model novo nos arquivos de teste antigos é barato e teria
+  apontado os três findings altos de uma vez.
 
 ---
 
