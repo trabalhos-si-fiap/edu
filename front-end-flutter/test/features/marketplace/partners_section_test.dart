@@ -45,6 +45,24 @@ void main() {
     expect(find.text('Luminária de mesa'), findsOneWidget);
   });
 
+  testWidgets(
+      'an active partner with zero products shows only the header, no strip '
+      'and no error', (tester) async {
+    await _montar(
+      tester,
+      const PartnersSection(
+        state: PartnersViewState.success,
+        partners: [Partner(id: 2, name: 'Leroy Merlin', active: true, originLabel: 'Cajamar, SP')],
+        productsByPartner: {},
+      ),
+    );
+    expect(find.text('Parceiros'), findsOneWidget);
+    expect(find.text('Leroy Merlin'), findsOneWidget);
+    expect(find.text('Cajamar, SP'), findsOneWidget);
+    expect(find.text('Luminária de mesa'), findsNothing);
+    expect(find.byType(ListView), findsNothing);
+  });
+
   testWidgets('on a network error it shows the message and a retry',
       (tester) async {
     var tentativas = 0;

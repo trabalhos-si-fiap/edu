@@ -55,6 +55,24 @@ void main() {
     expect(provider.productsByPartner[2], hasLength(1));
   });
 
+  test(
+      'one active partner with zero products for it still succeeds, with an '
+      'empty catalog', () async {
+    // Exatamente o que o backend devolve para um parceiro inativo ou
+    // recém-esvaziado: 200 com items=[], nunca 404 (task 12 brief). O
+    // provider não deve tratar isso como erro.
+    final provider = PartnersProvider(
+      service: _FakePartnerService(
+        partners: const [Partner(id: 2, name: 'Leroy Merlin', active: true, originLabel: 'Cajamar, SP')],
+      ),
+    );
+    await provider.load();
+    expect(provider.state, PartnersViewState.success);
+    expect(provider.partners, hasLength(1));
+    expect(provider.productsByPartner[2], isEmpty);
+    expect(provider.errorMessage, isNull);
+  });
+
   test('a network error lands in the error state with a message', () async {
     final provider = PartnersProvider(
       service: _FakePartnerService(error: 'Não foi possível conectar ao servidor'),
