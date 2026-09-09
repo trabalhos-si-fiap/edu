@@ -5,6 +5,7 @@ from edu_common.security import create_access_token
 from sqlalchemy import insert
 
 from app.config import settings
+from app.models.ocorrencia import Ocorrencia
 from app.models.pedido import Order
 from app.services.status_pedido import StatusPedido
 
@@ -185,3 +186,49 @@ async def test_old_portuguese_finalizar_path_is_gone(client, db_session):
         f"/separacao/{pedido.id}/finalizar", headers=headers_for("separador", sub=PICKER_A)
     )
     assert response.status_code == 404
+
+
+# ── Revisão final de branch, finding 1 ─────────────────────────────────────
+#
+# A suíte herdada nunca pôs DUAS ocorrências abertas no mesmo pedido, e a
+# task 5 acrescentou um TERCEIRO produtor independente de linha `ABERTA`
+# (`POST /occurrences/carrier`). O smoke test documentado alcança o estado:
+# etapa 6 abre uma ocorrência de falta de estoque, etapa 7 abre uma de
+# transportadora no MESMO pedido.
+
+
+async def _abrir_ocorrencia(
+    db_session,
+    pedido: Order,
+    *,
+    tipo: str = "FALTA_ESTOQUE",
+    transportadora_id: int | None = None,
+) -> Ocorrencia:
+    ocorrencia = Ocorrencia(
+        pedido_id=pedido.id,
+        tipo=tipo,
+        status="ABERTA",
+        motivo="ocorrência de teste",
+        criado_por=uuid.UUID(int=1),
+        transportadora_id=transportadora_id,
+    )
+    db_session.add(ocorrencia)
+    await db_session.commit()
+    await db_session.refresh(ocorrencia)
+    return ocorrencia
+
+
+async def test_finish_with_two_open_student_occurrences_answers_400_not_500(client, db_session):
+    """Finding 1: o filtro `(pedido_id, status='ABERTA')` NÃO é único, e
+    `scalar_one_or_none()` sobre ele levanta `MultipleResultsFound` — 500 sem
+    handler para o separador, num estado que o seed torna alcançável."""
+    pedido = await _seed_pedido_em_separacao(db_session, separador_id=PICKER_A)
+    await _abrir_ocorrencia(db_session, pedido)
+    await _abrir_ocorrencia(db_session, pedido, tipo="ATRASO_ENTREGA")
+
+    response = await client.patch(
+        f"/picking/{pedido.id}/finish", headers=headers_for("separador", sub=PICKER_A)
+    )
+
+    assert response.status_code == 400
+    assert "aguardando decisão do aluno" in response.json()["detail"]

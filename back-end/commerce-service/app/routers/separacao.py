@@ -237,10 +237,22 @@ async def finalizar_separacao(
     if str(pedido.picker_id) != user["sub"]:
         raise HTTPException(403, "Apenas o separador responsável por este pedido pode finalizá-lo")
 
+    # `select(...).limit(1)` + `.scalars().first()`, NÃO `scalar_one_or_none()`:
+    # o filtro `(pedido_id, status='ABERTA')` não é único — um pedido pode ter
+    # mais de uma ocorrência aberta, e desde a spec B há TRÊS produtores
+    # independentes de linha `ABERTA` (`/stock-shortage`, `/delivery-delay` e
+    # `/occurrences/carrier`). Com `scalar_one_or_none()` a segunda ocorrência
+    # levantava `MultipleResultsFound` — 500 sem handler para o separador, em
+    # vez do 400 que a regra manda. Mesma forma já usada em
+    # `services/estoque.py::obter_estoque_do_produto` e
+    # `services/carrinho.py::_fornecedor_do_produto`. Só a EXISTÊNCIA importa
+    # aqui, então basta o id da primeira linha.
     ocorrencia_result = await db.execute(
-        select(Ocorrencia).where(Ocorrencia.pedido_id == pedido_id, Ocorrencia.status == "ABERTA")
+        select(Ocorrencia.id)
+        .where(Ocorrencia.pedido_id == pedido_id, Ocorrencia.status == "ABERTA")
+        .limit(1)
     )
-    if ocorrencia_result.scalar_one_or_none():
+    if ocorrencia_result.scalars().first() is not None:
         raise HTTPException(
             400,
             "Existe uma ocorrência aberta aguardando decisão do aluno. "
