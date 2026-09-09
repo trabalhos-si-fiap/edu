@@ -7,6 +7,7 @@ from sqlalchemy import insert
 from app.config import settings
 from app.models.ocorrencia import Ocorrencia
 from app.models.pedido import Order
+from app.models.transportadora import Carrier
 from app.services.status_pedido import StatusPedido
 
 # Precisa bater com CANDIDATOS_FILA_MAXIMO em app/routers/separacao.py — mas
@@ -188,7 +189,7 @@ async def test_old_portuguese_finalizar_path_is_gone(client, db_session):
     assert response.status_code == 404
 
 
-# ── Revisão final de branch, finding 1 ─────────────────────────────────────
+# ── Revisão final de branch, findings 1 e 2 ────────────────────────────────
 #
 # A suíte herdada nunca pôs DUAS ocorrências abertas no mesmo pedido, e a
 # task 5 acrescentou um TERCEIRO produtor independente de linha `ABERTA`
@@ -218,6 +219,22 @@ async def _abrir_ocorrencia(
     return ocorrencia
 
 
+async def _seed_carrier(db_session) -> Carrier:
+    carrier = Carrier(
+        name="Rápido Cajamar",
+        location="Cajamar, SP",
+        email="ops@example.com",
+        average_delivery_days=3,
+        rating=Decimal("4.5"),
+        sla_percentage=Decimal("98.50"),
+        status="ACTIVE",
+    )
+    db_session.add(carrier)
+    await db_session.commit()
+    await db_session.refresh(carrier)
+    return carrier
+
+
 async def test_finish_with_two_open_student_occurrences_answers_400_not_500(client, db_session):
     """Finding 1: o filtro `(pedido_id, status='ABERTA')` NÃO é único, e
     `scalar_one_or_none()` sobre ele levanta `MultipleResultsFound` — 500 sem
@@ -225,6 +242,37 @@ async def test_finish_with_two_open_student_occurrences_answers_400_not_500(clie
     pedido = await _seed_pedido_em_separacao(db_session, separador_id=PICKER_A)
     await _abrir_ocorrencia(db_session, pedido)
     await _abrir_ocorrencia(db_session, pedido, tipo="ATRASO_ENTREGA")
+
+    response = await client.patch(
+        f"/picking/{pedido.id}/finish", headers=headers_for("separador", sub=PICKER_A)
+    )
+
+    assert response.status_code == 400
+    assert "aguardando decisão do aluno" in response.json()["detail"]
+
+
+async def test_a_carrier_occurrence_does_not_hold_the_picking_queue(client, db_session):
+    """Finding 2: o aluno NÃO pode resolver ocorrência de transportadora — o
+    guard de `ocorrencias.py` a recusa por construção. Bloquear a separação
+    nela deixava o pedido travado até um admin chamar `/close`, com uma
+    mensagem mandando esperar por uma decisão que não pode acontecer."""
+    carrier = await _seed_carrier(db_session)
+    pedido = await _seed_pedido_em_separacao(db_session, separador_id=PICKER_A)
+    await _abrir_ocorrencia(db_session, pedido, tipo="DANO", transportadora_id=carrier.id)
+
+    response = await client.patch(
+        f"/picking/{pedido.id}/finish", headers=headers_for("separador", sub=PICKER_A)
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == StatusPedido.AGUARDANDO_COLETA.value
+
+
+async def test_a_student_facing_occurrence_still_blocks_the_picker(client, db_session):
+    """A outra metade do finding 2: escopar o guard não pode afrouxá-lo para
+    a ocorrência que o aluno REALMENTE decide."""
+    pedido = await _seed_pedido_em_separacao(db_session, separador_id=PICKER_A)
+    await _abrir_ocorrencia(db_session, pedido)
 
     response = await client.patch(
         f"/picking/{pedido.id}/finish", headers=headers_for("separador", sub=PICKER_A)

@@ -247,9 +247,22 @@ async def finalizar_separacao(
     # `services/estoque.py::obter_estoque_do_produto` e
     # `services/carrinho.py::_fornecedor_do_produto`. Só a EXISTÊNCIA importa
     # aqui, então basta o id da primeira linha.
+    #
+    # `transportadora_id IS NULL` escopa o guard ao que a mensagem promete:
+    # o separador espera SÓ por decisão que o aluno pode tomar. Ocorrência de
+    # transportadora o aluno não resolve — `POST /occurrences/{id}/resolve`
+    # a recusa por construção (`app/routers/ocorrencias.py`, guard da task 5)
+    # —, então bloquear a separação nela prendia o pedido até um admin chamar
+    # `POST /occurrences/{id}/close`, mandando o separador aguardar por algo
+    # estruturalmente impossível. Ocorrência de transportadora é assunto da
+    # administração e não segura a fila de separação.
     ocorrencia_result = await db.execute(
         select(Ocorrencia.id)
-        .where(Ocorrencia.pedido_id == pedido_id, Ocorrencia.status == "ABERTA")
+        .where(
+            Ocorrencia.pedido_id == pedido_id,
+            Ocorrencia.status == "ABERTA",
+            Ocorrencia.transportadora_id.is_(None),
+        )
         .limit(1)
     )
     if ocorrencia_result.scalars().first() is not None:
