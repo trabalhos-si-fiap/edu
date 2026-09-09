@@ -74,6 +74,40 @@ async def test_registrar_posicao_is_the_write_door_and_needs_no_simulator(
     assert gravadas[0].lat == Decimal("-23.400000")
 
 
+async def test_the_write_door_quantizes_the_coordinates_it_is_given(
+    db_session, seed_carregamento, monkeypatch
+):
+    """A quantização é garantia da PORTA, não de quem chama.
+
+    O simulador já quantizava por conta própria — mas o propósito declarado
+    de `registrar_posicao` é que um chamador futuro (um aparelho com GPS,
+    mandando as sete ou oito casas que o hardware produz) herde as garantias
+    sem repeti-las.
+
+    A asserção é sobre o objeto no momento do `db.add`, e NÃO sobre o valor
+    lido de volta, de propósito: o Postgres arredonda sozinho ao gravar numa
+    coluna `Numeric(9, 6)`, então o ida-e-volta esconde exatamente a
+    diferença que este teste existe para pegar. O que se quer travar é que a
+    função entrega um valor já na precisão da coluna — e não que o banco
+    conserte depois.
+    """
+    carregamento = await seed_carregamento()
+    adicionados = []
+    add_original = db_session.add
+
+    def _espiar(obj):
+        adicionados.append((obj.lat, obj.lng))
+        add_original(obj)
+
+    monkeypatch.setattr(db_session, "add", _espiar)
+
+    await registrar_posicao(
+        db_session, carregamento.id, Decimal("-23.4000004999"), Decimal("-46.8000001")
+    )
+
+    assert adicionados == [(Decimal("-23.400000"), Decimal("-46.800000"))]
+
+
 async def test_positions_accumulate_as_a_path(db_session, seed_carregamento):
     """Série temporal, não campo único: o mapa desenha o caminho."""
     carregamento = await seed_carregamento()

@@ -30,8 +30,22 @@ _CASAS = Decimal("0.000001")
 async def registrar_posicao(
     db: AsyncSession, carregamento_id: int, lat: Decimal, lng: Decimal
 ) -> None:
-    """A ÚNICA porta de escrita de posição. Um GPS real seria outro chamador."""
-    db.add(PosicaoEntrega(carregamento_id=carregamento_id, lat=lat, lng=lng))
+    """A ÚNICA porta de escrita de posição. Um GPS real seria outro chamador.
+
+    Quantiza aqui dentro, e não só no simulador: o propósito declarado desta
+    função é que um chamador futuro (um aparelho mandando as sete ou oito
+    casas que o hardware produz) HERDE as garantias em vez de repeti-las. O
+    Postgres arredondaria de qualquer forma ao gravar em `Numeric(9, 6)` —
+    mas então o objeto em memória e a coluna discordariam até a próxima
+    leitura, e quem chamasse acreditaria ter gravado o que mandou.
+    """
+    db.add(
+        PosicaoEntrega(
+            carregamento_id=carregamento_id,
+            lat=lat.quantize(_CASAS),
+            lng=lng.quantize(_CASAS),
+        )
+    )
     await db.commit()
 
 
