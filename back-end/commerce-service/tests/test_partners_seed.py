@@ -8,11 +8,29 @@ que os contém sai sem origem. Aqui eles passam a pertencer ao fornecedor
 "Edu", com origem Aclimação/SP.
 """
 
+import uuid
+
+from edu_common.security import create_access_token
 from sqlalchemy import func, select
 
+from app.config import settings
+from app.models.pedido import Order
 from app.models.produto import Estoque, Fornecedor, Product
 from app.seeds.parceiros import FORNECEDOR_EDU, FORNECEDOR_LEROY, seed_parceiros
 from app.seeds.products import SEED_PRODUCTS, seed_products
+
+_ALUNO = "00000000-0000-0000-0000-0000000000dd"
+_ADMIN = "00000000-0000-0000-0000-0000000000a9"
+
+
+def _headers_admin() -> dict[str, str]:
+    return {"Authorization": f"Bearer {create_access_token(_ADMIN, 'admin', settings.jwt_secret)}"}
+
+
+def _headers_aluno() -> dict[str, str]:
+    return {
+        "Authorization": f"Bearer {create_access_token(_ALUNO, 'student', settings.jwt_secret)}"
+    }
 
 
 async def test_the_seed_creates_both_suppliers_with_their_origins(db_session):
@@ -157,3 +175,73 @@ def test_no_partner_name_appears_in_a_decision_path():
         if "leroy" in texto:
             ofensores.append(str(arquivo.relative_to(raiz.parent)))
     assert ofensores == []
+
+
+# ── Revisão final de branch, finding 5 ─────────────────────────────────────
+#
+# `Edu` semeado como parceiro ATIVO fazia o app mostrar todo produto duas
+# vezes: a seção de parceiros renderizava um bloco `Edu` repetindo os seis
+# produtos que a grade principal já mostra, mais um bloco `Leroy` repetindo os
+# outros quatro. A spec previa "uma lista de UM elemento, a Leroy Merlin".
+#
+# `Edu` é o fornecedor da própria loja, não uma vitrine de parceiro. Semeá-lo
+# INATIVO é a descrição honesta disso — e não afrouxa nada: a origem do pedido
+# resolve por `Estoque -> Fornecedor` sem olhar `ativo`.
+
+
+async def test_the_stores_own_supplier_is_seeded_inactive(db_session):
+    await seed_parceiros(db_session)
+
+    fornecedores = {
+        f.nome: f for f in (await db_session.execute(select(Fornecedor))).scalars().all()
+    }
+    assert fornecedores[FORNECEDOR_EDU["nome"]].ativo is False
+    assert fornecedores[FORNECEDOR_LEROY["nome"]].ativo is True
+
+
+async def test_the_partners_section_lists_exactly_one_storefront(client, db_session):
+    """O que o app pede: `GET /partners?active=true`."""
+    await seed_parceiros(db_session)
+
+    response = await client.get("/partners?active=true", headers=_headers_admin())
+
+    assert response.status_code == 200
+    corpo = response.json()
+    assert corpo["total"] == 1
+    assert [p["nome"] for p in corpo["items"]] == [FORNECEDOR_LEROY["nome"]]
+
+
+async def test_an_inactive_edu_still_anchors_the_shipping_origin(client, db_session):
+    """A metade que não pode quebrar: `Edu` inativo continua sendo a origem
+    de expedição dos produtos próprios. `criar_pedido_do_carrinho` resolve por
+    `Estoque -> Fornecedor`, sem filtro de `ativo`."""
+    await seed_products(db_session)
+    await seed_parceiros(db_session)
+
+    edu = (
+        await db_session.execute(
+            select(Fornecedor).where(Fornecedor.nome == FORNECEDOR_EDU["nome"])
+        )
+    ).scalar_one()
+    produto_id = (
+        (
+            await db_session.execute(
+                select(Estoque.produto_id).where(Estoque.fornecedor_id == edu.id)
+            )
+        )
+        .scalars()
+        .first()
+    )
+
+    await client.post(
+        "/cart/items", json={"product_id": str(produto_id), "quantity": 1}, headers=_headers_aluno()
+    )
+    response = await client.post(
+        "/orders", json={"payment_method": "PIX"}, headers=_headers_aluno()
+    )
+
+    assert response.status_code == 201
+    pedido = (
+        await db_session.execute(select(Order).where(Order.id == uuid.UUID(response.json()["id"])))
+    ).scalar_one()
+    assert pedido.origem_rotulo == FORNECEDOR_EDU["origem_rotulo"]

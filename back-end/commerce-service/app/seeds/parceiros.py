@@ -39,12 +39,25 @@ if TYPE_CHECKING:
 # seed liam "não existe" ao mesmo tempo e inseriam as duas.
 _SEED_LOCK_ID = 0x5EED_B_0001
 
+# `ativo=False`: `Edu` é o fornecedor da PRÓPRIA loja, não uma vitrine de
+# parceiro. Ele existe para ancorar a invariante de origem — todo produto tem
+# estoque, todo estoque tem fornecedor, todo fornecedor tem origem — e a
+# origem do pedido resolve por `Estoque -> Fornecedor` sem olhar `ativo`
+# (`app/services/pedidos.py::criar_pedido_do_carrinho`), então desativá-lo não
+# tira origem de pedido nenhum.
+#
+# Ativo, ele fazia o app mostrar todo produto DUAS vezes: a grade principal
+# (`GET /products`, sem filtro) já traz o catálogo inteiro, e a seção de
+# parceiros renderizava um bloco `Edu` repetindo os seis produtos próprios
+# mais um bloco `Leroy` repetindo os outros quatro. A spec previa "uma lista
+# de um elemento, a Leroy Merlin".
 FORNECEDOR_EDU = {
     "nome": "Edu",
     "contato": "logistica@edu.example.com",
     "origem_rotulo": "Aclimação, SP",
     "origem_lat": Decimal("-23.573000"),
     "origem_lng": Decimal("-46.630000"),
+    "ativo": False,
 }
 
 FORNECEDOR_LEROY = {
@@ -53,6 +66,7 @@ FORNECEDOR_LEROY = {
     "origem_rotulo": "Cajamar, SP",
     "origem_lat": Decimal("-23.355800"),
     "origem_lng": Decimal("-46.876400"),
+    "ativo": True,
 }
 
 SEED_PARCEIROS: list[dict] = [FORNECEDOR_EDU, FORNECEDOR_LEROY]
@@ -139,7 +153,8 @@ async def seed_parceiros(
     for dados in SEED_PARCEIROS:
         if dados["nome"] in existentes:
             continue
-        fornecedor = Fornecedor(**dados, ativo=True)
+        # `ativo` vem do próprio dicionário — ver FORNECEDOR_EDU.
+        fornecedor = Fornecedor(**dados)
         session.add(fornecedor)
         existentes[dados["nome"]] = fornecedor
         inseridos["parceiros"] += 1
