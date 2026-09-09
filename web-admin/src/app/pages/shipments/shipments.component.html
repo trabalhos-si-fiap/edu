@@ -1,0 +1,248 @@
+<section class="shipments-page">
+  <div class="page-header">
+    <div>
+      <h1>Carregamentos</h1>
+      <p>Abra carregamentos por transportadora e atribua pedidos à rota.</p>
+    </div>
+
+    <button
+      class="new-shipment-button"
+      type="button"
+      (click)="openCreateModal()"
+    >
+      <span>＋</span>
+      Novo Carregamento
+    </button>
+  </div>
+
+  <article class="directory-card">
+    <div class="directory-header">
+      <h2>Carregamentos Abertos</h2>
+    </div>
+
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>CÓDIGO</th>
+            <th>TRANSPORTADORA</th>
+            <th>ORIGEM</th>
+            <th>RETIRADA</th>
+            <th>CRIADO EM</th>
+            <th>AÇÕES</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          @if (loading) {
+            <tr>
+              <td colspan="6" class="state-cell">Carregando...</td>
+            </tr>
+          } @else if (pageData?.items?.length) {
+            @for (shipment of pageData!.items; track shipment.id) {
+              <tr>
+                <td><strong>{{ shipment.codigo }}</strong></td>
+                <td>{{ carrierName(shipment) }}</td>
+                <td>{{ shipment.origem_rotulo }}</td>
+
+                <td>
+                  @if (shipment.aberto_em) {
+                    <span class="status-badge picked-up">Retirado</span>
+                    <span class="muted">
+                      {{ shipment.entregador_nome ?? '—' }} ·
+                      {{ formatDate(shipment.aberto_em) }}
+                    </span>
+                  } @else {
+                    <span class="status-badge">Aguardando retirada</span>
+                  }
+                </td>
+
+                <td>{{ formatDate(shipment.criado_em) }}</td>
+
+                <td>
+                  <button
+                    class="outline-button"
+                    type="button"
+                    (click)="openAssign(shipment)"
+                  >
+                    Atribuir pedido
+                  </button>
+                </td>
+              </tr>
+            }
+          } @else {
+            <tr>
+              <td colspan="6" class="state-cell">
+                Nenhum carregamento encontrado.
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <footer class="directory-footer">
+      <p>
+        Mostrando {{ startResult }} a {{ endResult }}
+        de {{ pageData?.total ?? 0 }} carregamentos
+      </p>
+
+      <div class="pager">
+        <button type="button" [disabled]="page === 0" (click)="previous()">
+          ‹
+        </button>
+        <button type="button" [disabled]="!hasNext" (click)="next()">
+          ›
+        </button>
+      </div>
+    </footer>
+  </article>
+</section>
+
+@if (showCreateModal) {
+  <div class="backdrop" (mousedown)="onCreateBackdrop($event)">
+    <section class="modal" role="dialog" aria-modal="true">
+      <header>
+        <h2>
+          {{
+            createdShipment
+              ? 'Credenciais do Carregamento'
+              : 'Novo Carregamento'
+          }}
+        </h2>
+        <button type="button" aria-label="Fechar" (click)="closeCreateModal()">
+          ×
+        </button>
+      </header>
+
+      @if (!createdShipment) {
+        <form [formGroup]="createForm" (ngSubmit)="submitCreate()">
+          <div class="body">
+            <label>
+              <span>TRANSPORTADORA</span>
+              <select formControlName="carrierId">
+                <option [ngValue]="null" disabled>Selecione...</option>
+                @for (carrier of carriers; track carrier.id) {
+                  <option [ngValue]="carrier.id">{{ carrier.name }}</option>
+                }
+              </select>
+            </label>
+
+            @if (createError) {
+              <div class="error">{{ createError }}</div>
+            }
+          </div>
+
+          <footer>
+            <button
+              class="cancel"
+              type="button"
+              [disabled]="creating"
+              (click)="closeCreateModal()"
+            >
+              Cancelar
+            </button>
+
+            <button class="save" type="submit" [disabled]="creating">
+              {{ creating ? 'Criando...' : 'Criar Carregamento' }}
+            </button>
+          </footer>
+        </form>
+      } @else {
+        <div class="body">
+          <p class="hint">
+            A transportadora também recebeu estes dados por e-mail. Guarde a
+            senha agora — ela não pode ser consultada depois desta tela.
+          </p>
+
+          <div class="credential-row">
+            <span>CÓDIGO</span>
+            <strong>{{ createdShipment.codigo }}</strong>
+          </div>
+
+          <div class="credential-row">
+            <span>SENHA</span>
+            <strong>{{ createdShipment.senha }}</strong>
+          </div>
+        </div>
+
+        <footer>
+          <button class="save" type="button" (click)="closeCreateModal()">
+            Entendi, fechar
+          </button>
+        </footer>
+      }
+    </section>
+  </div>
+}
+
+@if (assigningShipment) {
+  <div class="backdrop" (mousedown)="onAssignBackdrop($event)">
+    <section class="modal" role="dialog" aria-modal="true">
+      <header>
+        <div>
+          <span>CARREGAMENTO {{ assigningShipment.codigo }}</span>
+          <h2>Atribuir Pedido</h2>
+        </div>
+        <button type="button" aria-label="Fechar" (click)="closeAssign()">
+          ×
+        </button>
+      </header>
+
+      <form [formGroup]="assignForm" (ngSubmit)="submitAssign()">
+        <div class="body">
+          <label>
+            <span>ID DO PEDIDO</span>
+            <input
+              type="text"
+              formControlName="orderId"
+              placeholder="UUID do pedido"
+            />
+          </label>
+
+          @if (assignError) {
+            <div class="error">{{ assignError }}</div>
+          }
+
+          <div class="orders-list">
+            <span class="orders-title">PEDIDOS NESTE CARREGAMENTO</span>
+
+            @if (loadingOrders) {
+              <p class="muted">Carregando...</p>
+            } @else if (shipmentOrders.length) {
+              <ul>
+                @for (order of shipmentOrders; track order.id) {
+                  <li>
+                    <span>{{ order.id }}</span>
+                    <span>{{ order.status }}</span>
+                  </li>
+                }
+              </ul>
+            } @else {
+              <p class="muted">Nenhum pedido atribuído ainda.</p>
+            }
+          </div>
+        </div>
+
+        <footer>
+          <button
+            class="cancel"
+            type="button"
+            [disabled]="assigning"
+            (click)="closeAssign()"
+          >
+            Fechar
+          </button>
+
+          <button class="save" type="submit" [disabled]="assigning">
+            {{ assigning ? 'Atribuindo...' : 'Atribuir' }}
+          </button>
+        </footer>
+      </form>
+    </section>
+  </div>
+}
+
+@if (successMessage) {
+  <app-success-toast [message]="successMessage" />
+}
