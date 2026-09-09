@@ -5,6 +5,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../domain/order_model.dart';
 import '../domain/order_route.dart';
 import 'route_provider.dart';
 import 'widgets/marker_icons.dart';
@@ -51,7 +52,10 @@ class OrderMapScreen extends StatelessWidget {
                   onRetry: provider.retry,
                 );
               case RouteViewState.success:
-                return _RouteMap(route: provider.route!);
+                return _RouteMap(
+                  route: provider.route!,
+                  courierPosition: provider.courierPosition,
+                );
             }
           },
         ),
@@ -63,7 +67,13 @@ class OrderMapScreen extends StatelessWidget {
 class _RouteMap extends StatefulWidget {
   final OrderRoute route;
 
-  const _RouteMap({required this.route});
+  /// Posição atual da transportadora, ou `null` quando o backend não tem
+  /// uma para reportar (pedido ainda não despachado, lote sem posição
+  /// registrada, destino não resolvido) — estado normal, não erro: o
+  /// terceiro marcador simplesmente não é desenhado.
+  final CourierPosition? courierPosition;
+
+  const _RouteMap({required this.route, this.courierPosition});
 
   @override
   State<_RouteMap> createState() => _RouteMapState();
@@ -114,6 +124,19 @@ class _RouteMapState extends State<_RouteMap> {
               position: destination,
               infoWindow: InfoWindow(title: route.destination.label),
             ),
+            // A câmera continua enquadrando origem e destino — não persegue
+            // este marcador, ou o destino sairia da tela. Sem posição
+            // (pedido não despachado, lote sem leitura, destino não
+            // resolvido) é estado normal: o marcador simplesmente some.
+            if (widget.courierPosition != null)
+              Marker(
+                markerId: const MarkerId('courier'),
+                position: widget.courierPosition!.latLng,
+                icon: _truckIcon ?? BitmapDescriptor.defaultMarker,
+                anchor: const Offset(0.5, 0.5),
+                zIndexInt: 2,
+                infoWindow: const InfoWindow(title: 'Transportadora'),
+              ),
           },
           polylines: {
             Polyline(

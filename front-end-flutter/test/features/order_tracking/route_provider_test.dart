@@ -22,6 +22,9 @@ void main() {
     expect(provider.state, RouteViewState.success);
     expect(provider.route, isNotNull);
     expect(provider.route!.polylinePoints, isNotEmpty);
+    // Successful load starts the courier-position timer; cancel it so it
+    // doesn't outlive the test.
+    provider.dispose();
   });
 
   test('load() maps RouteException to the error state', () async {
