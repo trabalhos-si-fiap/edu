@@ -12,12 +12,13 @@ import uuid
 from decimal import Decimal
 
 from edu_common.security import create_access_token
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models.carrinho import Cart, CartItem
 from app.models.produto import Estoque, Fornecedor, Product
+from app.services.carrinho import _fornecedor_do_produto, _origem_do_carrinho
 
 _ALUNO = "00000000-0000-0000-0000-0000000000bb"
 
@@ -255,3 +256,79 @@ async def test_a_product_stocked_by_two_suppliers_is_added_without_a_500(client,
         "/cart/items", json={"product_id": str(produto.id), "quantity": 1}, headers=headers_for()
     )
     assert response.status_code == 201
+
+
+async def test_origem_do_carrinho_agrees_with_fornecedor_do_produto_for_the_same_product(
+    db_session,
+):
+    """`_origem_do_carrinho` não tinha `order_by(Estoque.id)` — fix round 1.
+
+    `uq_produto_fornecedor` é um índice único composto em
+    `(produto_id, fornecedor_id)`. Uma consulta por igualdade em
+    `produto_id` percorrida por esse índice devolve os `fornecedor_id`
+    casados em ORDEM DE ÍNDICE (por `fornecedor_id`), não em ordem de
+    `Estoque.id`. `_fornecedor_do_produto` tem `order_by(Estoque.id)`
+    explícito e por isso é imune a isso; `_origem_do_carrinho`, sem
+    `order_by`, deixava a ordem do `LIMIT 1` a critério do plano.
+
+    Este teste grava as duas linhas de estoque do produto DELIBERADAMENTE
+    fora de ordem entre as duas chaves (a linha do fornecedor com
+    `fornecedor_id` MENOR é gravada DEPOIS, então ganha o `Estoque.id`
+    MAIOR) e desliga `enable_seqscan`/`enable_bitmapscan` só NA TRANSAÇÃO
+    do teste (`SET LOCAL` — nunca `ALTER DATABASE`/`ALTER SYSTEM`, e nunca
+    no banco de desenvolvimento: esta sessão fala com `commerce_test`) para
+    forçar de forma determinística, em tabela de teste minúscula, o mesmo
+    plano guiado por índice que o revisor mediu manualmente contra
+    `commerce_test`. Medido (sem a correção, chamando as funções
+    diretamente): `_fornecedor_do_produto` resolve para o fornecedor B
+    (menor `Estoque.id`, 2 no exemplo medido), `_origem_do_carrinho` sem
+    `order_by` resolve para o fornecedor A (1) sob o plano guiado por
+    índice — divergência confirmada, teste falha antes da correção.
+
+    Consequência em produção: um estudante adiciona este produto (validado
+    contra o fornecedor B); ao adicionar de novo o MESMO produto,
+    `_origem_do_carrinho` informa a origem do carrinho como A — 409 falso
+    num item genuinamente do mesmo parceiro. Espelhado, admite em silêncio
+    um item de outro parceiro: o próprio carrinho misto que esta task existe
+    para impedir.
+
+    Chamar as duas funções PRIVADAS diretamente (não via `POST /cart/items`)
+    é deliberado: a rota abre uma sessão nova por requisição (dependência
+    `get_db` sobrescrita em `conftest.py`), fora do alcance de um `SET
+    LOCAL` emitido a partir do teste. Tentar forçar o mesmo plano através do
+    roundtrip HTTP exigiria remendar a fábrica de sessões da app só para
+    este teste — desproporcional ao problema. Testar as funções de serviço
+    diretamente, na mesma sessão que também prepara os dados, é o jeito
+    honesto de forçar o plano sem inventar infraestrutura nova de teste.
+
+    Depois da correção (`.order_by(Estoque.id)` em `_origem_do_carrinho`),
+    esta asserção passa INDEPENDENTE do plano: `ORDER BY` é honrado pelo
+    Postgres não importa o método de acesso escolhido, com ou sem os `SET
+    LOCAL` acima — é a invariante que interessa, não a implementação.
+    """
+    fornecedor_a = await _parceiro(db_session, "Fornecedor A")  # fornecedor_id menor
+    fornecedor_b = await _parceiro(db_session, "Fornecedor B")  # fornecedor_id maior
+    produto = await _produto(db_session, nome="Dupla Origem", fornecedor=None)
+
+    # Estoque do fornecedor B (fornecedor_id MAIOR) gravado PRIMEIRO -> Estoque.id MENOR.
+    db_session.add(Estoque(produto_id=produto.id, fornecedor_id=fornecedor_b.id, quantidade=1))
+    await db_session.commit()
+    # Estoque do fornecedor A (fornecedor_id MENOR) gravado DEPOIS -> Estoque.id MAIOR.
+    db_session.add(Estoque(produto_id=produto.id, fornecedor_id=fornecedor_a.id, quantidade=1))
+    await db_session.commit()
+
+    cart = Cart(user_id=uuid.UUID(_ALUNO))
+    db_session.add(cart)
+    await db_session.commit()
+    await db_session.refresh(cart)
+    db_session.add(CartItem(cart_id=cart.id, product_id=produto.id, quantity=1))
+    await db_session.commit()
+
+    canonical = await _fornecedor_do_produto(db_session, produto.id)
+    assert canonical == fornecedor_b.id  # menor Estoque.id vence, por construção
+
+    await db_session.execute(text("SET LOCAL enable_seqscan = off"))
+    await db_session.execute(text("SET LOCAL enable_bitmapscan = off"))
+
+    origem = await _origem_do_carrinho(db_session, cart.id)
+    assert origem == canonical

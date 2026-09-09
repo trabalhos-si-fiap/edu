@@ -112,13 +112,28 @@ async def _origem_do_carrinho(db: AsyncSession, cart_id: uuid.UUID) -> int | Non
     carrinho está vazio (ou só tem itens sem origem).
 
     LIMIT 1 basta: a regra que esta função serve é o que garante que nunca há
-    mais de um fornecedor aqui.
+    mais de um fornecedor aqui. Mas LIMIT 1 sem ORDER BY deixa a ordem a
+    critério do plano — fix round 1: `uq_produto_fornecedor` é um índice
+    único composto em `(produto_id, fornecedor_id)`, e um plano guiado por
+    esse índice devolve os `fornecedor_id` casados em ordem de índice
+    (por `fornecedor_id`), não por `Estoque.id`. Sem `order_by(Estoque.id)`
+    aqui, esta função podia resolver um fornecedor DIFERENTE do que
+    `_fornecedor_do_produto` resolve para o MESMO produto — um estudante
+    que adiciona de novo um item já no carrinho podia levar um 409 falso, e
+    o espelho disso é um carrinho misto aceito em silêncio: o próprio bug
+    que esta task existe para impedir. `order_by(Estoque.id)` alinha esta
+    função com `_fornecedor_do_produto` e com
+    `app/services/estoque.py::obter_estoque_do_produto` — as três
+    concordam sobre qual fornecedor um produto resolve, sempre a linha de
+    menor `Estoque.id`, não importa o plano escolhido. Ver
+    test_origem_do_carrinho_agrees_with_fornecedor_do_produto_for_the_same_product.
     """
     return (
         await db.execute(
             select(Estoque.fornecedor_id)
             .join(CartItem, CartItem.product_id == Estoque.produto_id)
             .where(CartItem.cart_id == cart_id)
+            .order_by(Estoque.id)
             .limit(1)
         )
     ).scalar_one_or_none()
