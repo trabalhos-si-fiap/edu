@@ -293,14 +293,23 @@ Três regras valem para a superfície inteira que esta spec acrescentou, e
 foram fechadas na revisão final de branch:
 
 - **Produto inativo não aparece e não é comprável.** `products.active` era
-  escrito, exibido e lido por nada. Agora `GET /products` filtra
-  `active IS TRUE` no catálogo E no filtro por parceiro, `POST /cart/items`
-  recusa um produto inativo com **404** (a mesma forma que produto
-  inexistente — para o cliente, o que saiu da vitrine não está no catálogo, e
-  reusar o erro existente evita uma quinta forma), e `POST /orders/{id}/rebuy`
-  o **pula** com o `continue` que já pulava o descontinuado, devolvendo ao
-  aluno o resto do pedido. `include_inactive=true` é do painel e exige
-  `admin`. O que a regra NÃO faz é retroativo — §10.
+  escrito, exibido e lido por nada. São **quatro** portas por onde se compra
+  um produto, e a regra fecha as quatro:
+  1. `GET /products` filtra `active IS TRUE` no catálogo E no filtro por
+     parceiro (`include_inactive=true` é do painel e exige `admin`);
+  2. `POST /cart/items` recusa com **404** — a mesma forma que produto
+     inexistente, porque para o cliente o que saiu da vitrine não está no
+     catálogo, e reusar o erro existente evita uma quinta forma;
+  3. `POST /orders/{id}/rebuy` o **pula** com o `continue` que já pulava o
+     descontinuado, devolvendo ao aluno o resto do pedido;
+  4. a substituição de falta de estoque não o **sugere** (nas duas consultas
+     de candidato, a semântica e o fallback por categoria) e o ramo
+     `substituir` de `POST /occurrences/{id}/resolve` o **recusa** com 404 —
+     essa porta escreve direto em `order_items`, sem passar por
+     `adicionar_item`.
+
+  O que a regra NÃO faz é retroativo, e o que ela deliberadamente não alcança
+  está na §10.
 - **Todo id inteiro é `app.ids.Int32Id`** (`ge=1, le=2_147_483_647`). Um id
   fora da faixa chegava no asyncpg e virava `DataError` — 500 onde cabe 422.
   A classe foi corrigida ponto a ponto três vezes e deixada aberta em nove
@@ -360,6 +369,21 @@ Nenhuma é regressão desta entrega; cada uma foi medida e deixada de propósito
   continua listando o item com que foi feito. Varrer carrinho alheio ou
   reescrever histórico exigiria decidir estorno e estoque, e ninguém pediu
   isso. Ver §9 e `tests/test_inactive_product_rule.py`.
+- **`GET /products/{id}` devolve 200 para produto inativo, de propósito.** É a
+  única leitura de produto que a regra do `active` não alcança, e a razão é o
+  painel: ele lê essa rota para abrir e reativar um produto desativado, então
+  404 quebraria o único fluxo capaz de desfazer uma desativação — fechá-la
+  direito exigiria repetir a decisão do `include_inactive` numa segunda rota.
+  A consequência é uma borda feia e não errada: um deep-link para a página do
+  produto renderiza, e o botão de adicionar responde o 404 da porta 2 acima.
+- **`GET /products/categories` conta produto inativo.** Um chip pode anunciar
+  "Mobiliário (3)" sobre uma listagem de 2, e uma categoria cujo único produto
+  foi desativado vira um chip que leva a uma lista vazia. É imprecisão de
+  exibição numa tela de onde ninguém compra, e corrigir direito exigiria
+  decidir se categoria toda-inativa deve sumir — pergunta de produto, não bug.
+- **Review de produto inativo é aceita.** `POST /products/{id}/reviews` não
+  consulta `active`, e provavelmente está certo assim: um comprador antigo
+  avaliando algo que a loja aposentou é legítimo. Sem mudança.
 - **As rotas anteriores à spec B continuam respondendo em inglês.**
   `GET /products/{id}` e `POST /cart/items` devolvem `"Product not found"`.
   Só a superfície nova foi alinhada para o português; varrer o herdado é uma
