@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -11,11 +11,15 @@ from app.events.publisher import publish_event
 from app.models.ocorrencia import Ocorrencia
 from app.models.pedido import Order, OrderItem, PedidoStatusHistorico
 from app.models.produto import Product
+from app.models.transportadora import Carrier
 from app.schemas.ocorrencia import (
     AtrasoEntregaIn,
     FaltaEstoqueIn,
+    FecharOcorrenciaIn,
     OcorrenciaDetalheOut,
+    OcorrenciaList,
     OcorrenciaOut,
+    OcorrenciaTransportadoraIn,
     ProdutoSugeridoOut,
     ResolverOcorrenciaIn,
 )
@@ -43,6 +47,78 @@ def _pode_ver_pedido(user: dict, pedido: Order) -> bool:
     if papel == "entregador":
         return pedido.deliverer_id is not None and str(pedido.deliverer_id) == user["sub"]
     return False
+
+
+@router.get("", response_model=OcorrenciaList)
+async def listar_ocorrencias(
+    _user: dict = Depends(requer_papel("admin")),
+    db: AsyncSession = Depends(get_db),
+    carrier_id: int | None = Query(default=None),
+    tipo: str | None = Query(default=None, max_length=30),
+    status: str | None = Query(default=None, max_length=20),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+) -> OcorrenciaList:
+    """Listagem de administração. Devolve TODA ocorrência, com ou sem
+    transportadora: a de pedido não deixou de existir por a de transportadora
+    ter passado a caber no mesmo modelo. O painel agrupa por
+    `transportadora_id`."""
+    stmt = select(Ocorrencia)
+    count_stmt = select(func.count()).select_from(Ocorrencia)
+    if carrier_id is not None:
+        stmt = stmt.where(Ocorrencia.transportadora_id == carrier_id)
+        count_stmt = count_stmt.where(Ocorrencia.transportadora_id == carrier_id)
+    if tipo:
+        stmt = stmt.where(Ocorrencia.tipo == tipo)
+        count_stmt = count_stmt.where(Ocorrencia.tipo == tipo)
+    if status:
+        stmt = stmt.where(Ocorrencia.status == status)
+        count_stmt = count_stmt.where(Ocorrencia.status == status)
+
+    stmt = (
+        stmt.order_by(Ocorrencia.criado_em.desc(), Ocorrencia.id.desc()).limit(limit).offset(offset)
+    )
+    items = list((await db.execute(stmt)).scalars().all())
+    total = (await db.execute(count_stmt)).scalar_one()
+    return OcorrenciaList(
+        items=[OcorrenciaOut.model_validate(o) for o in items],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.post("/carrier", response_model=OcorrenciaOut, status_code=201)
+async def abrir_ocorrencia_transportadora(
+    payload: OcorrenciaTransportadoraIn,
+    user: dict = Depends(requer_papel("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Ocorrência de transportadora. Continua sendo de um PEDIDO — a
+    transportadora é uma dimensão, não um segundo dono, e é por isso que o
+    `CarrierOccurrence` do Java não virou tabela separada."""
+    pedido = (
+        await db.execute(select(Order).where(Order.id == payload.pedido_id))
+    ).scalar_one_or_none()
+    if not pedido:
+        raise HTTPException(404, "Pedido não encontrado")
+
+    transportadora = await db.get(Carrier, payload.transportadora_id)
+    if not transportadora:
+        raise HTTPException(404, "Carrier not found")
+
+    ocorrencia = Ocorrencia(
+        pedido_id=pedido.id,
+        transportadora_id=transportadora.id,
+        tipo=payload.tipo,
+        status="ABERTA",
+        motivo=payload.motivo,
+        criado_por=uuid.UUID(user["sub"]),
+    )
+    db.add(ocorrencia)
+    await db.commit()
+    await db.refresh(ocorrencia)
+    return OcorrenciaOut.model_validate(ocorrencia)
 
 
 @router.post("/stock-shortage", response_model=OcorrenciaDetalheOut, status_code=201)
@@ -380,3 +456,39 @@ async def resolver_ocorrencia(
     )
 
     return ocorrencia
+
+
+@router.post("/{ocorrencia_id}/close", response_model=OcorrenciaOut)
+async def fechar_ocorrencia(
+    ocorrencia_id: int,
+    payload: FecharOcorrenciaIn,
+    _user: dict = Depends(requer_papel("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Fecha uma ocorrência SEM a lógica de substituição.
+
+    `POST /occurrences/{id}/resolve` é do ALUNO e decide o destino do item
+    (substituir, remover, cancelar, aceitar nova data). Uma ocorrência de dano
+    ou de falha de entrega não tem essa decisão para tomar — ela é fechada
+    pela operação. Duas rotas porque são dois atos diferentes com dois donos
+    diferentes, não por conveniência.
+
+    `with_for_update()` pelo mesmo motivo do `resolve`: sem ele o
+    `status != ABERTA` é um TOCTOU e dois fechamentos concorrentes passam os
+    dois.
+    """
+    ocorrencia = (
+        await db.execute(select(Ocorrencia).where(Ocorrencia.id == ocorrencia_id).with_for_update())
+    ).scalar_one_or_none()
+    if not ocorrencia:
+        raise HTTPException(404, "Ocorrência não encontrada")
+    if ocorrencia.status != "ABERTA":
+        raise HTTPException(400, "Esta ocorrência já foi resolvida")
+
+    ocorrencia.status = "RESOLVIDA"
+    ocorrencia.resolvido_em = datetime.now(UTC)
+    if payload.observacao:
+        ocorrencia.motivo = f"{ocorrencia.motivo}\n[fechamento] {payload.observacao}"
+    await db.commit()
+    await db.refresh(ocorrencia)
+    return OcorrenciaOut.model_validate(ocorrencia)

@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class FaltaEstoqueIn(BaseModel):
@@ -42,6 +42,7 @@ class OcorrenciaOut(BaseModel):
     tipo: str
     status: str
     produto_id: uuid.UUID | None
+    transportadora_id: int | None = None
     nova_data_sugerida: datetime | None
     motivo: str
     resolucao: str | None
@@ -52,3 +53,29 @@ class OcorrenciaOut(BaseModel):
 class OcorrenciaDetalheOut(OcorrenciaOut):
     produto_original: ProdutoSugeridoOut | None = None
     produtos_sugeridos: list[ProdutoSugeridoOut] = []
+
+
+# Os quatro tipos que uma ocorrência de TRANSPORTADORA pode ter. Porte de
+# `OccurrenceType` do Java: `DELIVERY_DELAY` é o `ATRASO_ENTREGA` que já
+# existia aqui, e por isso não virou um valor novo. `FALTA_ESTOQUE` fica de
+# fora de propósito — falta de estoque é do separador, não da transportadora,
+# e tem rota própria (`POST /occurrences/stock-shortage`).
+TipoOcorrenciaTransportadora = Literal["ATRASO_ENTREGA", "DANO", "FALHA_ENTREGA", "OUTRO"]
+
+
+class OcorrenciaTransportadoraIn(BaseModel):
+    pedido_id: uuid.UUID
+    transportadora_id: int
+    tipo: TipoOcorrenciaTransportadora
+    motivo: str = Field(min_length=1, max_length=2000)
+
+
+class FecharOcorrenciaIn(BaseModel):
+    observacao: str | None = Field(default=None, max_length=2000)
+
+
+class OcorrenciaList(BaseModel):
+    items: list[OcorrenciaOut]
+    total: int
+    limit: int
+    offset: int
