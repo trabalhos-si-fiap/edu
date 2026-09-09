@@ -64,7 +64,20 @@ class _AdminShipmentsScreenState extends State<AdminShipmentsScreen> {
         child: FutureBuilder<List<Shipment>>(
           future: _future,
           builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
+            // O gate de "carregando" só cobre a tela inteira quando ainda
+            // não há nada pra mostrar (primeiríssima carga). Um refresh
+            // sobre uma lista já carregada (pull-to-refresh, ou depois de
+            // criar um carregamento/atribuir um pedido) reusa o snapshot
+            // anterior enquanto a nova busca corre — sem isso, CADA
+            // refresh substituía a lista inteira por um spinner e
+            // desmontava todo `_CarregamentoCard` (perdendo `_expandido` e
+            // `_pedidosFuture` de QUALQUER card, não só o que mudou de
+            // posição), o que também escondia por completo o bug de
+            // identidade por posição que a `Key` abaixo corrige — sem
+            // dado sobrevivendo ao refresh, não havia como um card
+            // reaproveitado por posição mostrar o pedido errado.
+            if (snapshot.connectionState == ConnectionState.waiting &&
+                !snapshot.hasData) {
               return const Center(child: CircularProgressIndicator());
             }
             if (snapshot.hasError) {
@@ -121,8 +134,10 @@ class _ListaCarregamentos extends StatelessWidget {
         else
           ...carregamentos.map(
             (c) => Padding(
+              key: ValueKey(c.id),
               padding: const EdgeInsets.only(bottom: 12),
               child: _CarregamentoCard(
+                key: ValueKey(c.id),
                 api: api,
                 carregamento: c,
                 onAdicionarPedido: () => onAdicionarPedido(c),
@@ -156,6 +171,7 @@ class _ListaVazia extends StatelessWidget {
 /// evita que o admin tente atribuir o mesmo pedido duas vezes às cegas.
 class _CarregamentoCard extends StatefulWidget {
   const _CarregamentoCard({
+    super.key,
     required this.api,
     required this.carregamento,
     required this.onAdicionarPedido,
@@ -172,6 +188,22 @@ class _CarregamentoCard extends StatefulWidget {
 class _CarregamentoCardState extends State<_CarregamentoCard> {
   bool _expandido = false;
   Future<List<Pedido>>? _pedidosFuture;
+
+  @override
+  void didUpdateWidget(_CarregamentoCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Defesa em profundidade: com a `ValueKey(carregamento.id)` no call
+    // site (`_ListaCarregamentos`), o Flutter já não reaproveita este
+    // `State` para outro carregamento por posição — mas se algum caminho
+    // futuro reconstruir a lista sem key, um `_pedidosFuture` memoizado
+    // com `??=` sobreviveria e mostraria os pedidos do carregamento
+    // errado. Invalidar aqui quando o id muda fecha essa brecha mesmo sem
+    // depender só da key.
+    if (oldWidget.carregamento.id != widget.carregamento.id) {
+      _pedidosFuture = null;
+      _expandido = false;
+    }
+  }
 
   void _alternarExpandido() {
     setState(() {
