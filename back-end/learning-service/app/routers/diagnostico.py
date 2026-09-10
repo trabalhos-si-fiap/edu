@@ -1,4 +1,5 @@
 from collections import defaultdict
+from datetime import UTC, datetime
 
 from edu_common.contracts import DiagnosticCompleted
 from fastapi import APIRouter, Depends, HTTPException
@@ -31,7 +32,15 @@ from app.services.decisao import (
 )
 from app.services.dominio import calcular_dominio, calcular_dominio_tema
 from app.services.navegacao_tema import buscar_proximo_tema, buscar_tema_anterior
+from app.services.pontuacao import (
+    PONTOS_ETAPA_CONCLUIDA,
+    PONTOS_QUESTAO_CORRETA,
+    PONTOS_REVISAO_NO_PRAZO,
+    bonus_streak,
+    registrar,
+)
 from app.services.recomendacao_semantica import subtemas_relacionados
+from app.services.roadmap import concluir_etapa
 from app.services.sm2 import atualizar_revisao
 from app.services.tutor_llm import gerar_mensagem_fallback, gerar_mensagem_tutor
 
@@ -70,12 +79,15 @@ async def responder_diagnostico(
     # agrupamos as respostas por subtema para avaliar cada parte
     # separadamente antes de agregar no resultado do tema como um todo.
     respostas_por_subtema: dict[int, list[tuple[bool, int]]] = defaultdict(list)
+    questoes_corretas: set[int] = set()
     for r in payload.respostas:
         questao = questoes.get(r.questao_id)
         if not questao:
             continue  # ignora ids que não existem/não pertencem a nenhum subtema válido
         acertou = r.alternativa_escolhida == questao.gabarito
         respostas_por_subtema[questao.subtema_id].append((acertou, questao.nivel_dificuldade))
+        if acertou:
+            questoes_corretas.add(r.questao_id)
 
         # Persiste a resposta individual — é o que permite ao Chatbot
         # Service confirmar depois "o aluno já respondeu essa questão"
@@ -193,6 +205,52 @@ async def responder_diagnostico(
         )
         await db.execute(stmt)
 
+        agora = datetime.now(UTC)
+
+        # Revisão concluída no prazo: a linha de progresso JÁ existia e a
+        # próxima revisão já tinha vencido quando o aluno respondeu. Não há
+        # rota de "concluir revisão" neste serviço — `/reviews/today` só
+        # lista —, então responder é o ato que a conclui (decisão D1 do
+        # plano). A referência carrega a DATA da revisão vencida: assim a
+        # revisão de amanhã pontua de novo, e a de hoje, não.
+        if progresso_atual is not None and progresso_atual.proxima_revisao is not None:
+            vencida_em = progresso_atual.proxima_revisao
+            if vencida_em <= agora:
+                await registrar(
+                    db,
+                    aluno_id=aluno_id,
+                    origem="revisao",
+                    referencia=f"{subtema_id}:{vencida_em.date().isoformat()}",
+                    pontos=PONTOS_REVISAO_NO_PRAZO,
+                )
+
+        # Bônus de sequência: só quando a sequência CRESCEU nesta resposta.
+        # A referência inclui o novo valor, então cada degrau paga uma vez.
+        if novo_streak > streak_atual:
+            await registrar(
+                db,
+                aluno_id=aluno_id,
+                origem="streak",
+                referencia=f"{subtema_id}:{novo_streak}",
+                pontos=bonus_streak(novo_streak),
+            )
+
+        # Conclusão de etapa: `concluir_etapa` só devolve True na transição
+        # (o UPDATE tem `WHERE concluida_em IS NULL`), e é esse True que
+        # impede pontuar de novo um subtema que o aluno já dominava.
+        if dominio >= LIMIAR_DOMINIO_SUBTEMA:
+            concluiu = await concluir_etapa(
+                db, aluno_id=aluno_id, subtema_id=subtema_id, quando=agora
+            )
+            if concluiu:
+                await registrar(
+                    db,
+                    aluno_id=aluno_id,
+                    origem="etapa",
+                    referencia=str(subtema_id),
+                    pontos=PONTOS_ETAPA_CONCLUIDA,
+                )
+
         classificacao = classificar_subtema(dominio)
         subtema = subtemas_por_id[subtema_id]
 
@@ -246,6 +304,28 @@ async def responder_diagnostico(
                     subtemas_relacionados=relacionados_out,
                 )
             )
+
+    # Pontuação por questão correta: DEPOIS do laço por subtema, e em ordem
+    # crescente de `questao_id`. As duas coisas importam, e pela mesma razão
+    # que o laço acima itera `sorted(respostas_por_subtema.items())`:
+    #
+    # 1. ORDEM. Duas requisições concorrentes do mesmo aluno que cubram as
+    #    mesmas questões em ordem diferente (a ordem vem do array `respostas`
+    #    que o cliente mandou) adquiririam as mesmas chaves do índice único
+    #    `uq_lancamento_idempotente` em ordens opostas — ciclo de espera, e
+    #    deadlock. Ordem de aquisição igual para todo mundo elimina o ciclo.
+    # 2. POSIÇÃO. Este INSERT bloqueia a segunda requisição até a primeira
+    #    commitar (é o índice único fazendo o seu trabalho). Colocá-lo antes
+    #    do laço de progresso empurra esse bloqueio para o começo do request
+    #    e serializa o trabalho que o `with_for_update()` acima já ordena.
+    for questao_id in sorted(questoes_corretas):
+        await registrar(
+            db,
+            aluno_id=aluno_id,
+            origem="questao",
+            referencia=str(questao_id),
+            pontos=PONTOS_QUESTAO_CORRETA,
+        )
 
     # `revision.scheduled` NÃO sai daqui. Ele significa "há uma revisão
     # vencida agora", e no fim de um diagnóstico a próxima revisão está a
