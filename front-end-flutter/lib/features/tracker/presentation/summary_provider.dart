@@ -5,9 +5,11 @@ import '../domain/study_summary.dart';
 
 enum SummaryViewState { loading, success, error }
 
-/// Estado do resumo de estudo, compartilhado pela tela inicial e pelo
-/// perfil: as duas leem `GET /profile/summary`, e uma chamada só serve as
-/// duas quando o aluno navega entre elas.
+/// Estado do resumo de estudo: a mesma forma que a tela inicial e o perfil
+/// usam para ler `GET /profile/summary`, cada uma com a sua própria
+/// instância — `HomeScreen` e `ProfileScreen` criam e descartam o seu
+/// `SummaryProvider` de forma independente, sem compartilhar chamada nem
+/// estado entre si.
 class SummaryProvider extends ChangeNotifier {
   SummaryProvider({TrackerApi? api}) : _api = api ?? TrackerApi();
 
