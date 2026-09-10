@@ -11,6 +11,7 @@ import 'package:edu_ia/features/order_tracking/presentation/order_tracking_scree
 import 'package:edu_ia/features/quiz/presentation/quiz_screen.dart';
 import 'package:edu_ia/features/quiz/presentation/quiz_subjets_screen.dart';
 import 'package:edu_ia/features/review/presentation/review_screen.dart';
+import 'package:edu_ia/features/tracker/presentation/tracker_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'core/network/app_http.dart';
@@ -92,6 +93,7 @@ class _MyAppState extends State<MyApp> {
           '/order-tracking': (_) => const OrderTrackingScreen(),
           '/order-map': (_) => const OrderMapScreen(),
           '/onboarding': (_) => const OnboardingScreen(),
+          '/tracker': (_) => const TrackerScreen(),
         },
       ),
     );
