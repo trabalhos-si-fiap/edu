@@ -6,6 +6,8 @@
 /// codegen, mantendo `toJson` simétrico para testes e cache local.
 library;
 
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+
 /// Estado de cada etapa da linha do tempo de rastreio.
 enum OrderStepStatus {
   done,
@@ -112,6 +114,57 @@ class KitItem {
   Map<String, dynamic> toJson() => {'name': name, 'subtitle': subtitle};
 }
 
+/// Posição atual da transportadora, lida a cada dez segundos por
+/// `RouteProvider` no mesmo payload de `GET /orders/{id}/tracking` (campo
+/// `courier_position`). `null` é estado normal — pedido ainda não
+/// despachado, lote sem posição registrada, destino nunca resolvido — nunca
+/// uma falha: a tela desenha origem e destino sem o marcador móvel nesse
+/// caso. Não há interpolação no cliente: o marcador fica onde o backend
+/// disse por último.
+class CourierPosition {
+  final double latitude;
+  final double longitude;
+  final DateTime updatedAt;
+
+  const CourierPosition({
+    required this.latitude,
+    required this.longitude,
+    required this.updatedAt,
+  });
+
+  /// Tolerante: payload ausente/nulo, não-mapa, ou com latitude/longitude
+  /// ausentes ou não numéricas viram `null` em vez de lançar. Diferente do
+  /// idioma `(json['x'] as num?)?.toDouble() ?? 0` usado no resto do arquivo
+  /// — que só tolera chave ausente, não um valor de outro tipo — aqui
+  /// checamos `is num` antes de converter, porque um valor de tipo errado
+  /// (ex.: uma string) é exatamente o "malformado" que este campo precisa
+  /// tolerar sem lançar. Um `updated_at` ausente, de outro tipo ou inválido
+  /// não invalida a posição: cai no mesmo fallback que `estimatedArrival`
+  /// já usa (`DateTime.now()`).
+  static CourierPosition? fromJson(Map<String, dynamic>? json) {
+    if (json == null) return null;
+    final rawLatitude = json['latitude'];
+    final rawLongitude = json['longitude'];
+    if (rawLatitude is! num || rawLongitude is! num) return null;
+    final rawUpdatedAt = json['updated_at'];
+    final raw = rawUpdatedAt is String ? rawUpdatedAt : null;
+    return CourierPosition(
+      latitude: rawLatitude.toDouble(),
+      longitude: rawLongitude.toDouble(),
+      updatedAt:
+          (raw == null ? null : DateTime.tryParse(raw)) ?? DateTime.now(),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'latitude': latitude,
+    'longitude': longitude,
+    'updated_at': updatedAt.toIso8601String(),
+  };
+
+  LatLng get latLng => LatLng(latitude, longitude);
+}
+
 /// Pedido completo com seu histórico de rastreio.
 class OrderModel {
   final String id;
@@ -132,6 +185,10 @@ class OrderModel {
   /// deliberada nº 7 da task C11 — o legacy nunca terá esse campo).
   final String status;
 
+  /// Posição atual da transportadora, ou `null` quando o backend não tem uma
+  /// para reportar (ver [CourierPosition]).
+  final CourierPosition? courierPosition;
+
   const OrderModel({
     required this.id,
     required this.headline,
@@ -143,6 +200,7 @@ class OrderModel {
     required this.carrier,
     required this.status,
     this.mapUrl,
+    this.courierPosition,
   });
 
   factory OrderModel.fromJson(Map<String, dynamic> json) {
@@ -152,6 +210,7 @@ class OrderModel {
     final kit = (json['kit'] as List<dynamic>? ?? const [])
         .map((e) => KitItem.fromJson(e as Map<String, dynamic>))
         .toList(growable: false);
+    final rawCourierPosition = json['courier_position'];
     return OrderModel(
       id: (json['id'] as String?) ?? '',
       headline: (json['headline'] as String?) ?? '',
@@ -167,6 +226,9 @@ class OrderModel {
       carrier: (json['carrier'] as String?) ?? '',
       status: (json['status'] as String?) ?? '',
       mapUrl: json['map_url'] as String?,
+      courierPosition: CourierPosition.fromJson(
+        rawCourierPosition is Map<String, dynamic> ? rawCourierPosition : null,
+      ),
     );
   }
 
@@ -181,6 +243,7 @@ class OrderModel {
     'carrier': carrier,
     'status': status,
     'map_url': mapUrl,
+    'courier_position': courierPosition?.toJson(),
   };
 
   /// Etapa em andamento (ou a última concluída, se não houver "current").

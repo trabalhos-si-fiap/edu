@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, uuid_do_usuario
 from app.exceptions import PaymentMethodNotFoundError
 from app.schemas.pagamento import PaymentMethodIn, PaymentMethodOut, PaymentMethodPatch
 from app.services import pagamento as services
@@ -22,7 +22,7 @@ async def listar_metodos(
     # Array puro, SEM envelope — ao contrário de `/products` e `/cart`. Não é
     # esquecimento, é o contrato medido do legacy (ver task-B9-report.md,
     # seção "Divergência da paginação").
-    methods = await services.listar_metodos(db, uuid.UUID(user["sub"]))
+    methods = await services.listar_metodos(db, uuid_do_usuario(user))
     return [PaymentMethodOut.model_validate(m) for m in methods]
 
 
@@ -32,7 +32,7 @@ async def criar_metodo(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> PaymentMethodOut:
-    method = await services.criar_metodo(db, uuid.UUID(user["sub"]), payload)
+    method = await services.criar_metodo(db, uuid_do_usuario(user), payload)
     return PaymentMethodOut.model_validate(method)
 
 
@@ -44,7 +44,7 @@ async def definir_padrao(
     db: AsyncSession = Depends(get_db),
 ) -> PaymentMethodOut:
     try:
-        method = await services.definir_padrao(db, uuid.UUID(user["sub"]), method_id, payload)
+        method = await services.definir_padrao(db, uuid_do_usuario(user), method_id, payload)
     except PaymentMethodNotFoundError as exc:
         raise _NOT_FOUND from exc
     return PaymentMethodOut.model_validate(method)
@@ -57,7 +57,7 @@ async def apagar_metodo(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     try:
-        await services.apagar_metodo(db, uuid.UUID(user["sub"]), method_id)
+        await services.apagar_metodo(db, uuid_do_usuario(user), method_id)
     except PaymentMethodNotFoundError as exc:
         raise _NOT_FOUND from exc
     return Response(status_code=status.HTTP_204_NO_CONTENT)

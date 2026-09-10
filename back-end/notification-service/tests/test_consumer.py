@@ -9,8 +9,14 @@ from sqlalchemy import select
 from app.events import consumer as consumer_module
 from app.events.consumer import _id_curto
 from app.models.notificacao import Notificacao
+from app.models.staff import Staff
+from app.services.destinatarios import PAPEIS_POR_STATUS
 
 STUDENT_ID = "00000000-0000-0000-0000-000000000001"
+ADMIN_ID = "00000000-0000-0000-0000-000000000002"
+SEPARADOR_ID = "00000000-0000-0000-0000-000000000003"
+ENTREGADOR_ID = "00000000-0000-0000-0000-000000000004"
+PEDIDO_ID = "00000000-0000-0000-0000-0000000000aa"
 
 
 def test_id_curto_matches_the_flutter_rule():
@@ -34,6 +40,46 @@ def fake_message(payload: dict) -> MagicMock:
 
     message.process = process
     return message
+
+
+def _payload_shipment() -> dict:
+    """Mesmo formato publicado por `POST /shipments` (commerce-service, task
+    4): `senha` em texto claro — é a ÚNICA cópia em claro, a linha do
+    carregamento guarda só o hash bcrypt."""
+    return {
+        "carregamento_id": 12,
+        "codigo": "ABCD2345",
+        "senha": "SEGREDO12345",
+        "transportadora_id": 3,
+        "transportadora_nome": "Expresso Cajamar",
+        "transportadora_email": "operacao@expresso.example",
+    }
+
+
+async def _noop_email(*, para, assunto, texto) -> None:
+    pass
+
+
+async def _registrar_staff(test_session_factory) -> None:
+    """Popula o registro local com um de cada papel de staff — mesmo caminho
+    que `handle_staff_created` deixaria, sem depender dele nos testes que só
+    querem verificar o destinatário de uma transição de pedido.
+
+    `uuid.UUID(...)` explícito, não a string crua: inserir três linhas na
+    MESMA flush faz o SQLAlchemy correlacionar o `RETURNING` por um sentinel
+    sobre a PK, e um `str` não bate com o `uuid.UUID` que o asyncpg devolve
+    (`InvalidRequestError: Can't match sentinel values...`) — inofensivo com
+    uma linha por commit, quebra com várias.
+    """
+    async with test_session_factory() as session:
+        session.add_all(
+            [
+                Staff(user_id=uuid.UUID(ADMIN_ID), papel="admin", nome="Admin Demo"),
+                Staff(user_id=uuid.UUID(SEPARADOR_ID), papel="separador", nome="Separador Demo"),
+                Staff(user_id=uuid.UUID(ENTREGADOR_ID), papel="entregador", nome="Entregador Demo"),
+            ]
+        )
+        await session.commit()
 
 
 def diagnostic_payload(acao: str, dominio_tema: float) -> dict:
@@ -384,6 +430,18 @@ async def test_every_binding_points_to_a_real_handler():
             "order.delivery_delayed",
             consumer_module.handle_delivery_delayed,
         ),
+        ("notification.staff_created", "staff.created", consumer_module.handle_staff_created),
+        ("notification.order_created", "order.created", consumer_module.handle_order_created),
+        (
+            "notification.occurrence_resolved",
+            "order.occurrence_resolved",
+            consumer_module.handle_occurrence_resolved,
+        ),
+        (
+            "notification.shipment_created",
+            "shipment.created",
+            consumer_module.handle_shipment_created,
+        ),
     ]
     assert expected == consumer_module.BINDINGS
 
@@ -452,3 +510,242 @@ async def test_order_notification_stores_a_uuid_order_id(
 
     notificacao = (await db_session.execute(select(Notificacao))).scalar_one()
     assert str(notificacao.pedido_id) == pedido_id
+
+
+async def test_staff_created_registers_the_person(db_session, test_session_factory, monkeypatch):
+    monkeypatch.setattr(consumer_module, "async_session", test_session_factory)
+
+    await consumer_module.handle_staff_created(
+        fake_message({"user_id": SEPARADOR_ID, "nome": "Separador Demo", "role": "separador"})
+    )
+
+    registrados = (await db_session.execute(select(Staff))).scalars().all()
+    assert [(str(s.user_id), s.papel) for s in registrados] == [(SEPARADOR_ID, "separador")]
+
+
+async def test_staff_created_is_idempotent(db_session, test_session_factory, monkeypatch):
+    """A fila é durável e a entrega é ao-menos-uma-vez: a mesma mensagem pode
+    chegar duas vezes depois de um restart do broker."""
+    monkeypatch.setattr(consumer_module, "async_session", test_session_factory)
+    mensagem = {"user_id": SEPARADOR_ID, "nome": "Separador Demo", "role": "separador"}
+
+    await consumer_module.handle_staff_created(fake_message(mensagem))
+    await consumer_module.handle_staff_created(fake_message(mensagem))
+
+    registrados = (await db_session.execute(select(Staff))).scalars().all()
+    assert len(registrados) == 1
+
+
+async def test_order_created_notifies_staff_and_not_the_student(
+    db_session, test_session_factory, monkeypatch
+):
+    """`order.created` era publicado e ninguém consumia. Quem precisa saber
+    que entrou pedido é a operação, não o aluno — ele acabou de clicar em
+    comprar."""
+    monkeypatch.setattr(consumer_module, "async_session", test_session_factory)
+    await _registrar_staff(test_session_factory)
+
+    await consumer_module.handle_order_created(
+        fake_message({"pedido_id": PEDIDO_ID, "aluno_id": STUDENT_ID, "valor_total": 99.9})
+    )
+
+    destinatarios = {
+        str(n.aluno_id) for n in (await db_session.execute(select(Notificacao))).scalars()
+    }
+    assert destinatarios == {ADMIN_ID, SEPARADOR_ID}
+
+
+async def test_pickup_ready_notifies_the_student_and_every_courier(
+    db_session, test_session_factory, monkeypatch
+):
+    monkeypatch.setattr(consumer_module, "async_session", test_session_factory)
+    await _registrar_staff(test_session_factory)
+
+    await consumer_module.handle_order_status_changed(
+        fake_message(
+            {"pedido_id": PEDIDO_ID, "aluno_id": STUDENT_ID, "status": "AGUARDANDO_COLETA"}
+        )
+    )
+
+    destinatarios = {
+        str(n.aluno_id) for n in (await db_session.execute(select(Notificacao))).scalars()
+    }
+    assert destinatarios == {STUDENT_ID, ENTREGADOR_ID}
+
+
+async def test_delivery_notifies_the_student_and_the_admin(
+    db_session, test_session_factory, monkeypatch
+):
+    monkeypatch.setattr(consumer_module, "async_session", test_session_factory)
+    await _registrar_staff(test_session_factory)
+
+    await consumer_module.handle_order_status_changed(
+        fake_message({"pedido_id": PEDIDO_ID, "aluno_id": STUDENT_ID, "status": "ENTREGUE"})
+    )
+
+    destinatarios = {
+        str(n.aluno_id) for n in (await db_session.execute(select(Notificacao))).scalars()
+    }
+    assert destinatarios == {STUDENT_ID, ADMIN_ID}
+
+
+async def test_the_substitution_wait_notifies_nobody(db_session, test_session_factory, monkeypatch):
+    """Emenda declarada: este teste afirmava que a espera por substituição
+    notificava SÓ o comprador. Agora afirma que ela não notifica ninguém —
+    e o motivo é o mesmo que já vale para `CONFIRMADO`.
+
+    `reportar_falta_estoque` (commerce) publica DOIS eventos para um único
+    fato: a transição `AGUARDANDO_SUBSTITUICAO` e, logo depois,
+    `order.stock_issue`. O comprador via duas linhas para uma falta só — e a
+    linha da transição, justamente a que manda "toque para escolher um
+    substituto", nascia SEM `ocorrencia_id` (a transição não tem esse dado),
+    então era a inerte das duas: sem id, a tela de notificações não abre a
+    resolução. Quem carrega o id — e portanto quem pode ser tocado — é
+    `order.stock_issue` (`handle_stock_issue`, logo abaixo). A tupla vazia
+    aqui deixa o evento actionable ser o único a falar.
+    """
+    monkeypatch.setattr(consumer_module, "async_session", test_session_factory)
+    await _registrar_staff(test_session_factory)
+
+    await consumer_module.handle_order_status_changed(
+        fake_message(
+            {
+                "pedido_id": PEDIDO_ID,
+                "aluno_id": STUDENT_ID,
+                "status": "AGUARDANDO_SUBSTITUICAO",
+            }
+        )
+    )
+
+    assert (await db_session.execute(select(Notificacao))).scalars().all() == []
+
+
+async def test_the_stock_issue_event_is_the_one_that_carries_the_occurrence(
+    db_session, test_session_factory, monkeypatch
+):
+    """O par do teste acima: quem avisa o comprador da falta é
+    `order.stock_issue`, e a linha dele traz o `ocorrencia_id` que a tela de
+    notificações precisa para abrir a resolução."""
+    monkeypatch.setattr(consumer_module, "async_session", test_session_factory)
+
+    await consumer_module.handle_stock_issue(
+        fake_message(
+            {
+                "pedido_id": PEDIDO_ID,
+                "aluno_id": STUDENT_ID,
+                "ocorrencia_id": 12,
+                "produto_id": str(uuid.uuid4()),
+                "produtos_sugeridos": [],
+            }
+        )
+    )
+
+    notificacoes = (await db_session.execute(select(Notificacao))).scalars().all()
+    assert [str(n.aluno_id) for n in notificacoes] == [STUDENT_ID]
+    assert notificacoes[0].ocorrencia_id == 12
+    assert "falta" in notificacoes[0].descricao.lower()
+
+
+async def test_confirmed_still_notifies_nobody(db_session, test_session_factory, monkeypatch):
+    """A supressão de CONFIRMADO já existia e continua: é um estado que
+    `confirmar_pagamento` atravessa na MESMA chamada."""
+    monkeypatch.setattr(consumer_module, "async_session", test_session_factory)
+    await _registrar_staff(test_session_factory)
+
+    await consumer_module.handle_order_status_changed(
+        fake_message({"pedido_id": PEDIDO_ID, "aluno_id": STUDENT_ID, "status": "CONFIRMADO"})
+    )
+
+    assert (await db_session.execute(select(Notificacao))).scalars().all() == []
+
+
+async def test_occurrence_resolved_tells_the_picker_to_carry_on(
+    db_session, test_session_factory, monkeypatch
+):
+    """Publicado desde a fase 2, consumido por ninguém. É o separador que
+    está bloqueado esperando a decisão do aluno."""
+    monkeypatch.setattr(consumer_module, "async_session", test_session_factory)
+    await _registrar_staff(test_session_factory)
+
+    await consumer_module.handle_occurrence_resolved(
+        fake_message(
+            {
+                "pedido_id": PEDIDO_ID,
+                "aluno_id": STUDENT_ID,
+                "ocorrencia_id": 7,
+                "resolucao": "substituir",
+            }
+        )
+    )
+
+    notificacoes = (await db_session.execute(select(Notificacao))).scalars().all()
+    assert [str(n.aluno_id) for n in notificacoes] == [SEPARADOR_ID]
+
+
+async def test_a_transition_with_no_staff_registered_still_reaches_the_student(
+    db_session, test_session_factory, monkeypatch
+):
+    """Registro vazio (frota nova, ou evento de staff ainda na fila) não pode
+    engolir a notificação do comprador."""
+    monkeypatch.setattr(consumer_module, "async_session", test_session_factory)
+
+    await consumer_module.handle_order_status_changed(
+        fake_message({"pedido_id": PEDIDO_ID, "aluno_id": STUDENT_ID, "status": "EM_TRANSITO"})
+    )
+
+    notificacoes = (await db_session.execute(select(Notificacao))).scalars().all()
+    assert [str(n.aluno_id) for n in notificacoes] == [STUDENT_ID]
+
+
+def test_every_internal_status_has_a_recipient_rule():
+    """Exaustivo por construção, igual ao `STATUS_CONTRATO` do commerce: um
+    estado novo sem regra aqui quebra a suíte em vez de virar um push
+    silencioso para ninguém.
+
+    A lista é escrita como LITERAL de propósito — importar o enum do commerce
+    faria este teste seguir uma renomeação em vez de detectá-la (mesma razão
+    registrada em `edu_common/contracts.py`).
+    """
+    internos = {
+        "CRIADO",
+        "CONFIRMADO",
+        "AGUARDANDO_SEPARACAO",
+        "EM_SEPARACAO",
+        "AGUARDANDO_SUBSTITUICAO",
+        "SEPARADO",
+        "AGUARDANDO_COLETA",
+        "EM_TRANSITO",
+        "ENTREGUE",
+        "CANCELADO",
+    }
+    assert internos <= set(PAPEIS_POR_STATUS)
+
+
+async def test_shipment_created_emails_the_carrier(db_session, test_session_factory, monkeypatch):
+    enviados = []
+
+    async def _capturar(*, para, assunto, texto):
+        enviados.append((para, assunto, texto))
+
+    monkeypatch.setattr(consumer_module, "async_session", test_session_factory)
+    monkeypatch.setattr(consumer_module, "enviar_email", _capturar)
+
+    await consumer_module.handle_shipment_created(fake_message(_payload_shipment()))
+
+    para, _assunto, texto = enviados[0]
+    assert para == "operacao@expresso.example"
+    assert "ABCD2345" in texto and "SEGREDO12345" in texto
+
+
+async def test_shipment_created_does_not_store_the_password(
+    db_session, test_session_factory, monkeypatch
+):
+    """A senha vive no e-mail e em lugar nenhum mais. Uma linha de
+    `notificacoes` é lida por rota autenticada de USUÁRIO — a transportadora
+    não é usuária deste sistema, e a senha não tem por que ficar no banco."""
+    monkeypatch.setattr(consumer_module, "async_session", test_session_factory)
+    monkeypatch.setattr(consumer_module, "enviar_email", _noop_email)
+
+    await consumer_module.handle_shipment_created(fake_message(_payload_shipment()))
+
+    assert (await db_session.execute(select(Notificacao))).scalars().all() == []

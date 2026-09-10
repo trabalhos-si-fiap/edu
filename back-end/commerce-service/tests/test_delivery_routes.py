@@ -5,6 +5,7 @@ from edu_common.security import create_access_token
 
 from app.config import settings
 from app.models.pedido import Order
+from app.services.directions import DirectionsResult
 from app.services.status_pedido import StatusPedido
 
 
@@ -194,6 +195,19 @@ async def test_delivery_queue_actually_applies_limit_and_offset(client, db_sessi
     assert {row["id"] for row in first_body}.isdisjoint({row["id"] for row in last_body})
 
 
+async def test_a_deliverer_user_still_collects_the_old_way(client, db_session):
+    """O papel `entregador` deixa de ser o caminho normal, mas não morre: a
+    spec A seeda uma conta com ele, e a suíte de entrega inteira depende
+    dele. Esta task não pode quebrar esse caminho."""
+    pedido = await _seed_pedido(db_session, StatusPedido.AGUARDANDO_COLETA.value)
+
+    response = await client.patch(
+        f"/delivery/{pedido.id}/collect", headers=headers_for("entregador", DELIVERER_A)
+    )
+
+    assert response.status_code == 200
+
+
 async def test_delivery_mine_actually_applies_limit_and_offset(client, db_session):
     total = 55
     for _i in range(total):
@@ -222,3 +236,173 @@ async def test_delivery_mine_actually_applies_limit_and_offset(client, db_sessio
     assert len(last_body) == total - 50
 
     assert {row["id"] for row in first_body}.isdisjoint({row["id"] for row in last_body})
+
+
+# ── Fix round 1 (reviewer, Important): a fábrica `ator_de_entrega` devolve
+# cada rota ao conjunto de papéis de usuário que ela já tinha ANTES desta
+# task — admin só em `queue`, nunca em `collect`/`deliver`/`mine`. ─────────
+
+
+async def test_admin_is_refused_on_collect(client, db_session):
+    """Antes desta spec, `PATCH /delivery/{id}/collect` era
+    `requer_papel("entregador")` só — admin nunca pôde reivindicar um
+    pedido por aqui (o caminho de admin é
+    `/admin/orders/{id}/assign-deliverer`). Um token admin passando por
+    `ator_de_entrega("entregador")` não pode reabrir essa porta."""
+    pedido = await _seed_pedido(db_session, StatusPedido.AGUARDANDO_COLETA.value)
+
+    response = await client.patch(
+        f"/delivery/{pedido.id}/collect", headers=headers_for("admin", ADMIN)
+    )
+
+    assert response.status_code == 403
+
+
+async def test_admin_is_refused_on_deliver(client, db_session):
+    """Mesma razão de `test_admin_is_refused_on_collect`:
+    `PATCH /delivery/{id}/deliver` também excluía admin antes desta task."""
+    pedido = await _seed_pedido(
+        db_session, StatusPedido.EM_TRANSITO.value, entregador_id=DELIVERER_A
+    )
+
+    response = await client.patch(
+        f"/delivery/{pedido.id}/deliver", headers=headers_for("admin", ADMIN)
+    )
+
+    assert response.status_code == 403
+
+
+async def test_admin_is_still_accepted_on_queue(client, db_session):
+    """`GET /delivery/queue` sempre aceitou admin (`requer_papel("entregador",
+    "admin")`, antes desta spec) — prova que o fix devolveu cada rota ao seu
+    conjunto original, em vez de banir admin de todo `/delivery`."""
+    await _seed_pedido(db_session, StatusPedido.AGUARDANDO_COLETA.value)
+
+    response = await client.get("/delivery/queue", headers=headers_for("admin", ADMIN))
+
+    assert response.status_code == 200
+
+
+# ── Task 6: `collect` congela `orders.destino_lat/lng` via `congelar_destino`
+# — uma vez, e nunca bloqueando a coleta. ──────────────────────────────────
+
+
+async def _seed_pedido_com_endereco_e_carregamento(
+    db_session, carregamento_id: int, status: str = StatusPedido.AGUARDANDO_COLETA.value
+) -> Order:
+    """Pedido pronto para coleta, com snapshot de endereço de entrega (o que
+    `congelar_destino` precisa para montar o destino geocodificável) e já
+    associado a um carregamento com origem congelada (o que
+    `seed_carregamento` já garante)."""
+    pedido = Order(
+        user_id=str(uuid.uuid4()),
+        status=status,
+        total=Decimal("100.00"),
+        carregamento_id=carregamento_id,
+        ship_label="Casa",
+        ship_zip_code="13201-005",
+        ship_street="Rua das Flores",
+        ship_number="42",
+        ship_neighborhood="Centro",
+        ship_city="Jundiaí",
+        ship_state="SP",
+    )
+    db_session.add(pedido)
+    await db_session.commit()
+    await db_session.refresh(pedido)
+    return pedido
+
+
+async def test_collect_freezes_the_destination_when_directions_succeeds(
+    client, db_session, monkeypatch, seed_carregamento
+):
+    """Prova positiva de `congelar_destino`: a coleta grava `destino_lat/lng`
+    a partir da resposta (remendada) da Google Directions — o caminho feliz
+    que os demais testes de `/collect` não exercitam porque não configuram
+    `google_maps_api_key`."""
+    carregamento = await seed_carregamento()
+    pedido = await _seed_pedido_com_endereco_e_carregamento(db_session, carregamento.id)
+    monkeypatch.setattr(settings, "google_maps_api_key", "test-key")
+
+    async def fake_fetch(client, *, origin, destination, api_key):
+        return DirectionsResult(
+            polyline="enc-poly",
+            distance_text="10 km",
+            distance_km=10.0,
+            duration_text="20 min",
+            duration_minutes=20,
+            destination_latitude=-23.185700,
+            destination_longitude=-46.897800,
+        )
+
+    monkeypatch.setattr("app.services.posicao.directions.fetch_directions", fake_fetch)
+
+    response = await client.patch(
+        f"/delivery/{pedido.id}/collect", headers=headers_for("entregador", sub=DELIVERER_A)
+    )
+    assert response.status_code == 200
+
+    await db_session.refresh(pedido)
+    assert pedido.destino_lat == Decimal("-23.185700")
+    assert pedido.destino_lng == Decimal("-46.897800")
+
+
+async def test_collect_never_fails_when_the_provider_is_unreachable(
+    client, db_session, monkeypatch, seed_carregamento
+):
+    """`congelar_destino` nunca levanta (constraint global da task 6): mesmo
+    com a chave configurada e o endereço presente, uma falha ao alcançar a
+    Google — aqui, o bloqueio estrutural de rede real de
+    `conftest.py::_block_real_network_calls`, que nenhum monkeypatch de
+    `fetch_directions` neutraliza neste teste de propósito — não pode
+    derrubar a coleta. O pedido só fica sem destino."""
+    carregamento = await seed_carregamento()
+    pedido = await _seed_pedido_com_endereco_e_carregamento(db_session, carregamento.id)
+    monkeypatch.setattr(settings, "google_maps_api_key", "test-key")
+
+    response = await client.patch(
+        f"/delivery/{pedido.id}/collect", headers=headers_for("entregador", sub=DELIVERER_A)
+    )
+    assert response.status_code == 200
+
+    await db_session.refresh(pedido)
+    assert pedido.destino_lat is None
+
+
+async def test_collect_never_fails_when_the_provider_returns_an_unusable_coordinate(
+    client, db_session, monkeypatch, seed_carregamento
+):
+    """Fix round 1 (Important, plan-mandated): a resposta da Google pode
+    formalmente ter `status: OK` e ainda assim carregar um valor que não vira
+    `Decimal` — a conversão em `congelar_destino` estourava
+    `decimal.InvalidOperation` FORA do `try`, e a coleta virava um 500 para um
+    pedido que, na verdade, já tinha sido coletado (`transicionar_pedido` já
+    tinha commitado antes de `congelar_destino` rodar). `congelar_destino`
+    promete nunca levantar; este teste força o pior caso do lado de dentro do
+    próprio parsing, não só da chamada de rede."""
+    carregamento = await seed_carregamento()
+    pedido = await _seed_pedido_com_endereco_e_carregamento(db_session, carregamento.id)
+    monkeypatch.setattr(settings, "google_maps_api_key", "test-key")
+
+    async def fake_fetch_valor_invalido(client, *, origin, destination, api_key):
+        return DirectionsResult(
+            polyline="enc-poly",
+            distance_text="10 km",
+            distance_km=10.0,
+            duration_text="20 min",
+            duration_minutes=20,
+            destination_latitude="não é número",
+            destination_longitude=-46.897800,
+        )
+
+    monkeypatch.setattr(
+        "app.services.posicao.directions.fetch_directions", fake_fetch_valor_invalido
+    )
+
+    response = await client.patch(
+        f"/delivery/{pedido.id}/collect", headers=headers_for("entregador", sub=DELIVERER_A)
+    )
+    assert response.status_code == 200
+
+    await db_session.refresh(pedido)
+    assert pedido.destino_lat is None

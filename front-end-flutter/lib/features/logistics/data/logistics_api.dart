@@ -19,6 +19,25 @@ class LogisticsException implements Exception {
   String toString() => message;
 }
 
+/// Sessão obtida por `LogisticsApi.entrarNoCarregamento` — o login por
+/// código de carregamento (`POST /shipments/login`). `codigo` e
+/// `origemRotulo` vêm da resposta do backend e servem só para exibição (ex.:
+/// cabeçalho da fila de entrega); a lista de pedidos continua vindo,
+/// intacta, de `/delivery/queue`.
+class SessaoCarregamento {
+  const SessaoCarregamento({
+    required this.accessToken,
+    required this.carregamentoId,
+    required this.codigo,
+    required this.origemRotulo,
+  });
+
+  final String accessToken;
+  final int carregamentoId;
+  final String codigo;
+  final String origemRotulo;
+}
+
 /// Cliente HTTP para os endpoints de separação, entrega e ocorrências do
 /// Commerce Service — `/picking`, `/delivery`, `/occurrences`, não
 /// `/separacao`/`/entrega`/`/ocorrencias` (esses nomes eram do router
@@ -120,6 +139,58 @@ class LogisticsApi {
 
   Future<Pedido> confirmarEntrega(String pedidoId) =>
       _patchPedido('/delivery/$pedidoId/deliver');
+
+  // ── Carregamento (login por código) ───────────────────────
+  // Prefixo /shipments — ver back-end/commerce-service/app/routers/shipments.py.
+
+  /// Login de quem não tem credencial de funcionário: entra com o código do
+  /// lote/carregamento e uma senha própria dele, mais nome e contato para
+  /// identificação. `POST /shipments/login` **sem** header de autorização —
+  /// é o ponto de entrada, não há sessão prévia para autenticar essa
+  /// chamada. Por isso quem instancia `LogisticsApi` para chamar este
+  /// método deve passar um `http.Client()` simples (ver
+  /// `ShipmentLoginScreen`), não o `appAuthClient` compartilhado: aquele
+  /// client injeta `Authorization` a partir de uma sessão anterior guardada
+  /// no `TokenStore` e, num 401 de credencial errada, tentaria refresh e
+  /// derrubaria a sessão em vez de só devolver a mensagem do backend.
+  ///
+  /// Uma sessão de carregamento não tem refresh token (dura 12h fixas), daí
+  /// o `refreshToken: ''` gravado no `TokenStore` — vazio por não existir,
+  /// não por falha.
+  Future<SessaoCarregamento> entrarNoCarregamento({
+    required String codigo,
+    required String senha,
+    required String nome,
+    required String contato,
+  }) async {
+    final http.Response res;
+    try {
+      res = await _client.post(
+        Uri.parse('${ApiConfig.baseUrl}/shipments/login'),
+        headers: const {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'codigo': codigo,
+          'senha': senha,
+          'nome': nome,
+          'contato': contato,
+        }),
+      );
+    } on Exception {
+      throw LogisticsException('Não foi possível conectar ao servidor');
+    }
+    if (res.statusCode != 200) {
+      throw LogisticsException(_mensagemErro(res, 'entrar no carregamento'));
+    }
+    final body = jsonDecode(res.body) as Map<String, dynamic>;
+    final accessToken = body['access_token'] as String;
+    await _tokenStore.save(accessToken: accessToken, refreshToken: '');
+    return SessaoCarregamento(
+      accessToken: accessToken,
+      carregamentoId: body['carregamento_id'] as int,
+      codigo: body['codigo'] as String,
+      origemRotulo: body['origem_rotulo'] as String,
+    );
+  }
 
   // ── Ocorrências ────────────────────────────────────────────
   // Prefixo /occurrences — ver back-end/commerce-service/app/routers/ocorrencias.py.

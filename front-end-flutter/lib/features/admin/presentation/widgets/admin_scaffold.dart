@@ -5,14 +5,15 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../auth/data/auth_api.dart';
 import '../admin_analytics_screen.dart';
 import '../admin_dashboard_screen.dart';
+import '../admin_shipments_screen.dart';
 
-enum AdminTab { dashboard, painel }
+enum AdminTab { dashboard, painel, carregamentos }
 
-/// Scaffold base das telas de admin: AppBar com logout + bottom nav de 2
-/// abas (Dashboard / Painel Analítico), no estilo do mockup de
-/// referência. Trocar de aba troca de tela via [PageRoute] sem animação
-/// (são pares, não uma pilha), igual o padrão do restante do app para
-/// bottom nav.
+/// Scaffold base das telas de admin: AppBar com sino de notificações +
+/// logout, e bottom nav de 3 abas (Dashboard / Painel Analítico /
+/// Carregamentos), no estilo do mockup de referência. Trocar de aba troca
+/// de tela via [PageRoute] sem animação (são pares, não uma pilha), igual
+/// o padrão do restante do app para bottom nav.
 class AdminScaffold extends StatelessWidget {
   const AdminScaffold({
     super.key,
@@ -38,9 +39,11 @@ class AdminScaffold extends StatelessWidget {
       PageRouteBuilder(
         transitionDuration: Duration.zero,
         reverseTransitionDuration: Duration.zero,
-        pageBuilder: (_, __, ___) => destino == AdminTab.dashboard
-            ? const AdminDashboardScreen()
-            : const AdminAnalyticsScreen(),
+        pageBuilder: (_, __, ___) => switch (destino) {
+          AdminTab.dashboard => const AdminDashboardScreen(),
+          AdminTab.painel => const AdminAnalyticsScreen(),
+          AdminTab.carregamentos => const AdminShipmentsScreen(),
+        },
       ),
     );
   }
@@ -62,6 +65,18 @@ class AdminScaffold extends StatelessWidget {
           ),
         ),
         actions: [
+          // Mesmo ponto de entrada que a task 11 deu às duas telas de staff
+          // de logística (`LogisticsScaffold.showNotifications`): o admin é
+          // a terceira superfície de staff, e os pushes da spec C também
+          // chegam para quem tem papel admin.
+          IconButton(
+            onPressed: () => Navigator.pushNamed(context, '/notifications'),
+            icon: const Icon(
+              Icons.notifications_outlined,
+              color: AppColors.textPrimary,
+            ),
+            tooltip: 'Notificações',
+          ),
           IconButton(
             onPressed: () => _logout(context),
             icon: const Icon(Icons.logout, color: AppColors.textPrimary),
@@ -87,6 +102,12 @@ class AdminScaffold extends StatelessWidget {
                 label: 'Painel',
                 selected: tab == AdminTab.painel,
                 onTap: () => _onTapTab(context, AdminTab.painel),
+              ),
+              _NavItem(
+                icon: Icons.local_shipping_outlined,
+                label: 'Carregamentos',
+                selected: tab == AdminTab.carregamentos,
+                onTap: () => _onTapTab(context, AdminTab.carregamentos),
               ),
             ],
           ),

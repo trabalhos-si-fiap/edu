@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, uuid_do_usuario
 from app.exceptions import (
     CarrinhoOrigemMistaError,
     CartItemNotFoundError,
@@ -27,7 +27,7 @@ async def obter_carrinho(
     storage: ObjectStorage = Depends(get_storage),
     redis: aioredis.Redis = Depends(get_redis),
 ) -> CartOut:
-    cart = await services.obter_carrinho(db, uuid.UUID(user["sub"]))
+    cart = await services.obter_carrinho(db, uuid_do_usuario(user))
     return await presign_cart(cart, storage=storage, redis=redis)
 
 
@@ -40,7 +40,7 @@ async def adicionar_item(
     redis: aioredis.Redis = Depends(get_redis),
 ) -> CartOut:
     try:
-        cart = await services.adicionar_item(db, uuid.UUID(user["sub"]), payload)
+        cart = await services.adicionar_item(db, uuid_do_usuario(user), payload)
         return await presign_cart(cart, storage=storage, redis=redis)
     except CartProductNotFoundError as exc:
         raise HTTPException(
@@ -62,7 +62,7 @@ async def remover_item(
     quantity: int | None = Query(default=None, ge=1),
 ) -> CartOut:
     try:
-        cart = await services.remover_item(db, uuid.UUID(user["sub"]), product_id, quantity)
+        cart = await services.remover_item(db, uuid_do_usuario(user), product_id, quantity)
         return await presign_cart(cart, storage=storage, redis=redis)
     except CartItemNotFoundError as exc:
         raise HTTPException(

@@ -10,12 +10,23 @@ from app.config import settings
 from app.database import Base
 
 # Importa os models para que registrem em Base.metadata antes do autogenerate.
+#
+# A lista tem que ser COMPLETA. Um model ausente não é invisível para o
+# autogenerate: ele fica de fora do `Base.metadata`, e o próximo
+# `--autogenerate` lê a tabela existente no banco como órfã e propõe
+# `op.drop_table(...)`. `carregamentos`/`posicao_entrega` (spec C),
+# `estoque_ajustes` e `carriers` (spec B) estavam nessa situação. Mesmo
+# formato do `alembic/env.py` do notification-service, que já lista os três
+# models dele.
+from app.models import carregamento as carregamento_models  # noqa: F401
 from app.models import carrinho as carrinho_models  # noqa: F401
+from app.models import estoque_ajuste as estoque_ajuste_models  # noqa: F401
 from app.models import ocorrencia as ocorrencia_models  # noqa: F401
 from app.models import pagamento as pagamento_models  # noqa: F401
 from app.models import pedido as pedido_models  # noqa: F401
 from app.models import produto as produto_models  # noqa: F401
 from app.models import review as review_models  # noqa: F401
+from app.models import transportadora as transportadora_models  # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)

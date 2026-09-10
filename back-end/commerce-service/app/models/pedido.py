@@ -37,7 +37,8 @@ class Order(Base):
 
     `pedido_status_historico` continua em português: sem cliente.
 
-    `status` guarda o estado INTERNO (nove valores, `StatusPedido`). Quem
+    `status` guarda o estado INTERNO (dez valores, `StatusPedido` —
+    `AGUARDANDO_SUBSTITUICAO` entrou na task 2 da spec C). Quem
     traduz para os seis do contrato (`StatusContrato`) é
     `app/services/status_pedido.py::status_do_contrato`, e a ligação com a
     resposta do aluno foi feita pela task C6 em `OrderOut.de_order`
@@ -116,6 +117,21 @@ class Order(Base):
     origem_rotulo = Column(String(120), nullable=True)
     origem_lat = Column(Numeric(9, 6), nullable=True)
     origem_lng = Column(Numeric(9, 6), nullable=True)
+
+    # O lote que leva este pedido. Nulo até o admin atribuir (task 4), e nulo
+    # para sempre nos pedidos anteriores a esta spec.
+    carregamento_id = Column(Integer, ForeignKey("carregamentos.id"), nullable=True, index=True)
+
+    # Coordenada do endereço de entrega, RESOLVIDA UMA VEZ na coleta e
+    # congelada aqui (ver D9). `addresses` não guarda coordenada; quem
+    # converte endereço em par lat/lng é `app/services/directions.py`, a mesma
+    # fronteira que `GET /orders/{id}/route` já usa.
+    #
+    # Nulo é estado normal, não erro: pedido sem chave da Google configurada,
+    # sem snapshot de endereço, ou anterior a esta spec. Nesse caso o
+    # simulador ignora o pedido e o rastreio devolve `courier_position: null`.
+    destino_lat = Column(Numeric(9, 6), nullable=True)
+    destino_lng = Column(Numeric(9, 6), nullable=True)
 
     items = relationship(
         "OrderItem",

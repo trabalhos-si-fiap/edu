@@ -7,8 +7,8 @@ conferem que a timeline reflete o status real do pedido.
 Porte de `legacy/tests/test_tracking_builders.py` (task C8). Adaptações:
 `OrderStatus` (legacy, cinco valores, é ao mesmo tempo o status interno e o
 do contrato) vira dois conceitos aqui — o SEED do pedido usa o status
-INTERNO (`StatusPedido`, nove valores, o que `order.status` guarda de
-verdade) e as asserções sobre `payload.steps`/`headline` usam a linguagem
+INTERNO (`StatusPedido`, dez valores desde a task 2 da spec C — o que
+`order.status` guarda de verdade) e as asserções sobre `payload.steps`/`headline` usam a linguagem
 do CONTRATO (`StatusContrato`, seis valores), porque é sobre isso que
 `build_order_tracking` opera (`status_do_contrato` traduz um no outro).
 """
@@ -19,6 +19,7 @@ from decimal import Decimal
 
 import pytest
 
+from app.models.carregamento import PosicaoEntrega
 from app.models.pedido import Order, OrderItem
 from app.schemas.rastreio import TrackingStepStatus
 from app.services.rastreio_builder import build_order_tracking
@@ -31,13 +32,14 @@ _UPDATED = _CREATED + timedelta(minutes=2)
 _STEP_CODES = ["confirmed", "separating", "out_for_delivery", "delivered"]
 
 
-def _order_falso(status: str, *, items: int = 2) -> Order:
+def _order_falso(status: str, *, items: int = 2, carrier_name: str | None = None) -> Order:
     return Order(
         id=uuid.uuid4(),
         user_id=uuid.uuid4(),
         total=Decimal("100.00"),
         payment_method="pix",
         status=status,
+        carrier_name=carrier_name,
         created_at=_CREATED,
         status_updated_at=_UPDATED,
         items=[
@@ -170,7 +172,7 @@ def test_tracking_of_a_cancelled_order_does_not_raise() -> None:
 def test_payload_status_mirrors_the_contract_status(status: StatusPedido) -> None:
     """`OrderTrackingOut.status` (divergência deliberada nº 7 — o legacy não
     tem esse campo) espelha o valor público de `status_do_contrato`, para
-    todos os nove estados internos, não só `cancelled`."""
+    todos os dez estados internos, não só `cancelled`."""
     payload = build_order_tracking(_order_falso(status.value))
     assert payload.status == status_do_contrato(status.value)
 
@@ -201,3 +203,47 @@ def test_cancelled_order_still_returns_an_estimated_arrival() -> None:
     tracking = build_order_tracking(order)
     assert tracking.estimated_arrival is not None
     assert tracking.estimated_arrival == _CREATED + timedelta(days=4)
+
+
+def test_the_tracking_shows_the_real_carrier_when_there_is_one() -> None:
+    """D12 (task 6): `atribuir_pedido` (app/services/carregamentos.py) grava
+    o nome real da transportadora em `order.carrier_name` quando o pedido
+    entra num carregamento — o rastreio passa a mostrar esse nome."""
+    order = _order_falso(StatusPedido.EM_TRANSITO.value, carrier_name="Expresso Cajamar")
+    assert build_order_tracking(order).carrier == "Expresso Cajamar"
+
+
+def test_the_tracking_falls_back_to_the_house_carrier() -> None:
+    """Pedido sem carregamento continua mostrando a constante — não uma
+    string vazia, que a tela renderizaria como um campo em branco."""
+    order = _order_falso(StatusPedido.CRIADO.value, carrier_name=None)
+    assert build_order_tracking(order).carrier == "Logistics Intel Express"
+
+
+def test_the_tracking_omits_the_courier_position_by_default() -> None:
+    """`build_order_tracking` continua pura: sem o parâmetro novo, o payload
+    não inventa uma posição — o default é `None`, o mesmo que os testes já
+    existentes acima (que chamam a função com um argumento só) continuam
+    exercitando."""
+    order = _order_falso(StatusPedido.EM_TRANSITO.value)
+    assert build_order_tracking(order).courier_position is None
+
+
+def test_the_tracking_carries_the_position_it_is_given() -> None:
+    """A função é pura: recebe a posição já carregada e só a traduz — quem
+    carrega do banco é o router (`app/routers/rastreio.py`)."""
+    order = _order_falso(StatusPedido.EM_TRANSITO.value)
+    registrada_em = _UPDATED
+    posicao = PosicaoEntrega(
+        carregamento_id=1,
+        lat=Decimal("-23.450000"),
+        lng=Decimal("-46.700000"),
+        registrado_em=registrada_em,
+    )
+
+    courier_position = build_order_tracking(order, posicao).courier_position
+
+    assert courier_position is not None
+    assert courier_position.latitude == -23.45
+    assert courier_position.longitude == -46.7
+    assert courier_position.updated_at == registrada_em

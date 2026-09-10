@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from app.events.publisher import close_publisher, init_publisher
 from app.routers import (
     admin,
+    carregamentos,
     carrinho,
     entrega,
     ocorrencias,
@@ -16,12 +17,15 @@ from app.routers import (
     separacao,
     transportadoras,
 )
+from app.scheduler import start_scheduler, stop_scheduler
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_publisher()
+    start_scheduler()
     yield
+    stop_scheduler()
     await close_publisher()
 
 
@@ -38,6 +42,7 @@ app.include_router(admin.router)
 app.include_router(parceiros.router)
 app.include_router(ocorrencias.router)
 app.include_router(transportadoras.router)
+app.include_router(carregamentos.router)
 
 
 @app.get("/health")

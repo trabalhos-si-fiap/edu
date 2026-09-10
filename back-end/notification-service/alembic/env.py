@@ -12,6 +12,7 @@ from app.database import Base
 # Importa os models para que registrem em Base.metadata antes do autogenerate.
 from app.models import device_token as device_token_models  # noqa: F401
 from app.models import notificacao as notificacao_models  # noqa: F401
+from app.models import staff as staff_models  # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)

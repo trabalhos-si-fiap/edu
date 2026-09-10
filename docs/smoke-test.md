@@ -1,11 +1,12 @@
-# Smoke test do corte (specs A e B)
+# Smoke test do corte (specs A, B e C)
 
 **Para que serve:** confirmar, em cerca de trinta minutos, que a plataforma
 inteira funciona sobre um backend só depois que o monolito foi apagado. Não é
-suíte de regressão — as 882 asserções de backend e as 179 do Flutter já rodam
-em CI e cobrem unidade e integração. Este documento cobre o que teste
-automatizado não alcança: um humano atravessando o produto de ponta a ponta,
-alternando entre os quatro perfis, contra o stack de verdade.
+suíte de regressão — as 968 asserções de backend e as 201 do Flutter (medidas
+em 2026-09-09, ao fechar a spec C) já rodam em CI e cobrem unidade e
+integração. Este documento cobre o que teste automatizado não alcança: um
+humano atravessando o produto de ponta a ponta, alternando entre os quatro
+perfis, contra o stack de verdade.
 
 **Quando rodar:** depois do runbook de corte da §5 de
 [`back-end/microservices.md`](back-end/microservices.md) — e, para as etapas
@@ -30,6 +31,16 @@ Para as etapas da spec B, o runbook "Aplicando a spec B a um stack existente"
 `npm run build` no `web-admin`. Migration antes do seed é obrigatório: o seed
 escreve em colunas que só existem depois dela.
 
+Para as etapas da spec C não há seed novo — só duas revisions aditivas
+(`c1d2e3f4a5b6` no `commerce_db`, `d4c5b6a7e8f9` no `notification_db`) — mas
+`make stack-rebuild` continua obrigatório: o `commerce-service` ganhou uma
+dependência nova (`apscheduler`) e um `app/scheduler.py` importado no
+`main.py`, e uma imagem em cache não os tem. Confira `EMAIL_BACKEND`
+(`console` por padrão, não fala com a rede) no `.env`, e deixe
+`AVANCO_AUTOMATICO_SEGUNDOS` **ausente** a menos que o critério de pronto 6
+seja exatamente o que você quer exercitar — ver
+[`back-end/order-flow.md`](back-end/order-flow.md) §4.
+
 Você vai precisar de:
 
 - A senha das contas de demonstração (`DEMO_ACCOUNTS_PASSWORD`, mínimo de 8
@@ -44,7 +55,7 @@ está em [`back-end/demo-accounts.md`](back-end/demo-accounts.md).
 
 ## Etapa 0 — a frota está de pé e é a nova
 
-Antes de tocar no app, seis conferências de trinta segundos. Elas separam
+Antes de tocar no app, oito conferências de trinta segundos. Elas separam
 "o sistema está no ar" de "o sistema no ar é o que eu acabei de construir",
 que é a distinção que o dia do corte torna cara.
 
@@ -52,14 +63,17 @@ que é a distinção que o dia do corte torna cara.
 |---|---|---|---|
 | 0.1 | Nenhum container de monolito | `docker compose -f back-end/docker-compose.yml ps --services` | Sete serviços mais a infra. Nada chamado `api`, `worker` ou `migrate`. |
 | 0.2 | O gateway responde | `curl -s localhost:8100/health` | 200. |
-| 0.3 | As filas nasceram com dead-letter | `docker exec edu-rabbitmq rabbitmqctl list_queues name arguments` | As sete filas de trabalho trazem `x-dead-letter-exchange`, e existe uma `edu.events.dead`. |
+| 0.3 | As filas nasceram com dead-letter | `docker exec edu-rabbitmq rabbitmqctl list_queues name arguments` | As onze filas de trabalho (sete até a spec B; a spec C acrescenta `notification.staff_created`, `notification.order_created`, `notification.occurrence_resolved` e `notification.shipment_created` — [`back-end/microservices.md`](back-end/microservices.md) §8) trazem `x-dead-letter-exchange`, e existe uma `edu.events.dead`. |
 | 0.4 | O catálogo foi semeado uma vez só | `docker exec -i edu-postgres psql -U edu -d commerce_db -c "SELECT count(*), count(DISTINCT name) FROM products;"` | Os dois números iguais. Diferentes significa que a corrida do seed aconteceu — o que o lock consultivo da spec A existe para impedir. |
 | 0.5 | O schema da spec B foi aplicado | `docker exec -i edu-postgres psql -U edu -d commerce_db -c "\\dt estoque_ajustes carriers"` e `-c "SELECT version_num FROM alembic_version;"` | As duas tabelas existem e a revision é `b1a2c3d4e5f6`. Se não, `make services-migrate` não rodou (ou rodou contra uma imagem em cache). |
 | 0.6 | O seed da spec B rodou | `docker exec -i edu-postgres psql -U edu -d commerce_db -c "SELECT nome, ativo, origem_rotulo FROM fornecedores;"` e `-c "SELECT count(*) FROM estoque WHERE fornecedor_id IS NULL;"` | Dois fornecedores com origem preenchida, e **zero** linhas de estoque sem fornecedor. `ativo` é `f` para `Edu` e `t` para o parceiro externo — isso é o esperado, não bug: `Edu` é o fornecedor da própria loja e não uma vitrine, e a seção de parceiros do app deve listar **um** elemento. Estoque órfão significa que o seed não adotou os produtos próprios: a seção de parceiros do app fica vazia e todo pedido novo sai sem origem. |
+| 0.7 | O schema da spec C foi aplicado | `docker exec -i edu-postgres psql -U edu -d commerce_db -c "\\dt carregamentos posicao_entrega"` e `-c "SELECT version_num FROM alembic_version;"`; e `docker exec -i edu-postgres psql -U edu -d notification_db -c "\\dt staff"` e `-c "SELECT version_num FROM alembic_version;"` | As duas tabelas existem no `commerce_db` com a revision `c1d2e3f4a5b6`, e `staff` existe no `notification_db` com a revision `d4c5b6a7e8f9`. Se não, `make services-migrate` não rodou (ou rodou contra uma imagem em cache — veja o aviso de `apscheduler` acima). |
+| 0.8 | O registro de staff tem as três contas | `docker exec -i edu-postgres psql -U edu -d notification_db -c "SELECT papel, nome FROM staff;"` | Três linhas — `admin`, `separador`, `entregador` — uma por conta de demonstração não-aluno. Zero linhas significa que o `staff.created` de cada uma foi publicado para uma fila que ainda não existia quando o seed rodou (mesma classe de armadilha de ordem que a §5 do `microservices.md` descreve para `student.created`): recrie as contas de demo depois de aplicar a migration e reiniciar o `notification-service`. |
 
 A 0.3 é a que pega a imagem velha: se as filas não têm `arguments`, o
 `edu-common` que está rodando é anterior à spec A, e o rebuild não
-aconteceu ou não pegou. A 0.5 e a 0.6 fazem o mesmo pela spec B.
+aconteceu ou não pegou. A 0.5 e a 0.6 fazem o mesmo pela spec B; a 0.7 e a
+0.8, pela spec C.
 
 ## Etapa 1 — aluno: catálogo, carrinho, pedido
 
@@ -117,10 +131,23 @@ Saia e entre com `admin@demo.edu`. A tela inicial é o dashboard.
    **estoque**, não o do produto. Cada ajuste grava uma linha de auditoria em
    `estoque_ajustes`, legível em
    `GET /api/products/{product_id}/stock-adjustments`.
+5. **Crie o carregamento que a etapa 5 vai usar** (spec C). Na aba
+   "Carregamentos" (app ou painel), escolha a transportadora do seed e crie
+   um carregamento (`POST /api/shipments`, corpo `{transportadora_id}`). A
+   resposta traz `codigo` e `senha` **uma única vez** — anote os dois, eles
+   não voltam em nenhuma listagem nem em nenhuma tela depois desta. Atribua o
+   pedido da etapa 1 a ele (`POST /api/shipments/{id}/orders`, corpo
+   `{pedido_id}`); um pedido de origem diferente da já congelada no lote
+   daria 409. O que a credencial autoriza está em
+   [`back-end/order-flow.md`](back-end/order-flow.md) §2.
 
-**Nenhuma notificação é gerada nesta etapa.** `admin.py` não publica evento
-nenhum — verificado. Se você esperar um push aqui e ele não vier, não é
-regressão.
+`PATCH /api/admin/orders/{id}/confirm-payment` **gera notificação**: o
+pedido atravessa `CONFIRMADO` (suprimido, transitório) e para em
+`AGUARDANDO_SEPARACAO`, que avisa o aluno **e** o separador (tabela de
+destinatário da spec C, [`back-end/order-flow.md`](back-end/order-flow.md)
+§5 — confira na seção "Conferência do push" mais abaixo). `assign-picker` e
+`assign-deliverer`, e a criação do carregamento em si, continuam sem publicar
+notificação — não mudam o status do pedido.
 
 ## Etapa 3 — separador: a fila e a separação
 
@@ -134,8 +161,12 @@ separação, sem passar pela home do aluno — isso é o `switch` de papel em
 3. Marque os itens e finalize (`PATCH /api/picking/{id}/finish`). O pedido vai
    para `SEPARADO`.
 
-**O passo 3 é o único do fluxo feliz que publica um evento**
-(`separacao.py:111`, `order.status_changed`). É ele que a etapa 4 vai conferir.
+Toda transição publica `order.status_changed`
+(`app/routers/separacao.py::transicionar_pedido`) — não só esta; o que a
+spec C mudou não foi a publicação (já existia), foi o **destinatário** de
+cada uma (seção "Conferência do push" mais abaixo). O passo 2
+(`EM_SEPARACAO`) avisa só o aluno; o passo 3 (`SEPARADO`) também. É este
+último que a etapa 4 vai conferir.
 
 ## Etapa 4 — a notificação chegou, com o identificador certo
 
@@ -158,19 +189,39 @@ estiver truncado, isso sim é bug.
 
 ## Etapa 5 — entregador: coleta e entrega
 
-Saia e entre com `entregador@demo.edu`. O login roteia direto para a fila de
-entrega.
+Saia. Em vez de `entregador@demo.edu`, entre pelo **código do carregamento**
+criado na etapa 2 (spec C) — na tela de login, toque em "Entrar com código de
+carregamento" e informe `codigo`, `senha`, seu nome e um contato
+(`POST /api/shipments/login`). O token vale só para os pedidos deste
+carregamento, por até 12 horas, não é um papel de usuário da frota, e o
+primeiro acesso grava quem pegou a carga (`entregador_nome`/`entregador_contato`/
+`aberto_em`). Detalhe completo em
+[`back-end/order-flow.md`](back-end/order-flow.md) §2.
 
-1. A fila (`GET /api/delivery/queue`) mostra o pedido separado.
+> `entregador@demo.edu` continua funcionando pelo caminho antigo — login
+> normal, sem código. As quatro rotas de `/delivery` aceitam os dois atores.
+> Use-a se quiser demonstrar o fluxo sem carregamento, ou para a conferência
+> de push do entregador (mais abaixo) — uma sessão aberta só pelo código não
+> corresponde a nenhum usuário do registro de staff, então não recebe
+> notificação própria.
+
+1. A fila (`GET /api/delivery/queue`) mostra o pedido separado — filtrada
+   pelo carregamento quando a entrada foi por código.
 2. Colete (`PATCH /api/delivery/{id}/collect`). O pedido vai para
-   `EM_TRANSITO`, e o aluno passa a ver `out_for_delivery`.
+   `EM_TRANSITO`, e o aluno passa a ver `out_for_delivery`. É neste passo que
+   o backend congela a coordenada de destino e o simulador de posição
+   (`app/services/simulador_posicao.py`) começa a andar — **posição
+   simulada: não há entregador real nem GPS neste sistema**, ver
+   [`back-end/order-flow.md`](back-end/order-flow.md) §3. O mapa do
+   comprador (tela de rastreio da etapa 1) passa a mostrar a posição se
+   deslocando a cada ~10 segundos.
 3. Confira `GET /api/delivery/mine` — o pedido aparece na lista do entregador.
 4. Entregue (`PATCH /api/delivery/{id}/deliver`). O pedido vai para `ENTREGUE`.
 
-**Nenhuma das duas transições publica evento.** `entrega.py` não chama
-`publish_event` — verificado. O aluno vê o status mudar no rastreio, porque o
-rastreio lê o banco, mas **não recebe notificação de "saiu para entrega" nem de
-"entregue"**. É lacuna conhecida e é escopo da spec C.
+**As duas transições publicam notificação**, endereçada pela tabela de
+destinatário da spec C: a coleta avisa o aluno; a entrega avisa o aluno e o
+admin (`back-end/order-flow.md` §5, seção "Conferência do push" abaixo). O
+entregador nunca é notificado das próprias ações.
 
 ## Etapa 6 — ocorrência de falta de estoque
 
@@ -183,10 +234,37 @@ O caminho de exceção, e o segundo lugar que gera notificação.
    (`POST /api/occurrences/{id}/resolve`) — aceitando a substituição ou
    cancelando o pedido.
 4. Se cancelar, o pedido vai para `CANCELADO` e o aluno vê `cancelled`, com o
-   stepper fora do fluxo em vez de travado no passo 0.
+   stepper fora do fluxo em vez de travado no passo 0. Se aceitar a
+   substituição (ou remover o item), o pedido volta para `EM_SEPARACAO` — o
+   separador ainda precisa pegar o item da prateleira — e **o separador é
+   notificado** (`order.occurrence_resolved`, spec C): é ele quem estava
+   bloqueado esperando esta decisão (`finalizar_separacao` recusa terminar
+   com ocorrência aberta).
 
 O mesmo vale para atraso de entrega (`POST /api/occurrences/delivery-delay`),
 que gera `Pedido #XXXXXXXX: atraso na entrega`.
+
+## Conferência do push, perfil por perfil
+
+Critério de pronto 3 (spec C): cada transição gera push no perfil certo,
+**verificado no aparelho**. A tabela completa de destinatário por transição
+está em [`back-end/order-flow.md`](back-end/order-flow.md) §5; aqui vai o
+roteiro para conferir, voltando rapidamente a cada perfil depois das etapas
+acima. O sino que as telas de separador, entregador e admin ganharam nesta
+spec (antes só o aluno tinha) abre a mesma `GET /api/notifications` que o
+aluno já usava — "push" aqui é a notificação **dentro do app**, não um push
+real de aparelho (ver a lacuna abaixo).
+
+| Perfil | Quando conferir | O que deve estar lá |
+|---|---|---|
+| Admin, separador | a qualquer momento depois da etapa 1 | aviso de pedido criado (`order.created`) — o único evento que nunca notifica o aluno |
+| Aluno, separador | depois do passo 2 da etapa 2 (confirmar pagamento) | `Pedido #XXXXXXXX` — foi para `AGUARDANDO_SEPARACAO` |
+| Aluno | depois do passo 3 da etapa 3 (separação finalizada) | `Pedido #XXXXXXXX` — está `SEPARADO` (é a etapa 4) |
+| Entregador | depois do passo 3 da etapa 3 | confira pela conta `entregador@demo.edu` (login normal). O sino também aparece na fila aberta por **código de carregamento** (etapa 5), mas ali ele responde **403** e a tela mostra o estado de erro: o token de lote não é usuário de `/notifications`, e é assim de propósito (`get_current_user_uuid`, notification-service). Não é queda nem lista de outra conta — é a recusa correta. O registro de staff endereça a CONTA `entregador@demo.edu`, não o lote. |
+| Aluno | depois da coleta, na etapa 5 | `Pedido #XXXXXXXX` — saiu para entrega |
+| Aluno, admin | depois da entrega, na etapa 5 | `Pedido #XXXXXXXX` — entregue |
+| Separador | depois de resolver a ocorrência aceitando substituição/remoção, na etapa 6 | aviso de ocorrência resolvida |
+| Aluno, admin | se cancelar pela ocorrência, na etapa 6 | `Pedido #XXXXXXXX` — cancelado |
 
 ## Etapa 7 — o painel: parceiro, produto, estoque e transportadora
 
@@ -270,16 +348,14 @@ entrega; cada um é lacuna conhecida com dono.
 
 | Comportamento | Por quê | Dono |
 |---|---|---|
-| Não existe push no celular | O Firebase saiu do app na spec A, porque quem enviava era o monolito. O `notification-service` só guardava o token (`device_token.py:11-14`) e nada enviava para ele. As notificações existem **na tela do app**, lidas de `GET /notifications`. | spec C |
-| "Esqueci minha senha" não manda e-mail | O OTP é gerado, hasheado e guardado, e a resposta é sempre 200 — mas não existe provedor de e-mail configurado (`auth.py:229-231`). O remetente morreu com o monolito. | não agendado |
-| Sem notificação ao confirmar pagamento, coletar ou entregar | `admin.py` e `entrega.py` não publicam evento nenhum. Só `separacao.py` (fim da separação) e as rotas de ocorrência publicam. | spec C |
-| `order.created` e `order.occurrence_resolved` não geram nada | São publicados, mas nenhuma fila está ligada a essas routing keys. | spec C |
-| O pedido não avança sozinho | A task Celery de avanço automático do monolito não foi portada de propósito (`services/pedidos.py:208-211`). Todo avanço é dirigido por um perfil de staff. | spec C |
+| Não existe push real de aparelho (FCM) | O Firebase saiu do app na spec A, porque quem enviava era o monolito. A spec C endereçou a notificação por transição a quem precisa dela (aluno **e** staff, ver [`back-end/order-flow.md`](back-end/order-flow.md) §5) mas não trouxe FCM de volta — as notificações existem **na tela do app**, lidas de `GET /notifications` e abertas pelo sino. | não agendado |
+| "Esqueci minha senha" não manda e-mail | O OTP é gerado, hasheado e guardado, e a resposta é sempre 200 — mas não existe provedor de e-mail configurado (`auth.py:229-231`). O remetente do reset continua sem existir; o primeiro envio real do backend desde a spec A foi a credencial do carregamento (spec C, e-mail à transportadora), não este. | não agendado |
+| O pedido não avança sozinho | Continua verdadeiro **por padrão** — mas deixou de ser "não foi portado": a spec C trouxe uma rede de segurança equivalente (`app/services/avanco_automatico.py`), desligada por padrão (`AVANCO_AUTOMATICO_SEGUNDOS` ausente = `0`) e sempre perdendo para ação manual. Ligar é opt-in, com prazo longo de propósito — ver [`back-end/order-flow.md`](back-end/order-flow.md) §4. | ninguém — é o desenho |
 | Meta, prazo e pontuação da home e do perfil são fixos | Valores escritos na tela, sem backend por trás. | spec D |
 | Os códigos de PIX e boleto não são pagáveis | São emitidos pelo backend (`codigos_pagamento.py`) com a **forma** de um EMV e de uma linha digitável, sem provedor de pagamento por trás. O CRC do EMV é fixo e falso. Deliberado. | ninguém — é o desenho |
 | O `web-admin` não tem suíte de teste | A spec B não criou uma (decisão D11). A verificação é `npm install && npm run build`: o build AOT faz type-check de template. Baseline: exit 0 com **três** avisos de budget SCSS. | não agendado |
 | O painel desloga sozinho quando o access token expira | Não há refresh de token no `web-admin`. | não agendado |
-| O dashboard perdeu o bloco de alunos, o gráfico de atividade e três mini-painéis | Não existe rota `/dashboard`; o painel é construído sobre `GET /analytics/executive-summary` mais dois `total`. Nada foi inventado no cliente. Lista completa em [`back-end/partners-inventory-carriers.md`](back-end/partners-inventory-carriers.md), §10. | spec C ou D |
+| O dashboard perdeu o bloco de alunos, o gráfico de atividade e três mini-painéis | Não existe rota `/dashboard`; o painel é construído sobre `GET /analytics/executive-summary` mais dois `total`. Nada foi inventado no cliente. A spec C não tocou o dashboard (só acrescentou a aba de carregamentos). Lista completa em [`back-end/partners-inventory-carriers.md`](back-end/partners-inventory-carriers.md), §10. | spec D |
 | "PARCEIROS ATIVOS" e "TRANSPORTADORAS ATIVAS" aparecem sob "(últimos N dias)" | São totais **atuais**, não do período. Os números estão certos; o cabeçalho acima deles é que não se aplica. | não agendado |
 | "OCORRÊNCIAS ABERTAS" da tela de transportadoras conta ocorrência de estoque também | O backend não tem filtro "só de transportadora"; a contagem é `GET /occurrences?status=ABERTA` sem `carrier_id`. | não agendado |
 | Busca e filtro de estoque baixo acontecem no cliente | `GET /admin/inventory` não tem `search` nem `lowStock`. A tela junta produto e estoque no cliente por falta de rota agregada. | não agendado |
@@ -307,9 +383,13 @@ entrega; cada um é lacuna conhecida com dono.
 | O painel dá 404 ou não carrega nada | Build anterior à spec B, ou apontando para a API Java | `grep -rn "8080\|/api/v1" web-admin/src` tem que voltar vazio. |
 | O ajuste de estoque do painel dá 422 | Imagem do `commerce-service` anterior à spec B | `motivo` virou obrigatório na spec B. `make stack-rebuild` e `make services-migrate`. |
 | `make services-migrate` reclama de revision desconhecida | Imagem em cache, sem `b1a2c3d4e5f6` | `make stack-rebuild` antes. Veja "Aplicando a spec B a um stack existente" na §5 do `microservices.md`. |
+| Login por código de carregamento devolve 401 | Código ou senha errados, ou copiados com ambiguidade — o alfabeto não tem `I`, `O`, `0`, `1` | Recrie o carregamento e copie `codigo`/`senha` da resposta de criação — eles não voltam em nenhuma tela depois. |
+| A fila do entregador (login por código) aparece vazia | O pedido não foi atribuído a este carregamento | `POST /api/shipments/{id}/orders`, etapa 2 passo 5. |
+| O mapa do comprador não mostra o entregador andando | O pedido ainda não foi coletado (a coordenada de destino só é congelada na coleta), ou o simulador está mal configurado | Confira que o passo 2 da etapa 5 (coletar) já rodou; `SIMULADOR_POSICAO_SEGUNDOS` vem ligado por padrão (10s), diferente do avanço automático. |
 
 ## Critério de aprovação
 
-O smoke test passa quando as etapas 0 a 7 completam sem nenhuma falha que não
-esteja na tabela de lacunas conhecidas. A etapa 8 é opcional no dia a dia e
-obrigatória depois de qualquer mexida no `edu-common`.
+O smoke test passa quando as etapas 0 a 7 e a "Conferência do push, perfil
+por perfil" completam sem nenhuma falha que não esteja na tabela de lacunas
+conhecidas. A etapa 8 é opcional no dia a dia e obrigatória depois de
+qualquer mexida no `edu-common`.

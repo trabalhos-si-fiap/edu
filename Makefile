@@ -46,12 +46,18 @@ DEVICE_API_URL = http://localhost:$(API_PORT)/api
 
 # ── Frontend ──────────────────────────────────────────────
 
-.PHONY: front front-web front-linux front-device adb-reverse front-devices front-analyze front-clean front-test
+.PHONY: front front-demo front-web front-linux front-device adb-reverse front-devices front-analyze front-clean front-test
 
 front: ## Run Flutter app on any device over Wi-Fi (auto-detects host LAN IP)
 	@test -n "$(HOST_IP)" || { echo "Could not auto-detect the host LAN IP. Run: make front HOST_IP=192.168.x.y"; exit 1; }
 	@echo "→ API_BASE_URL=$(HOST_API_URL)"
 	cd $(FRONT_DIR) && $(FLUTTER) run --dart-define=API_BASE_URL=$(HOST_API_URL)
+
+front-demo: ## Run the Flutter app with the presentation-only demo flags
+	@test -n "$(HOST_IP)" || { echo "Could not auto-detect the host LAN IP. Run: make front-demo HOST_IP=192.168.x.y"; exit 1; }
+	cd $(FRONT_DIR) && $(FLUTTER) run \
+		--dart-define=API_BASE_URL=$(HOST_API_URL) \
+		--dart-define=DEMO_MULTI_SESSAO=true
 
 adb-reverse: ## Forward host API port to a USB device (re-run after replugging)
 	$(ADB) reverse tcp:$(API_PORT) tcp:$(API_PORT)

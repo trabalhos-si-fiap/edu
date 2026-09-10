@@ -4,7 +4,7 @@ from enum import StrEnum
 class StatusPedido(StrEnum):
     """Estados INTERNOS do pedido — o vocabulário da operação de staff.
 
-    São nove. O contrato público expõe seis (ver `StatusContrato` abaixo):
+    São dez. O contrato público expõe seis (ver `StatusContrato` abaixo):
     a operação distingue "aguardando separação" de "em separação" de
     "separado", e o aluno não precisa dessa granularidade.
     """
@@ -13,6 +13,7 @@ class StatusPedido(StrEnum):
     CONFIRMADO = "CONFIRMADO"
     AGUARDANDO_SEPARACAO = "AGUARDANDO_SEPARACAO"
     EM_SEPARACAO = "EM_SEPARACAO"
+    AGUARDANDO_SUBSTITUICAO = "AGUARDANDO_SUBSTITUICAO"
     SEPARADO = "SEPARADO"
     AGUARDANDO_COLETA = "AGUARDANDO_COLETA"
     EM_TRANSITO = "EM_TRANSITO"
@@ -63,7 +64,18 @@ TRANSICOES_VALIDAS: dict[StatusPedido, list[StatusPedido]] = {
     StatusPedido.CRIADO: [StatusPedido.CONFIRMADO, StatusPedido.CANCELADO],
     StatusPedido.CONFIRMADO: [StatusPedido.AGUARDANDO_SEPARACAO, StatusPedido.CANCELADO],
     StatusPedido.AGUARDANDO_SEPARACAO: [StatusPedido.EM_SEPARACAO, StatusPedido.CANCELADO],
-    StatusPedido.EM_SEPARACAO: [StatusPedido.SEPARADO, StatusPedido.CANCELADO],
+    StatusPedido.EM_SEPARACAO: [
+        StatusPedido.SEPARADO,
+        StatusPedido.AGUARDANDO_SUBSTITUICAO,
+        StatusPedido.CANCELADO,
+    ],
+    # Volta a EM_SEPARACAO, não a SEPARADO: o separador ainda precisa pegar o
+    # item substituto da prateleira, e `finalizar_separacao` exige EM_SEPARACAO
+    # (ela encadeia SEPARADO -> AGUARDANDO_COLETA). Ver D7 do plano da spec C.
+    StatusPedido.AGUARDANDO_SUBSTITUICAO: [
+        StatusPedido.EM_SEPARACAO,
+        StatusPedido.CANCELADO,
+    ],
     StatusPedido.SEPARADO: [StatusPedido.AGUARDANDO_COLETA, StatusPedido.CANCELADO],
     StatusPedido.AGUARDANDO_COLETA: [StatusPedido.EM_TRANSITO, StatusPedido.CANCELADO],
     StatusPedido.EM_TRANSITO: [StatusPedido.ENTREGUE, StatusPedido.CANCELADO],
@@ -71,7 +83,7 @@ TRANSICOES_VALIDAS: dict[StatusPedido, list[StatusPedido]] = {
     StatusPedido.CANCELADO: [],
 }
 
-# Nove internos -> seis do contrato. Exaustivo por construção: o teste
+# Dez internos -> seis do contrato. Exaustivo por construção: o teste
 # `test_the_mapping_covers_every_internal_state` percorre `StatusPedido`
 # inteiro, então um estado novo sem entrada aqui quebra a suíte em vez de
 # virar "pending" por acidente — que faria a tela mostrar um pedido ativo.
@@ -80,6 +92,7 @@ STATUS_CONTRATO: dict[StatusPedido, StatusContrato] = {
     StatusPedido.CONFIRMADO: StatusContrato.CONFIRMED,
     StatusPedido.AGUARDANDO_SEPARACAO: StatusContrato.SEPARATING,
     StatusPedido.EM_SEPARACAO: StatusContrato.SEPARATING,
+    StatusPedido.AGUARDANDO_SUBSTITUICAO: StatusContrato.SEPARATING,
     StatusPedido.SEPARADO: StatusContrato.SEPARATING,
     StatusPedido.AGUARDANDO_COLETA: StatusContrato.OUT_FOR_DELIVERY,
     StatusPedido.EM_TRANSITO: StatusContrato.OUT_FOR_DELIVERY,

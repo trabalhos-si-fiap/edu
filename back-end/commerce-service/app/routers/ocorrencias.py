@@ -2,17 +2,19 @@ import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from loguru import logger
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import get_current_user_id, requer_papel
+from app.dependencies import get_current_user_id, requer_papel, uuid_do_usuario
 from app.events.publisher import publish_event
 from app.ids import Int32Id
 from app.models.ocorrencia import Ocorrencia
 from app.models.pedido import Order, OrderItem, PedidoStatusHistorico
 from app.models.produto import Product
 from app.models.transportadora import Carrier
+from app.routers.separacao import transicionar_pedido
 from app.schemas.ocorrencia import (
     AtrasoEntregaIn,
     FaltaEstoqueIn,
@@ -114,7 +116,7 @@ async def abrir_ocorrencia_transportadora(
         tipo=payload.tipo,
         status="ABERTA",
         motivo=payload.motivo,
-        criado_por=uuid.UUID(user["sub"]),
+        criado_por=uuid_do_usuario(user),
     )
     db.add(ocorrencia)
     await db.commit()
@@ -165,6 +167,46 @@ async def reportar_falta_estoque(
     db.add(ocorrencia)
     await db.commit()
     await db.refresh(ocorrencia)
+
+    # O pedido para até o aluno decidir. Só de EM_SEPARACAO: a rota também
+    # aceita `admin`, que pode abrir a ocorrência sobre um pedido em qualquer
+    # estado, e uma transição inválida derrubaria a abertura da ocorrência com
+    # 400 — a ocorrência é o registro do fato, e ela não pode depender de o
+    # pedido estar num estado específico.
+    #
+    # Fix round 1 (reviewer, task 3): `pedido` acima veio de um SELECT sem
+    # `with_for_update()` e a sessão é `expire_on_commit=False` — o status
+    # lido aqui é o de ANTES de `sugerir_substitutos` e do commit da própria
+    # ocorrência, não um valor fresco. Se o pedido saiu de EM_SEPARACAO nessa
+    # janela (finalize concorrente, cancelamento, outra ocorrência), a guarda
+    # acima ainda acredita em EM_SEPARACAO, chama `transicionar_pedido`, e o
+    # `validar_transicao` autoritativo (com lock) dela rejeita com 400 — DEPOIS
+    # da `Ocorrencia` já estar commitada. A ocorrência é o registro de um fato
+    # que já aconteceu; falhar a requisição aqui perderia o registro que o
+    # separador acabou de criar, então um 400 desta transição não pode
+    # derrubar a resposta 201 — só o efeito de "estacionar" o pedido é
+    # descartado, com log, e a ocorrência permanece válida.
+    if pedido.status == StatusPedido.EM_SEPARACAO.value:
+        try:
+            await transicionar_pedido(
+                db,
+                pedido.id,
+                StatusPedido.AGUARDANDO_SUBSTITUICAO.value,
+                user["sub"],
+                observacao=f"Falta de estoque, ocorrência #{ocorrencia.id}",
+            )
+        except HTTPException as exc:
+            if exc.status_code != 400:
+                raise
+            logger.warning(
+                "Falta de estoque registrada (ocorrência #{}) mas o pedido {} não "
+                "pôde ser parado em AGUARDANDO_SUBSTITUICAO: a rota acreditava no "
+                "status {} ao chamar a transição, e o funil (autoritativo, com "
+                "lock) já não concordava.",
+                ocorrencia.id,
+                pedido.id,
+                pedido.status,
+            )
 
     # `str(...)` nos dois ids: `orders.id` e `products.id` são UUID desde a
     # fase 2 e JSON não tem tipo UUID — o transporte
@@ -462,6 +504,46 @@ async def resolver_ocorrencia(
 
     await db.commit()
     await db.refresh(ocorrencia)
+
+    # Devolve o pedido ao separador. Depois do commit, e pelo mesmo funil das
+    # outras transições (`transicionar_pedido` valida, carimba
+    # `status_updated_at`, grava histórico e publica) — o caminho de
+    # `cancelar_pedido` acima é a exceção documentada, não o padrão.
+    #
+    # O `try/except HTTPException` é o espelho do guard de
+    # `reportar_falta_estoque` (mesmo raciocínio, outro lado do desvio): a
+    # decisão do aluno JÁ está commitada quando esta transição roda — a
+    # ocorrência está `RESOLVIDA`, o item já foi trocado ou removido e o
+    # total já foi ajustado. Se o pedido saiu de AGUARDANDO_SUBSTITUICAO
+    # nessa janela (um cancelamento do admin, por exemplo), o funil
+    # autoritativo recusa com 400 — e deixar esse 400 virar a resposta da
+    # rota diria ao aluno que a decisão dele falhou, quando ela não falhou.
+    # Pior: a ocorrência ficaria `RESOLVIDA` e o pedido preso em
+    # AGUARDANDO_SUBSTITUICAO, sem nenhuma rota capaz de movê-lo (o próprio
+    # `resolve` recusa ocorrência que não esteja ABERTA).
+    if resolucao in ("substituir", "remover_item") and (
+        pedido.status == StatusPedido.AGUARDANDO_SUBSTITUICAO.value
+    ):
+        try:
+            await transicionar_pedido(
+                db,
+                pedido.id,
+                StatusPedido.EM_SEPARACAO.value,
+                aluno_id,
+                observacao=f"Substituição decidida na ocorrência #{ocorrencia.id}",
+            )
+        except HTTPException as exc:
+            if exc.status_code != 400:
+                raise
+            logger.warning(
+                "Ocorrência #{} resolvida ({}) mas o pedido {} não pôde voltar a "
+                "EM_SEPARACAO: a rota acreditava no status {} ao chamar a "
+                "transição, e o funil (autoritativo, com lock) já não concordava.",
+                ocorrencia.id,
+                resolucao,
+                pedido.id,
+                pedido.status,
+            )
 
     # Os dois publishes ficam DEPOIS do commit. Publicar antes fazia o
     # notification-service avisar "seu pedido foi cancelado" mesmo quando a

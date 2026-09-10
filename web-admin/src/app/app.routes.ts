@@ -37,6 +37,13 @@ export const routes: Routes = [
           )
       },
       {
+        path: 'carregamentos',
+        loadComponent: () =>
+          import('./pages/shipments/shipments.component').then(
+            m => m.ShipmentsComponent
+          )
+      },
+      {
         path: 'ocorrencias',
         loadComponent: () =>
           import('./pages/occurrences/occurrences.component').then(

@@ -20,6 +20,7 @@ from app.routing import SERVICE_MAP, resolve_destination
         ("picking/queue", "commerce"),
         ("delivery/1/collect", "commerce"),
         ("occurrences", "commerce"),
+        ("shipments/1/orders", "commerce"),
         ("notifications/devices", "notification"),
         ("analytics/summary", "analytics"),
         ("chat/explain-question", "chatbot"),
@@ -86,3 +87,11 @@ def test_partners_and_carriers_route_to_commerce():
 
     assert SERVICE_MAP["partners"] == "commerce"
     assert SERVICE_MAP["carriers"] == "commerce"
+
+
+def test_shipments_route_to_commerce():
+    """O carregamento e o login do entregador moram no commerce, não no
+    auth: o lote e o hash da senha são dado de comércio, e validar o código
+    no serviço de identidade obrigaria uma chamada entre serviços em todo
+    login para consultar uma tabela que ele não é dono."""
+    assert SERVICE_MAP["shipments"] == "commerce"

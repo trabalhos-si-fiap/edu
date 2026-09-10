@@ -145,3 +145,49 @@ async def test_devices_require_authentication(client):
         "/notifications/devices", json={"token": "x", "platform": "android"}
     )
     assert response.status_code == 403
+
+
+# ── Fix final: um `sub` que não é UUID é 403, não 500. ─────────────────────
+
+
+def headers_de_lote(carregamento_id: int = 7) -> dict[str, str]:
+    """Token de carregamento: `role="carregamento"` e `sub` = id do lote, um
+    INTEIRO (commerce-service, decisão D8 do plano — `create_access_token`
+    não aceita claim extra, então o `sub` *é* o id)."""
+    return {
+        "Authorization": "Bearer "
+        + create_access_token(str(carregamento_id), "carregamento", settings.jwt_secret)
+    }
+
+
+async def test_a_lot_token_is_refused_instead_of_crashing_the_list(client):
+    """As quatro rotas comparavam o `sub` cru contra `Notificacao.aluno_id`,
+    uma coluna `UUID(as_uuid=True)` — com um `sub` inteiro isso estourava
+    dentro do driver, virando 500. E a rota É alcançável: a tela de fila do
+    entregador tem um sino de notificações, e o entregador entra por código
+    de carregamento."""
+    response = await client.get("/notifications", headers=headers_de_lote())
+
+    assert response.status_code == 403
+
+
+async def test_a_lot_token_is_refused_on_the_device_registration(client):
+    response = await client.post(
+        "/notifications/devices",
+        json={"token": "tok", "platform": "android"},
+        headers=headers_de_lote(),
+    )
+
+    assert response.status_code == 403
+
+
+async def test_a_lot_token_is_refused_on_mark_as_read(client):
+    response = await client.patch("/notifications/1/read", headers=headers_de_lote())
+
+    assert response.status_code == 403
+
+
+async def test_a_lot_token_is_refused_on_device_removal(client):
+    response = await client.delete("/notifications/devices/tok", headers=headers_de_lote())
+
+    assert response.status_code == 403

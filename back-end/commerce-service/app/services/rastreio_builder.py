@@ -16,11 +16,13 @@ caso que o legacy não tem: `cancelled` não está em `FLUXO_CONTRATO` — ver
 
 from datetime import datetime, timedelta
 
+from app.models.carregamento import PosicaoEntrega
 from app.models.pedido import Order
 from app.schemas.rastreio import (
     KitItemOut,
     OrderTrackingOut,
     TrackingLocationOut,
+    TrackingPositionOut,
     TrackingStepOut,
     TrackingStepStatus,
 )
@@ -128,8 +130,14 @@ def _step_timestamp(
     return None
 
 
-def build_order_tracking(order: Order) -> OrderTrackingOut:
-    """Monta o payload da tela de rastreio a partir do status atual do pedido."""
+def build_order_tracking(order: Order, posicao: PosicaoEntrega | None = None) -> OrderTrackingOut:
+    """Monta o payload da tela de rastreio a partir do status atual do pedido.
+
+    Continua PURA (task 6): `posicao` chega já carregada — quem lê do banco
+    é a camada de serviço/o router (`app/routers/rastreio.py`), não esta
+    função. O default `None` mantém as chamadas existentes, de um argumento
+    só, funcionando sem mudança.
+    """
     status = status_do_contrato(order.status)
     created_at = order.created_at
     # Defensivo: linhas de antes de alguma migration poderiam não ter isso;
@@ -180,7 +188,22 @@ def build_order_tracking(order: Order) -> OrderTrackingOut:
             updated_at=status_updated_at,
         ),
         kit=[KitItemOut(name=item.product_name) for item in order.items],
-        carrier=_CARRIER,
+        # D12 (task 6): o nome real da transportadora, gravado em
+        # `order.carrier_name` por `atribuir_pedido`
+        # (`app/services/carregamentos.py`) quando o pedido entra num
+        # carregamento. Sem carregamento — pedido anterior a esta spec, ou
+        # ainda não atribuído — cai na constante, nunca numa string vazia
+        # (que a tela renderizaria como um campo em branco).
+        carrier=order.carrier_name or _CARRIER,
         map_url=None,
         status=status,
+        courier_position=(
+            None
+            if posicao is None
+            else TrackingPositionOut(
+                latitude=float(posicao.lat),
+                longitude=float(posicao.lng),
+                updated_at=posicao.registrado_em,
+            )
+        ),
     )

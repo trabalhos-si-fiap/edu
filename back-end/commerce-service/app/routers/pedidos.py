@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, uuid_do_usuario
 from app.events.publisher import publish_event
 from app.exceptions import (
     CarrinhoOrigemMistaError,
@@ -61,7 +61,7 @@ async def listar_pedidos(
     Ordenado por `created_at desc`; `limit` 1-100 com default 50 (o de
     `/products` é 20 — também medido, também diferente de propósito).
     """
-    pedidos = await services.listar_pedidos(db, uuid.UUID(user["sub"]), limit=limit, offset=offset)
+    pedidos = await services.listar_pedidos(db, uuid_do_usuario(user), limit=limit, offset=offset)
     return [await _order_out(p, storage=storage, redis=redis) for p in pedidos]
 
 
@@ -96,7 +96,7 @@ async def criar_pedido(
 
     try:
         order = await services.criar_pedido_do_carrinho(
-            db, uuid.UUID(user["sub"]), payment_method, address=address
+            db, uuid_do_usuario(user), payment_method, address=address
         )
     except EmptyCartError as exc:
         raise HTTPException(
@@ -130,7 +130,7 @@ async def detalhe_pedido(
     """Não existe no legacy, não colide com nada, e fica — traduzida: devolve
     o MESMO `OrderOut` da listagem."""
     try:
-        order = await services.buscar_pedido(db, uuid.UUID(user["sub"]), order_id)
+        order = await services.buscar_pedido(db, uuid_do_usuario(user), order_id)
     except OrderNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Pedido não encontrado") from exc
     return await _order_out(order, storage=storage, redis=redis)
@@ -168,7 +168,7 @@ async def historico_status(
     """
     # Garante que o pedido é do aluno antes de expor o histórico.
     try:
-        await services.buscar_pedido(db, uuid.UUID(user["sub"]), order_id)
+        await services.buscar_pedido(db, uuid_do_usuario(user), order_id)
     except OrderNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Pedido não encontrado") from exc
 
@@ -197,7 +197,7 @@ async def previsao_entrega_pedido(
     confiável (`confiavel`, false com poucas amostras).
     """
     try:
-        pedido = await services.buscar_pedido(db, uuid.UUID(user["sub"]), order_id)
+        pedido = await services.buscar_pedido(db, uuid_do_usuario(user), order_id)
     except OrderNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Pedido não encontrado") from exc
 
@@ -284,7 +284,7 @@ async def recomprar(
     `CartItemIn`, com os itens já processados ficando pela metade no
     carrinho.
     """
-    user_id = uuid.UUID(user["sub"])
+    user_id = uuid_do_usuario(user)
     try:
         order = await services.buscar_pedido(db, user_id, order_id)
     except OrderNotFoundError as exc:
@@ -338,7 +338,7 @@ async def confirmar_pagamento(
     também cai em 404 ao tentar.
     """
     try:
-        pedido = await services.buscar_pedido(db, uuid.UUID(user["sub"]), order_id)
+        pedido = await services.buscar_pedido(db, uuid_do_usuario(user), order_id)
     except OrderNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Pedido não encontrado") from exc
 

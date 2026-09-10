@@ -51,7 +51,7 @@ um valida o JWT sozinho, com o mesmo `JWT_SECRET`
 | `api-gateway` | **8100** | — | Proxy reverso por prefixo de path sob `/api`. Sem banco, sem eventos |
 | `auth-users-service` | **8101** | `auth_db` | Registro, login, refresh, reset de senha por OTP, perfil e endereços |
 | `learning-service` | **8102** | `learning_db` | Matérias, temas, subtemas, diagnóstico adaptativo, SM-2, embeddings, recomendação semântica |
-| `commerce-service` | **8103** | `commerce_db` | Catálogo, pedidos, máquina de 7 estados, separação, entrega, ocorrências, admin de estoque |
+| `commerce-service` | **8103** | `commerce_db` | Catálogo, pedidos, máquina de 10 estados, separação, entrega, ocorrências, admin de estoque, carregamento/posição de entrega, scheduler próprio (`app/scheduler.py`, `AsyncIOScheduler` no `lifespan`, padrão do `learning-service`) |
 | `chatbot-service` | **8104** | `chatbot_db` | RAG (FAISS + Groq): perguntas livres e explicação de questão; conversa de suporte (`support`), portada do legacy na fase 2d |
 | `notification-service` | **8105** | `notification_db` | Notificações in-app e registro de device token, alimentado por eventos |
 | `analytics-service` | **8106** | `analytics_db` | Event log, métricas agregadas, detecção de anomalias, resumo executivo por LLM |
@@ -116,6 +116,7 @@ mapeado é repassado, e aí o 404 (se houver) vem do serviço de destino.
 | `occurrences` | commerce-service | OK |
 | `partners` | commerce-service | OK — spec B |
 | `carriers` | commerce-service | OK — spec B |
+| `shipments` | commerce-service | OK — spec C (carregamento: login do entregador por código, `/shipments/{id}/orders`) |
 | `admin` | commerce-service | OK |
 | `notifications` | notification-service | OK |
 | `analytics` | analytics-service | OK |
@@ -143,16 +144,17 @@ Saída dos seis comandos, um por serviço, colada como veio:
 ```
 auth-users-service -> ['auth', 'health', 'users']
 learning-service -> ['diagnostic', 'health', 'recommendations', 'reviews', 'subjects', 'subtopics', 'topics']
-commerce-service -> ['admin', 'carriers', 'cart', 'delivery', 'health', 'occurrences', 'orders', 'partners', 'payment-methods', 'picking', 'products']
+commerce-service -> ['admin', 'carriers', 'cart', 'delivery', 'health', 'occurrences', 'orders', 'partners', 'payment-methods', 'picking', 'products', 'shipments']
 chatbot-service -> ['chat', 'health', 'support']
 notification-service -> ['health', 'notifications']
 analytics-service -> ['analytics', 'health']
 ```
 
-Os 22 prefixos do `SERVICE_MAP` aparecem nessa lista (eram 20 até a spec B
-acrescentar `partners` e `carriers`). O 404 do gateway continua
-existindo, mas hoje ele é **sempre** sobre prefixo não mapeado — nunca sobre
-prefixo mapeado e vazio. `addresses` é o exemplo vivo disso.
+Os 23 prefixos do `SERVICE_MAP` aparecem nessa lista (eram 20 até a spec B
+acrescentar `partners` e `carriers`, e 22 até a spec C acrescentar
+`shipments`). O 404 do gateway continua existindo, mas hoje ele é **sempre**
+sobre prefixo não mapeado — nunca sobre prefixo mapeado e vazio. `addresses`
+é o exemplo vivo disso.
 
 `addresses` **não está na tabela acima porque não está no mapa**. A entrada
 existia e foi removida pelo commit `42bc7ce` ("refactor(gateway): drop the dead
@@ -513,23 +515,30 @@ diverge entre serviços não é falha nenhuma.
 
 ## 8. Eventos
 
-Coreografia via RabbitMQ, no exchange **`edu.events`**. Nove routing keys em
+Coreografia via RabbitMQ, no exchange **`edu.events`**. Dez routing keys em
 produção hoje:
 
 `student.created`, `staff.created`, `diagnostic.completed`,
 `revision.scheduled`, `order.created`, `order.status_changed`,
-`order.stock_issue`, `order.delivery_delayed`, `order.occurrence_resolved`.
+`order.stock_issue`, `order.delivery_delayed`, `order.occurrence_resolved`,
+`shipment.created` (spec C — carrega a senha do carregamento em claro, só o
+`notification-service` escuta, e nenhum log a imprime;
+[`order-flow.md`](order-flow.md) §2 e §5).
 
-Sete filas, todas ligadas ao `edu.events`:
+Onze filas, todas ligadas ao `edu.events`:
 
 | Fila | Serviço | Escuta |
 |---|---|---|
-| `analytics.event_log` | analytics-service | todas as nove |
+| `analytics.event_log` | analytics-service | as nove anteriores à spec C — **não** `shipment.created`; o `analytics-service` não foi tocado por esta spec |
 | `notification.diagnostic_completed` | notification-service | `diagnostic.completed` |
 | `notification.revision_scheduled` | notification-service | `revision.scheduled` |
 | `notification.order_status_changed` | notification-service | `order.status_changed` |
 | `notification.stock_issue` | notification-service | `order.stock_issue` |
 | `notification.delivery_delayed` | notification-service | `order.delivery_delayed` |
+| `notification.staff_created` | notification-service | `staff.created` — spec C, alimenta o registro de destinatário por papel (`order-flow.md` §5) |
+| `notification.order_created` | notification-service | `order.created` — spec C |
+| `notification.occurrence_resolved` | notification-service | `order.occurrence_resolved` — spec C |
+| `notification.shipment_created` | notification-service | `shipment.created` — spec C, e-mail à transportadora |
 | `learning.student_created` | learning-service | `student.created` |
 
 O `commerce-service` só **publica** — não tem fila.
@@ -750,6 +759,7 @@ limite.
 | **3** | E-mail real e rate limit no reset de senha; push FCM; Celery + Redis com primitivas atômicas; painel SQLAdmin; upload de imagem; idempotência dos consumidores de evento |
 | **4** (spec A, 2026-09-07) | Feito: Flutter apontando para o gateway e remoção de `back-end/legacy/`. Em aberto: tradução dos campos de schema que passarem a ter cliente (§4) |
 | **4** (spec B, 2026-09-08) | Feito: parceiro com origem de expedição, estoque com trilha de auditoria, transportadora e ocorrência de transportadora, catálogo por parceiro no app, códigos de pagamento emitidos pelo servidor, e o `web-admin` falando com o gateway. Detalhe e pendências em [`partners-inventory-carriers.md`](partners-inventory-carriers.md) |
+| **4** (spec C, 2026-09-09) | Feito: pedido de ponta a ponta pelos quatro perfis — carregamento como credencial do entregador (`/shipments`), posição do entregador simulada e registrada por uma porta única, avanço automático desligado por padrão, push endereçado por transição (registro de staff alimentado por evento), e o e-mail da credencial (primeiro envio real desde a spec A). Detalhe, o que é simulado e o que continua fora em [`order-flow.md`](order-flow.md) |
 
 Até a spec A (2026-09-07), `back-end/legacy/` foi **referência viva**: as
 suítes dele foram a especificação executável da paridade que o

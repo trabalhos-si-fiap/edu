@@ -22,6 +22,12 @@ analytics-service nunca saberiam que o aluno de demonstração existe, e as
 telas de tracker/analytics que consultam esses dados ficariam vazias na
 apresentação.
 
+O seed também REANUNCIA (`staff.created`) as contas staff que encontra já
+criadas — ver `_reanunciar_staff_existente`. Ele continua idempotente no que
+cria (segunda passada devolve 0), mas o registro de staff do
+`notification-service` é alimentado só por evento, e num ambiente onde as
+contas já existiam o evento nunca voltaria a sair.
+
 A senha NUNCA vem do código: `main()` a lê de `DEMO_ACCOUNTS_PASSWORD` e
 recusa rodar sem ela.
 """
@@ -36,7 +42,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import async_session
-from app.events.publisher import close_publisher, init_publisher
+from app.events.publisher import close_publisher, init_publisher, publish_event
 from app.main import app
 from app.models.user import User
 
@@ -102,6 +108,10 @@ async def seed_demo_accounts(client: AsyncClient, session: AsyncSession, senha: 
     existentes = set(
         (await session.execute(select(User.email).where(User.email.in_(emails)))).scalars().all()
     )
+    # Cópia congelada ANTES de qualquer criação: `existentes` é mutado abaixo
+    # à medida que as contas nascem, e o reanúncio do fim precisa saber quem
+    # já estava aqui quando o seed começou.
+    ja_existiam = set(existentes)
 
     criadas = 0
 
@@ -112,18 +122,28 @@ async def seed_demo_accounts(client: AsyncClient, session: AsyncSession, senha: 
         # já autenticado: não existe rota que crie o primeiro admin. Este
         # INSERT direto rompe o ciclo do ovo e da galinha uma vez, de forma
         # visível (ver docs/back-end/demo-accounts.md).
-        session.add(
-            User(
-                nome=admin["nome"],
-                email=admin["email"],
-                senha_hash=hash_password(senha),
-                role="admin",
-            )
+        admin_user = User(
+            nome=admin["nome"],
+            email=admin["email"],
+            senha_hash=hash_password(senha),
+            role="admin",
         )
+        session.add(admin_user)
         await session.commit()
         existentes.add(admin["email"])
         criadas += 1
         logger.info("conta de demonstração criada (bootstrap direto): {} (admin)", admin["email"])
+
+        # As outras três contas nascem por rota e publicam `student.created` /
+        # `staff.created` por conta própria. O admin é INSERT direto (é o que
+        # rompe o ciclo do ovo e da galinha), então o evento sai daqui — sem
+        # ele, o registro de staff do notification-service (spec C) nunca
+        # conhece o admin, e toda transição que avisa admin fica sem
+        # destinatário.
+        await publish_event(
+            "staff.created",
+            {"user_id": str(admin_user.id), "nome": admin_user.nome, "role": admin_user.role},
+        )
 
     aluno = next(conta for conta in DEMO_ACCOUNTS if conta["role"] == "student")
     if aluno["email"] not in existentes:
@@ -184,7 +204,53 @@ async def seed_demo_accounts(client: AsyncClient, session: AsyncSession, senha: 
                 conta["role"],
             )
 
+    await _reanunciar_staff_existente(session, ja_existiam)
+
     return criadas
+
+
+async def _reanunciar_staff_existente(session: AsyncSession, ja_existiam: set[str]) -> None:
+    """Publica `staff.created` para as contas staff que o seed ENCONTROU já
+    criadas.
+
+    Sem isto o registro de staff do `notification-service` (spec C) só se
+    enchia numa instalação virgem: o evento saía apenas do ramo "a conta não
+    existe ainda", e o seed é idempotente — em qualquer ambiente onde as
+    contas de demonstração já existem (toda stack já rodada, e a fila
+    `notification.staff_created` pode muito bem ter nascido depois delas), a
+    tabela `staff` ficava vazia e TODO push de staff sumia em silêncio.
+
+    Reanunciar é seguro e repetível: o consumidor insere com
+    `INSERT ... ON CONFLICT DO NOTHING` sobre a PK `user_id`
+    (`notification-service/app/events/consumer.py::handle_staff_created`), o
+    mesmo motivo pelo qual a reentrega do próprio RabbitMQ não duplica linha.
+    Não mexe no valor de retorno do seed: ele conta contas CRIADAS, e aqui
+    nada é criado.
+    """
+    emails_staff = [
+        conta["email"]
+        for conta in DEMO_ACCOUNTS
+        if conta["role"] != "student" and conta["email"] in ja_existiam
+    ]
+    if not emails_staff:
+        return
+
+    usuarios = (
+        (await session.execute(select(User).where(User.email.in_(emails_staff)))).scalars().all()
+    )
+    for usuario in usuarios:
+        # Mesmo payload que `/auth/register-staff` publica (app/routers/auth.py)
+        # — o consumidor lê as três chaves e não sabe (nem precisa saber) se o
+        # evento veio de um cadastro novo ou deste reanúncio.
+        await publish_event(
+            "staff.created",
+            {"user_id": str(usuario.id), "nome": usuario.nome, "role": usuario.role},
+        )
+        logger.info(
+            "conta de demonstração já existente reanunciada: {} ({})",
+            usuario.email,
+            usuario.role,
+        )
 
 
 async def main() -> None:

@@ -1,7 +1,19 @@
 import uuid
 
-from app.config import settings
+from app.config import Settings, settings
 from app.ids import new_uuid
+
+
+def _campos_obrigatorios() -> dict[str, str]:
+    """Os três campos de `Settings` sem default (`database_url`,
+    `rabbitmq_url`, `jwt_secret`) — o mínimo para instanciar `Settings()`
+    isolado do `.env` do desenvolvedor, para testar um default (como
+    `avanco_automatico_segundos == 0`) sem depender do que está gravado ali."""
+    return {
+        "database_url": "postgresql+asyncpg://edu:edu@localhost:5433/commerce_test",
+        "rabbitmq_url": "amqp://edu:edu@localhost:5673/",
+        "jwt_secret": "test-secret",
+    }
 
 
 def test_media_settings_have_the_legacy_defaults():
@@ -28,3 +40,9 @@ def test_new_uuid_is_time_ordered():
     segundo = new_uuid()
     assert isinstance(primeiro, uuid.UUID)
     assert primeiro.bytes < segundo.bytes
+
+
+def test_the_automatic_advance_is_off_unless_configured():
+    """`AVANCO_AUTOMATICO_SEGUNDOS` ausente ⇒ `0` ⇒ desligado. Critério de
+    pronto 6 da spec C."""
+    assert Settings(**_campos_obrigatorios()).avanco_automatico_segundos == 0

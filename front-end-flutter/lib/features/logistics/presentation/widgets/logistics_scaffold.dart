@@ -14,12 +14,19 @@ class LogisticsScaffold extends StatelessWidget {
     required this.titulo,
     required this.body,
     this.showLogout = false,
+    this.showNotifications = false,
     this.floatingActionButton,
   });
 
   final String titulo;
   final Widget body;
   final bool showLogout;
+
+  /// Sino de notificações no AppBar, para `/notifications` — só as filas de
+  /// separação e entrega o exibem (não a tela "Em rota"): são as telas onde
+  /// os pushes da spec C (task 8) chegam e precisam de um caminho para
+  /// serem lidos no aparelho.
+  final bool showNotifications;
   final Widget? floatingActionButton;
 
   Future<void> _logout(BuildContext context) async {
@@ -47,6 +54,15 @@ class LogisticsScaffold extends StatelessWidget {
             ),
           ),
           actions: [
+            if (showNotifications)
+              IconButton(
+                onPressed: () => Navigator.pushNamed(context, '/notifications'),
+                icon: const Icon(
+                  Icons.notifications_outlined,
+                  color: AppColors.textSecondary,
+                ),
+                tooltip: 'Notificações',
+              ),
             if (showLogout)
               IconButton(
                 onPressed: () => _logout(context),
