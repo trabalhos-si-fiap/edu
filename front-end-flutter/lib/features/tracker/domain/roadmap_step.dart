@@ -5,6 +5,7 @@ class RoadmapStep {
   const RoadmapStep({
     required this.subtopicId,
     required this.subtopicName,
+    required this.topicId,
     required this.topicName,
     required this.subjectName,
     required this.order,
@@ -15,6 +16,11 @@ class RoadmapStep {
 
   final int subtopicId;
   final String subtopicName;
+
+  /// Id do tema (`tema_id`) — o que o quiz de diagnóstico usa para buscar
+  /// as questões (`GET /topics/{tema_id}/quiz`). Sem ele, "Praticar" não
+  /// tem como saber qual questionário abrir.
+  final int topicId;
   final String topicName;
   final String subjectName;
   final int order;
@@ -29,6 +35,7 @@ class RoadmapStep {
   factory RoadmapStep.fromJson(Map<String, dynamic> json) => RoadmapStep(
     subtopicId: (json['subtema_id'] as num?)?.toInt() ?? 0,
     subtopicName: (json['subtema_nome'] ?? '') as String,
+    topicId: (json['tema_id'] as num?)?.toInt() ?? 0,
     topicName: (json['tema_nome'] ?? '') as String,
     subjectName: (json['materia_nome'] ?? '') as String,
     order: (json['ordem'] as num?)?.toInt() ?? 0,

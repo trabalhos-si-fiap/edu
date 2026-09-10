@@ -12,9 +12,11 @@ RoadmapStep _etapa({
   String nome = 'Membrana Plasmática',
   bool concluida = false,
   bool temQuestoes = true,
+  int temaId = 5,
 }) => RoadmapStep(
   subtopicId: id,
   subtopicName: nome,
+  topicId: temaId,
   topicName: 'Citologia',
   subjectName: 'Biologia',
   order: id - 1,
@@ -50,9 +52,17 @@ Roadmap _roadmap({List<RoadmapStep> etapas = const [], String? motivo}) => Roadm
   total: etapas.length,
 );
 
-Widget _harness(TrackerProvider provider) => MaterialApp(
+Widget _harness(TrackerProvider provider, {void Function(RouteSettings)? aoNavegar}) => MaterialApp(
   home: ChangeNotifierProvider.value(value: provider, child: const TrackerView()),
   routes: {'/onboarding': (_) => const Scaffold(body: Text('ONBOARDING'))},
+  // Só usado pelos testes que precisam saber para onde o Navigator.pushNamed
+  // foi — os demais não passam `aoNavegar` e o comportamento não muda.
+  onGenerateRoute: aoNavegar == null
+      ? null
+      : (settings) {
+          aoNavegar(settings);
+          return MaterialPageRoute(builder: (_) => const Scaffold(body: Text('DESTINO')));
+        },
 );
 
 void main() {
@@ -94,16 +104,36 @@ void main() {
     expect(botao.onPressed, isNull);
   });
 
-  testWidgets('etapa com questão tem botão de praticar habilitado', (tester) async {
-    final provider = TrackerProvider(api: _FakeApi(_roadmap(etapas: [_etapa()])));
-    await tester.pumpWidget(_harness(provider));
-    await provider.load();
-    await tester.pumpAndSettle();
+  testWidgets(
+    'etapa com questão tem botão de praticar habilitado e leva ao quiz do próprio tema',
+    (tester) async {
+      final provider = TrackerProvider(
+        api: _FakeApi(_roadmap(etapas: [_etapa(temaId: 42)])),
+      );
+      RouteSettings? rotaEmpurrada;
+      await tester.pumpWidget(
+        _harness(provider, aoNavegar: (settings) => rotaEmpurrada = settings),
+      );
+      await provider.load();
+      await tester.pumpAndSettle();
 
-    final botao = tester.widget<ElevatedButton>(find.byType(ElevatedButton).first);
-    expect(botao.onPressed, isNotNull);
-    expect(find.text('Praticar'), findsOneWidget);
-  });
+      final botao = tester.widget<ElevatedButton>(find.byType(ElevatedButton).first);
+      expect(botao.onPressed, isNotNull);
+      expect(find.text('Praticar'), findsOneWidget);
+
+      await tester.tap(find.text('Praticar'));
+      await tester.pumpAndSettle();
+
+      // '/questions' é o QuizScreen de verdade — '/quiz' é só o seletor de
+      // matérias, e empurrar pra lá descartaria o tema que o aluno escolheu.
+      expect(rotaEmpurrada?.name, '/questions');
+      expect(rotaEmpurrada?.arguments, {
+        'materiaNome': 'Biologia',
+        'temaId': 42,
+        'temaNome': 'Citologia',
+      });
+    },
+  );
 
   testWidgets('etapa concluída aparece marcada', (tester) async {
     final provider = TrackerProvider(

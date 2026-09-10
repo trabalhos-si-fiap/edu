@@ -60,6 +60,7 @@ void main() {
     final etapa = RoadmapStep.fromJson(const {
       'subtema_id': 7,
       'subtema_nome': 'Membrana Plasmática',
+      'tema_id': 3,
       'tema_nome': 'Citologia',
       'materia_nome': 'Biologia',
       'ordem': 0,
@@ -70,6 +71,9 @@ void main() {
     });
 
     expect(etapa.subtopicName, 'Membrana Plasmática');
+    // O id do tema é o que "Praticar" usa pra abrir o quiz do tema certo
+    // (não a lista de matérias) — sem ele o deep link não existe.
+    expect(etapa.topicId, 3);
     expect(etapa.subjectName, 'Biologia');
     expect(etapa.deadline, DateTime(2026, 10, 1));
     expect(etapa.done, isFalse);

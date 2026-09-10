@@ -161,7 +161,15 @@ class _EtapaCard extends StatelessWidget {
               width: double.infinity,
               child: ElevatedButton(
                 onPressed: etapa.hasQuestions
-                    ? () => Navigator.pushNamed(context, '/quiz')
+                    ? () => Navigator.pushNamed(
+                        context,
+                        '/questions',
+                        arguments: {
+                          'materiaNome': etapa.subjectName,
+                          'temaId': etapa.topicId,
+                          'temaNome': etapa.topicName,
+                        },
+                      )
                     : null,
                 child: const Text('Praticar'),
               ),
