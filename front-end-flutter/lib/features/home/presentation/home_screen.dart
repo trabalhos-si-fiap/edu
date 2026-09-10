@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../features/auth/data/auth_api.dart';
 import '../../../features/components/top_bar.dart';
+import '../../tracker/presentation/goal_card.dart';
+import '../../tracker/presentation/summary_provider.dart';
 
 
 class HomeScreen extends StatefulWidget {
@@ -14,6 +16,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final _authApi = AuthApi();
+  final _summaryProvider = SummaryProvider();
   String? _firstName;
   bool _welcomeHandled = false;
 
@@ -21,7 +24,14 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _loadName();
+    _summaryProvider.load();
     WidgetsBinding.instance.addPostFrameCallback((_) => _maybeShowWelcome());
+  }
+
+  @override
+  void dispose() {
+    _summaryProvider.dispose();
+    super.dispose();
   }
 
   Future<void> _loadName() async {
@@ -79,7 +89,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
                 const SizedBox(height: 24),
-                const _ProgressCard(),
+                AnimatedBuilder(
+                  animation: _summaryProvider,
+                  builder: (context, _) {
+                    final resumo = _summaryProvider.summary;
+                    // Enquanto carrega, e quando falha, a home não inventa
+                    // número nenhum: o cartão simplesmente não aparece.
+                    if (resumo == null) return const SizedBox.shrink();
+                    return GoalCard(summary: resumo);
+                  },
+                ),
                 const SizedBox(height: 16),
                 const _FeatureRow(),
                 const SizedBox(height: 16),
@@ -92,101 +111,6 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         bottomNavigationBar: const NavBar(currentIndex: 0),
-      ),
-    );
-  }
-}
-
-class _ProgressCard extends StatelessWidget {
-  const _ProgressCard();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: AppColors.white,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'PROGRESSO ATUAL',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.purple,
-                        letterSpacing: 1,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      '68% do\nPercurso',
-                      style: TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.textPrimary,
-                        height: 1.2,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Image.asset(
-                'assets/images/target.png',
-                width: 80,
-                height: 80,
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: const [
-              Text(
-                'Meta: Medicina USP',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: AppColors.textSecondary,
-                ),
-              ),
-              Text(
-                '124/200 dias',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: LinearProgressIndicator(
-              value: 0.68,
-              minHeight: 10,
-              backgroundColor: Color(0xFFE5E7EB),
-              valueColor: AlwaysStoppedAnimation<Color>(AppColors.purple),
-            ),
-          ),
-        ],
       ),
     );
   }

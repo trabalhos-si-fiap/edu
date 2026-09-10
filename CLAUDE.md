@@ -19,6 +19,7 @@ App educacional com Flutter (frontend) e Python + FastAPI (backend em microservi
 | | [docs/smoke-test-run-2026-09-10.md](docs/smoke-test-run-2026-09-10.md) | Execucao dos planos B e C em 2026-09-10: 123 confericoes automatizaveis, o que passou, o que so roda no aparelho e por que o stack local nao servia |
 | **Backend** | [docs/back-end/microservices.md](docs/back-end/microservices.md) | Arquitetura de microservicos: gateway, servicos, edu-common, como subir e testar |
 | | [docs/back-end/order-flow.md](docs/back-end/order-flow.md) | Spec C: pedido de CRIADO a ENTREGUE pelos quatro perfis — maquina de estados, carregamento/credencial do entregador, posicao (declarada como simulacao), avanco automatico, push por transicao |
+| | [docs/back-end/study-tracker.md](docs/back-end/study-tracker.md) | Spec D: objetivo do aluno, roadmap ate a data-alvo, pontuacao e nivel, e o resumo que a tela inicial e o perfil leem |
 | | [docs/back-end/start-here.md](docs/back-end/start-here.md) | Documento histórico: setup e padrões do monolito, apagado na spec A |
 | | [docs/back-end/password-reset.md](docs/back-end/password-reset.md) | Documento histórico: envio de e-mail (Celery + adapter) do monolito, apagado na spec A — o OTP em si sobrevive em auth-users-service, sem envio |
 | | [docs/back-end/demo-accounts.md](docs/back-end/demo-accounts.md) | Contas fixas de apresentação, uma por papel; senha via DEMO_ACCOUNTS_PASSWORD |

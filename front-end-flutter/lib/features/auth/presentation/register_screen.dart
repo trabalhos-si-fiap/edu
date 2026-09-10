@@ -75,7 +75,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       if (!mounted) return;
       Navigator.pushReplacementNamed(
         context,
-        '/home',
+        '/onboarding',
         arguments: {'justRegistered': true},
       );
     } on AuthException catch (e) {

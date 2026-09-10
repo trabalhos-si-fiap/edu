@@ -19,9 +19,12 @@ from app.main import app
 
 @pytest.fixture(scope="session")
 async def test_engine() -> AsyncIterator[AsyncEngine]:
+    from app.models import objetivo as objetivo_models  # noqa: F401
+    from app.models import pontuacao as pontuacao_models  # noqa: F401
     from app.models import progresso as progresso_models  # noqa: F401
     from app.models import questao as questao_models  # noqa: F401
     from app.models import resposta as resposta_models  # noqa: F401
+    from app.models import roadmap as roadmap_models  # noqa: F401
     from app.models import subtema as subtema_models  # noqa: F401
 
     engine = create_async_engine(settings.database_url_test, echo=False, future=True)

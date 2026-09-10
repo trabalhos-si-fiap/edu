@@ -10,9 +10,12 @@ from app.config import settings
 from app.database import Base
 
 # Importa os models para que registrem em Base.metadata antes do autogenerate.
+from app.models import objetivo as objetivo_models  # noqa: F401
+from app.models import pontuacao as pontuacao_models  # noqa: F401
 from app.models import progresso as progresso_models  # noqa: F401
 from app.models import questao as questao_models  # noqa: F401
 from app.models import resposta as resposta_models  # noqa: F401
+from app.models import roadmap as roadmap_models  # noqa: F401
 from app.models import subtema as subtema_models  # noqa: F401
 
 config = context.config

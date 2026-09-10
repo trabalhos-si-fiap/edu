@@ -95,3 +95,23 @@ def test_shipments_route_to_commerce():
     no serviço de identidade obrigaria uma chamada entre serviços em todo
     login para consultar uma tabela que ele não é dono."""
     assert SERVICE_MAP["shipments"] == "commerce"
+
+
+def test_os_prefixos_da_spec_d_vao_para_o_learning():
+    from app.config import settings
+
+    for prefixo in ("onboarding", "roadmap", "profile"):
+        destino = resolve_destination(f"{prefixo}/qualquer-coisa")
+        assert destino is not None, prefixo
+        base_url, path = destino
+        assert base_url == settings.learning_service_url
+        assert path == f"/{prefixo}/qualquer-coisa"
+
+
+def test_profile_nao_rouba_o_caminho_de_conta_do_auth():
+    """`/api/users/me` continua no auth: `profile` é resumo de estudo, não
+    identidade."""
+    from app.config import settings
+
+    base_url, _path = resolve_destination("users/me")
+    assert base_url == settings.auth_service_url
