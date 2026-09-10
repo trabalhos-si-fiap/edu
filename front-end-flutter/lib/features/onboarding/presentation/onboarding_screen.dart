@@ -25,7 +25,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   late final TrackerApi _api = widget.api ?? TrackerApi();
   final _tituloController = TextEditingController();
 
-  DateTime _dataAlvo = DateTime.now().add(const Duration(days: 180));
+  // Sem valor por padrão: uma data pré-preenchida seria indistinguível de
+  // uma data escolhida pelo aluno, e essa tela existe para acabar com
+  // números que ninguém escolheu.
+  DateTime? _dataAlvo;
   bool _carregando = true;
   bool _salvando = false;
   bool _edicao = false;
@@ -61,9 +64,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   Future<void> _escolherData() async {
     final hoje = DateTime.now();
+    final atual = _dataAlvo;
+    // O calendário precisa abrir em algum mês: sem data ainda, ou com uma
+    // data que já passou, ele sugere hoje. Sugerir onde abrir não é o mesmo
+    // que preencher o campo — o valor do campo continua vazio até o aluno
+    // confirmar algo no picker.
+    final inicial = (atual == null || atual.isBefore(hoje)) ? hoje : atual;
     final escolhida = await showDatePicker(
       context: context,
-      initialDate: _dataAlvo.isBefore(hoje) ? hoje : _dataAlvo,
+      initialDate: inicial,
       firstDate: hoje,
       lastDate: DateTime(hoje.year + 10),
     );
@@ -76,12 +85,17 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       setState(() => _erro = 'Diga o que você quer conquistar');
       return;
     }
+    final dataAlvo = _dataAlvo;
+    if (dataAlvo == null) {
+      setState(() => _erro = 'Escolha uma data-alvo');
+      return;
+    }
     setState(() {
       _salvando = true;
       _erro = null;
     });
     try {
-      await _api.saveGoal(title: titulo, targetDate: _dataAlvo, update: _edicao);
+      await _api.saveGoal(title: titulo, targetDate: dataAlvo, update: _edicao);
       if (!mounted) return;
       Navigator.pushReplacementNamed(context, '/home');
     } on TrackerException catch (e) {
@@ -122,48 +136,18 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
               ),
               const SizedBox(height: 24),
-              TextField(
-                controller: _tituloController,
-                maxLength: 120,
-                decoration: const InputDecoration(
-                  labelText: 'Objetivo',
-                  hintText: 'Ex.: Medicina na USP',
-                  border: OutlineInputBorder(),
-                ),
+              _OnboardingForm(
+                tituloController: _tituloController,
+                dataAlvo: _dataAlvo,
+                erro: _erro,
+                onEscolherData: _escolherData,
               ),
-              const SizedBox(height: 8),
-              InkWell(
-                onTap: _escolherData,
-                child: InputDecorator(
-                  decoration: const InputDecoration(
-                    labelText: 'Data-alvo',
-                    border: OutlineInputBorder(),
-                  ),
-                  child: Text(
-                    '${_dataAlvo.day.toString().padLeft(2, '0')}/'
-                    '${_dataAlvo.month.toString().padLeft(2, '0')}/'
-                    '${_dataAlvo.year}',
-                  ),
-                ),
-              ),
-              if (_erro != null) ...[
-                const SizedBox(height: 12),
-                Text(_erro!, style: const TextStyle(color: Colors.red, fontSize: 13)),
-              ],
               const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _salvando ? null : _salvar,
-                  child: Text(_edicao ? 'Salvar' : 'Começar'),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Center(
-                child: TextButton(
-                  onPressed: _salvando ? null : _pular,
-                  child: const Text('Pular por enquanto'),
-                ),
+              _OnboardingActions(
+                edicao: _edicao,
+                salvando: _salvando,
+                onSalvar: _salvar,
+                onPular: _pular,
               ),
             ],
           ),
@@ -172,3 +156,100 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 }
+
+/// Objetivo, data-alvo e o erro inline dos dois. Sem estado próprio: quem
+/// decide o que aparece é a tela, este widget só desenha.
+class _OnboardingForm extends StatelessWidget {
+  const _OnboardingForm({
+    required this.tituloController,
+    required this.dataAlvo,
+    required this.erro,
+    required this.onEscolherData,
+  });
+
+  final TextEditingController tituloController;
+  final DateTime? dataAlvo;
+  final String? erro;
+  final VoidCallback onEscolherData;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          controller: tituloController,
+          maxLength: 120,
+          decoration: const InputDecoration(
+            labelText: 'Objetivo',
+            hintText: 'Ex.: Medicina na USP',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 8),
+        InkWell(
+          onTap: onEscolherData,
+          child: InputDecorator(
+            decoration: const InputDecoration(
+              labelText: 'Data-alvo',
+              border: OutlineInputBorder(),
+            ),
+            child: Text(
+              // Sem data ainda, o campo mostra uma dica — igual ao hintText
+              // do título — nunca um valor que o aluno não escolheu.
+              dataAlvo == null ? 'Escolha a data da prova' : _formatarData(dataAlvo!),
+              style: dataAlvo == null ? const TextStyle(color: AppColors.textSecondary) : null,
+            ),
+          ),
+        ),
+        if (erro != null) ...[
+          const SizedBox(height: 12),
+          Text(erro!, style: const TextStyle(color: Colors.red, fontSize: 13)),
+        ],
+      ],
+    );
+  }
+}
+
+/// O botão principal (Começar/Salvar conforme o modo) e o "Pular por
+/// enquanto". Sem estado próprio, só reage ao que a tela manda.
+class _OnboardingActions extends StatelessWidget {
+  const _OnboardingActions({
+    required this.edicao,
+    required this.salvando,
+    required this.onSalvar,
+    required this.onPular,
+  });
+
+  final bool edicao;
+  final bool salvando;
+  final VoidCallback onSalvar;
+  final VoidCallback onPular;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: salvando ? null : onSalvar,
+            child: Text(edicao ? 'Salvar' : 'Começar'),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Center(
+          child: TextButton(
+            onPressed: salvando ? null : onPular,
+            child: const Text('Pular por enquanto'),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+String _formatarData(DateTime data) =>
+    '${data.day.toString().padLeft(2, '0')}/'
+    '${data.month.toString().padLeft(2, '0')}/'
+    '${data.year}';

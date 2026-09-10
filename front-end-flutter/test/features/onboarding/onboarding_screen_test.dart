@@ -35,6 +35,20 @@ Widget _harness(TrackerApi api) => MaterialApp(
   routes: {'/home': (_) => const Scaffold(body: Text('HOME'))},
 );
 
+/// Abre o date picker pelo campo (ainda vazio, mostrando a dica), escolhe o
+/// dia de hoje — sempre selecionável, já que `firstDate` é hoje — e confirma
+/// em OK. Usado pelos testes que precisam de uma data-alvo válida para
+/// passar da validação local e chegar até `TrackerApi.saveGoal`.
+Future<void> _escolherHoje(WidgetTester tester) async {
+  await tester.tap(find.text('Escolha a data da prova'));
+  await tester.pumpAndSettle();
+  final hoje = DateTime.now();
+  await tester.tap(find.text(hoje.day.toString()));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('OK'));
+  await tester.pumpAndSettle();
+}
+
 void main() {
   testWidgets('sem objetivo, os campos vêm vazios e o botão diz Começar', (tester) async {
     await tester.pumpWidget(_harness(_FakeApi()));
@@ -78,6 +92,7 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField).first, 'Medicina USP');
+    await _escolherHoje(tester);
     await tester.tap(find.text('Começar'));
     await tester.pumpAndSettle();
 
@@ -92,6 +107,7 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField).first, 'Medicina');
+    await _escolherHoje(tester);
     await tester.tap(find.text('Começar'));
     await tester.pumpAndSettle();
 
@@ -107,6 +123,52 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(api.tituloSalvo, isNull);
+    expect(find.text('HOME'), findsOneWidget);
+  });
+
+  testWidgets('sem escolher a data, Começar não envia nada e mostra o erro', (tester) async {
+    final api = _FakeApi();
+    await tester.pumpWidget(_harness(api));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).first, 'Medicina USP');
+    await tester.tap(find.text('Começar'));
+    await tester.pumpAndSettle();
+
+    expect(api.tituloSalvo, isNull);
+    expect(find.text('Escolha uma data-alvo'), findsOneWidget);
+  });
+
+  testWidgets('a data escolhida no calendário é a que é enviada', (tester) async {
+    final api = _FakeApi();
+    await tester.pumpWidget(_harness(api));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).first, 'Medicina USP');
+    await _escolherHoje(tester);
+    await tester.tap(find.text('Começar'));
+    await tester.pumpAndSettle();
+
+    final hoje = DateTime.now();
+    expect(api.dataSalva, DateTime(hoje.year, hoje.month, hoje.day));
+  });
+
+  testWidgets('salvar no modo edição manda update verdadeiro', (tester) async {
+    final api = _FakeApi(
+      objetivo: Goal(
+        title: 'Medicina USP',
+        targetDate: DateTime(2027, 11, 7),
+        daysElapsed: 0,
+        daysTotal: 0,
+      ),
+    );
+    await tester.pumpWidget(_harness(api));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Salvar'));
+    await tester.pumpAndSettle();
+
+    expect(api.atualizou, isTrue);
     expect(find.text('HOME'), findsOneWidget);
   });
 }
