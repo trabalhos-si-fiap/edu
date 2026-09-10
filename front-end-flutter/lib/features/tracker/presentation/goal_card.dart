@@ -5,11 +5,12 @@ import '../domain/study_summary.dart';
 
 /// O cartão de meta da tela inicial.
 ///
-/// Antes da spec D ele anunciava "Meta: Medicina USP", "124/200 dias" e uma
-/// barra em 0.68 — os três fixos no código, para qualquer aluno. Agora os
-/// três vêm de `GET /profile/summary`, e **sem objetivo o cartão não é
-/// desenhado**: um cartão vazio com zeros seria outro jeito de mostrar um
-/// número que ninguém escolheu.
+/// Antes da spec D ele anunciava um título de meta fixo no código, um par
+/// de dias inventado e uma barra parada em pouco mais de dois terços — os
+/// três fixos no código, para qualquer aluno. Agora os três vêm de
+/// `GET /profile/summary`, e **sem objetivo o cartão não é desenhado**: um
+/// cartão vazio com zeros seria outro jeito de mostrar um número que
+/// ninguém escolheu.
 class GoalCard extends StatelessWidget {
   const GoalCard({super.key, required this.summary});
 

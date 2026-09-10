@@ -1,8 +1,8 @@
 /// Modelos do resumo de estudo — o que `GET /profile/summary` devolve.
 ///
 /// Todo número desta tela vem daqui, e daqui vem só o que o backend mandou:
-/// a spec D existe porque a tela inicial anunciava "124/200 dias" para
-/// qualquer aluno.
+/// a spec D existe porque a tela inicial anunciava um par de dias
+/// inventado para qualquer aluno.
 ///
 /// O parsing é tolerante a tipo (`_asInt`/`_asDouble`) porque JSON de
 /// número em Dart chega como `int` ou `double` conforme o valor, e um
