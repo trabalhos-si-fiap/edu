@@ -68,24 +68,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             children: [
               _AvatarSection(name: _name),
               const SizedBox(height: 24),
-              AnimatedBuilder(
-                animation: _summaryProvider,
-                builder: (context, _) {
-                  // Enquanto carrega, mostra ZERO — não um valor de exemplo,
-                  // e não um vazio que pula a tela quando o dado chega.
-                  final resumo = _summaryProvider.summary;
-                  final pontos = resumo?.points ?? const Points(total: 0, level: 1, streak: 0);
-                  final estudo =
-                      resumo?.study ?? const Study(answeredQuestions: 0, startedSubtopics: 0);
-                  return Column(
-                    children: [
-                      PointsCard(points: pontos),
-                      const SizedBox(height: 16),
-                      StudyStatsRow(points: pontos, study: estudo),
-                    ],
-                  );
-                },
-              ),
+              ProfileSummarySection(provider: _summaryProvider),
               const SizedBox(height: 24),
               const Text(
                 'Configurações',
@@ -135,6 +118,52 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ),
         bottomNavigationBar: const NavBar(currentIndex: -1),
       ),
+    );
+  }
+}
+
+/// Pontos e estatísticas de estudo — separado de [ProfileScreen] pra poder
+/// testar os três estados (`loading`/`success`/`error`) sem precisar de um
+/// `AuthApi` de verdade, que a tela também instancia.
+///
+/// Público, não `_Privado`: fica visível pra outro arquivo (o teste)
+/// importar `profile_screen.dart` e montar isoladamente com um
+/// [SummaryProvider] fake.
+class ProfileSummarySection extends StatelessWidget {
+  const ProfileSummarySection({super.key, required this.provider});
+
+  final SummaryProvider provider;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: provider,
+      builder: (context, _) {
+        // Erro é diferente de zero: um aluno com 3.000 pontos e conexão
+        // caída não pode ver a mesma tela de quem nunca estudou. Só o
+        // estado de CARGA mostra zero (pra não pular quando o dado chega);
+        // o de erro mostra a mensagem, sem inventar nenhum número.
+        if (provider.state == SummaryViewState.error) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Text(
+              provider.errorMessage ?? 'Algo deu errado. Tente novamente.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: AppColors.textSecondary),
+            ),
+          );
+        }
+        final resumo = provider.summary;
+        final pontos = resumo?.points ?? const Points(total: 0, level: 1, streak: 0);
+        final estudo = resumo?.study ?? const Study(answeredQuestions: 0, startedSubtopics: 0);
+        return Column(
+          children: [
+            PointsCard(points: pontos),
+            const SizedBox(height: 16),
+            StudyStatsRow(points: pontos, study: estudo),
+          ],
+        );
+      },
     );
   }
 }
