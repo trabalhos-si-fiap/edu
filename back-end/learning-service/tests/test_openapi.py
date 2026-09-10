@@ -15,6 +15,7 @@ async def test_every_route_is_registered_under_a_known_prefix(client):
         "/reviews",
         "/onboarding",
         "/roadmap",
+        "/profile",
         "/health",
     )
     unknown = [p for p in paths if not p.startswith(known)]

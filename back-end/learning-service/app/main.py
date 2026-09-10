@@ -4,7 +4,7 @@ from fastapi import FastAPI
 
 from app.events.consumer import close_consumer, start_consumer
 from app.events.publisher import close_publisher, init_publisher
-from app.routers import diagnostico, materias, onboarding, recomendacao, revisao, roadmap
+from app.routers import diagnostico, materias, onboarding, perfil, recomendacao, revisao, roadmap
 from app.scheduler import start_scheduler, stop_scheduler
 
 
@@ -27,6 +27,7 @@ app.include_router(recomendacao.router)
 app.include_router(revisao.router)
 app.include_router(onboarding.router)
 app.include_router(roadmap.router)
+app.include_router(perfil.router)
 
 
 @app.get("/health")
