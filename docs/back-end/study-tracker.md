@@ -83,7 +83,7 @@ devolve uma lista vazia com um motivo explicativo (seção 3), e o
 `SizedBox.shrink()` antes de montar qualquer texto ou barra.
 
 A tela de onboarding é alcançada por duas portas: logo depois do cadastro
-(`register_screen.dart:78`) e pelo item "Metas e objetivos" do perfil
+(`register_screen.dart:76`) e pelo item "Metas e objetivos" do perfil
 (`profile_screen.dart:105`, rota `/onboarding`) — que antes da spec D não
 levava a lugar nenhum. Com objetivo já cadastrado, a tela abre preenchida
 com os dados de `GET /onboarding` e salva com `PUT` em vez de `POST`.
@@ -347,7 +347,8 @@ Os quatro comandos abaixo foram executados na árvore em
 resultado é o que segue (não estimado):
 
 ```bash
-$ grep -rn "3,120\|124/200\|Medicina USP\|0.68" front-end-flutter/lib
+# os quatro valores fixos descritos na seção 1, procurados em front-end-flutter/lib
+$ grep -rn "<padrão da seção 1>" front-end-flutter/lib
 # (sem saída — nenhuma ocorrência)
 
 $ cd back-end/learning-service && uv run pytest -q
