@@ -97,7 +97,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     try {
       await _api.saveGoal(title: titulo, targetDate: dataAlvo, update: _edicao);
       if (!mounted) return;
-      Navigator.pushReplacementNamed(context, '/home');
+      Navigator.pushReplacementNamed(
+        context,
+        '/home',
+        arguments: ModalRoute.of(context)?.settings.arguments,
+      );
     } on TrackerException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -107,7 +111,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     }
   }
 
-  void _pular() => Navigator.pushReplacementNamed(context, '/home');
+  // Repassa os argumentos com que esta tela foi aberta (ex.: o
+  // `justRegistered` do cadastro) — quem chega aqui vindo do cadastro
+  // precisa que a home ainda veja a flag depois do pulo/salvar, senão a
+  // saudação de conta criada nunca aparece (decisão D16 do plano).
+  void _pular() => Navigator.pushReplacementNamed(
+    context,
+    '/home',
+    arguments: ModalRoute.of(context)?.settings.arguments,
+  );
 
   @override
   Widget build(BuildContext context) {

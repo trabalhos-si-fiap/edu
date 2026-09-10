@@ -153,6 +153,70 @@ void main() {
     expect(api.dataSalva, DateTime(hoje.year, hoje.month, hoje.day));
   });
 
+  testWidgets('justRegistered viaja para a home quando o aluno salva', (tester) async {
+    final api = _FakeApi();
+    Object? argumentosRecebidos;
+    var rotaRecebida = '';
+    await tester.pumpWidget(
+      MaterialApp(
+        onGenerateInitialRoutes: (_) => [
+          MaterialPageRoute(
+            settings: const RouteSettings(
+              name: '/onboarding',
+              arguments: {'justRegistered': true},
+            ),
+            builder: (_) => OnboardingScreen(api: api),
+          ),
+        ],
+        onGenerateRoute: (settings) {
+          rotaRecebida = settings.name ?? '';
+          argumentosRecebidos = settings.arguments;
+          return MaterialPageRoute(builder: (_) => const Scaffold(body: Text('HOME')));
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).first, 'Medicina USP');
+    await _escolherHoje(tester);
+    await tester.tap(find.text('Começar'));
+    await tester.pumpAndSettle();
+
+    expect(rotaRecebida, '/home');
+    expect(argumentosRecebidos, {'justRegistered': true});
+  });
+
+  testWidgets('justRegistered viaja para a home quando o aluno pula', (tester) async {
+    final api = _FakeApi();
+    Object? argumentosRecebidos;
+    var rotaRecebida = '';
+    await tester.pumpWidget(
+      MaterialApp(
+        onGenerateInitialRoutes: (_) => [
+          MaterialPageRoute(
+            settings: const RouteSettings(
+              name: '/onboarding',
+              arguments: {'justRegistered': true},
+            ),
+            builder: (_) => OnboardingScreen(api: api),
+          ),
+        ],
+        onGenerateRoute: (settings) {
+          rotaRecebida = settings.name ?? '';
+          argumentosRecebidos = settings.arguments;
+          return MaterialPageRoute(builder: (_) => const Scaffold(body: Text('HOME')));
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Pular por enquanto'));
+    await tester.pumpAndSettle();
+
+    expect(rotaRecebida, '/home');
+    expect(argumentosRecebidos, {'justRegistered': true});
+  });
+
   testWidgets('salvar no modo edição manda update verdadeiro', (tester) async {
     final api = _FakeApi(
       objetivo: Goal(
