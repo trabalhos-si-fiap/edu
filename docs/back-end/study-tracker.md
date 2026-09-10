@@ -216,8 +216,11 @@ tabela alguma; `nivel_do_total(total)` é chamado toda vez que
 
 `GET /profile/summary` (`app/routers/perfil.py`) é a única chamada que a
 tela inicial e o perfil fazem para desenhar todos os números desta
-entrega. Cada campo tem uma origem única, verificável, e nenhum é derivado
-de outro campo da mesma resposta:
+entrega. Nenhum campo é inventado — cada um tem uma origem rastreável até
+uma tabela real ou uma agregação sobre ela. Dois são derivados na hora da
+resposta, não lidos de coluna nenhuma: `nivel`, a partir de `total`
+(seção 4), e `progresso`, a partir de `etapas_concluidas` e
+`etapas_totais` (ambos descritos logo abaixo):
 
 ```json
 {
