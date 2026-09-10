@@ -73,7 +73,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
               _SettingsCard(
                 items: const [
                   _SettingsItem(Icons.person_outline, 'Editar perfil e configurações'),
-                  _SettingsItem(Icons.track_changes_outlined, 'Metas e objetivos'),
+                  _SettingsItem(
+                    Icons.track_changes_outlined,
+                    'Metas e objetivos',
+                    route: '/onboarding',
+                  ),
                   _SettingsItem(
                     Icons.receipt_long_outlined,
                     'Meus pedidos',
