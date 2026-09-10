@@ -13,6 +13,12 @@ SERVICE_MAP: dict[str, str] = {
     "diagnostic": "learning",
     "recommendations": "learning",
     "reviews": "learning",
+    # Spec D. `profile` é do learning-service porque o que a tela lê ali é
+    # resumo de ESTUDO (objetivo, percurso, pontos) — os dados de conta
+    # continuam em `/api/users/me`, no auth.
+    "onboarding": "learning",
+    "roadmap": "learning",
+    "profile": "learning",
     "products": "commerce",
     "orders": "commerce",
     "cart": "commerce",
