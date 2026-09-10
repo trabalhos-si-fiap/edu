@@ -78,8 +78,9 @@ cliente Flutter não protegeria a segunda.
 `/home` (`onboarding_screen.dart::_pular`). Nada é gravado. Um aluno sem
 objetivo é um caso previsto em todo o resto do sistema: `GET /roadmap`
 devolve uma lista vazia com um motivo explicativo (seção 3), e o
-`GoalCard` da tela inicial simplesmente não é desenhado (`home_screen.dart`,
-via `SummaryProvider`: `resumo.objetivo == null` → `SizedBox.shrink()`).
+`GoalCard` da tela inicial simplesmente não desenha nada nesse caso —
+`GoalCard.build` (`goal_card.dart`) checa `summary.goal == null` e devolve
+`SizedBox.shrink()` antes de montar qualquer texto ou barra.
 
 A tela de onboarding é alcançada por duas portas: logo depois do cadastro
 (`register_screen.dart:78`) e pelo item "Metas e objetivos" do perfil
