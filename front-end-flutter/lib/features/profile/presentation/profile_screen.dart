@@ -4,6 +4,9 @@ import '../../../core/theme/app_colors.dart';
 import '../../auth/data/auth_api.dart';
 import '../../cart/data/cart_store.dart';
 import '../../components/nav_bar.dart';
+import '../../tracker/domain/study_summary.dart';
+import '../../tracker/presentation/points_card.dart';
+import '../../tracker/presentation/summary_provider.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -14,12 +17,20 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   final _authApi = AuthApi();
+  final _summaryProvider = SummaryProvider();
   String? _name;
 
   @override
   void initState() {
     super.initState();
     _loadName();
+    _summaryProvider.load();
+  }
+
+  @override
+  void dispose() {
+    _summaryProvider.dispose();
+    super.dispose();
   }
 
   Future<void> _loadName() async {
@@ -57,9 +68,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
             children: [
               _AvatarSection(name: _name),
               const SizedBox(height: 24),
-              const _PointsCard(),
-              const SizedBox(height: 16),
-              const _StatsRow(),
+              AnimatedBuilder(
+                animation: _summaryProvider,
+                builder: (context, _) {
+                  // Enquanto carrega, mostra ZERO — não um valor de exemplo,
+                  // e não um vazio que pula a tela quando o dado chega.
+                  final resumo = _summaryProvider.summary;
+                  final pontos = resumo?.points ?? const Points(total: 0, level: 1, streak: 0);
+                  final estudo =
+                      resumo?.study ?? const Study(answeredQuestions: 0, startedSubtopics: 0);
+                  return Column(
+                    children: [
+                      PointsCard(points: pontos),
+                      const SizedBox(height: 16),
+                      StudyStatsRow(points: pontos, study: estudo),
+                    ],
+                  );
+                },
+              ),
               const SizedBox(height: 24),
               const Text(
                 'Configurações',
@@ -180,114 +206,6 @@ class _AvatarSection extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _PointsCard extends StatelessWidget {
-  const _PointsCard();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: AppColors.white,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          const Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Total de pontos',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: AppColors.textSecondary,
-                ),
-              ),
-              SizedBox(height: 4),
-              Text(
-                '3,120',
-                style: TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-            ],
-          ),
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: AppColors.purple,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Icon(Icons.star, color: AppColors.white, size: 22),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _StatsRow extends StatelessWidget {
-  const _StatsRow();
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: AppColors.white,
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: const Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(Icons.description_outlined, size: 24, color: AppColors.textSecondary),
-                SizedBox(height: 12),
-                Text(
-                  '15',
-                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
-                ),
-                SizedBox(height: 2),
-                Text('Testes', style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: AppColors.white,
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: const Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(Icons.access_time, size: 24, color: AppColors.textSecondary),
-                SizedBox(height: 12),
-                Text(
-                  '48h',
-                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
-                ),
-                SizedBox(height: 2),
-                Text('Horas de estudo', style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
-              ],
-            ),
-          ),
-        ),
-      ],
     );
   }
 }
