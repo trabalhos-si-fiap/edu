@@ -16,6 +16,7 @@ App educacional com Flutter (frontend) e Python + FastAPI (backend em microservi
 | **Entrega** | [docs/smoke-test.md](docs/smoke-test.md) | Roteiro manual de ponta a ponta pelos quatro perfis, com as lacunas conhecidas que nao sao bug |
 | | [docs/smoke-test-spec-b.md](docs/smoke-test-spec-b.md) | Plano de smoke test da spec B: as bordas e costuras que o roteiro de caminho feliz nao alcanca |
 | | [docs/smoke-test-spec-c.md](docs/smoke-test-spec-c.md) | Plano de smoke test da spec C: o desvio de substituicao, o escopo do token de lote, a posicao simulada e o avanco automatico |
+| | [docs/smoke-test-run-2026-09-10.md](docs/smoke-test-run-2026-09-10.md) | Execucao dos planos B e C em 2026-09-10: 123 confericoes automatizaveis, o que passou, o que so roda no aparelho e por que o stack local nao servia |
 | **Backend** | [docs/back-end/microservices.md](docs/back-end/microservices.md) | Arquitetura de microservicos: gateway, servicos, edu-common, como subir e testar |
 | | [docs/back-end/order-flow.md](docs/back-end/order-flow.md) | Spec C: pedido de CRIADO a ENTREGUE pelos quatro perfis — maquina de estados, carregamento/credencial do entregador, posicao (declarada como simulacao), avanco automatico, push por transicao |
 | | [docs/back-end/start-here.md](docs/back-end/start-here.md) | Documento histórico: setup e padrões do monolito, apagado na spec A |
