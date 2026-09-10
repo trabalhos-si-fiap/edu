@@ -35,7 +35,12 @@ class TrackerProvider extends ChangeNotifier {
     _errorMessage = null;
     notifyListeners();
     try {
-      _roadmap = await _api.fetchRoadmap();
+      // O default do cliente é 50 — o seed do ENEM sozinho já produz 99
+      // subtemas, mais os 8 da Citologia. 200 é o teto que o endpoint aceita
+      // (`routers/roadmap.py`, `le=200`) e cobre o percurso inteiro numa
+      // chamada só; sem isso a tela corta o percurso pela metade e não diz
+      // nada sobre o resto.
+      _roadmap = await _api.fetchRoadmap(limit: 200);
       _state = TrackerViewState.success;
     } on TrackerException catch (e) {
       _errorMessage = e.message;
