@@ -28,7 +28,7 @@ async def _seed(db, *, com_questao_no_primeiro=True, quantos=3):
             )
         )
     await db.commit()
-    return subtemas
+    return tema, subtemas
 
 
 async def _fazer_onboarding(client, headers, dias=30):
@@ -54,7 +54,7 @@ async def test_sem_objetivo_a_lista_vem_vazia_com_motivo(client, auth_headers):
 
 
 async def test_com_objetivo_traz_as_etapas_em_ordem(client, db_session, auth_headers):
-    subtemas = await _seed(db_session)
+    _tema, subtemas = await _seed(db_session)
     await _fazer_onboarding(client, auth_headers)
 
     corpo = (await client.get("/roadmap", headers=auth_headers)).json()
@@ -66,11 +66,12 @@ async def test_com_objetivo_traz_as_etapas_em_ordem(client, db_session, auth_hea
 
 
 async def test_etapa_carrega_os_nomes_da_hierarquia(client, db_session, auth_headers):
-    await _seed(db_session)
+    tema, _subtemas = await _seed(db_session)
     await _fazer_onboarding(client, auth_headers)
 
     primeira = (await client.get("/roadmap", headers=auth_headers)).json()["items"][0]
     assert primeira["materia_nome"] == "Biologia"
+    assert primeira["tema_id"] == tema.id
     assert primeira["tema_nome"] == "Citologia"
     assert primeira["subtema_nome"] == "S0"
 

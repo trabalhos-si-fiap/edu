@@ -15,6 +15,7 @@ class EtapaOut(BaseModel):
 
     subtema_id: int
     subtema_nome: str
+    tema_id: int
     tema_nome: str
     materia_nome: str
     ordem: int

@@ -88,6 +88,7 @@ async def listar_roadmap(
         EtapaOut(
             subtema_id=etapa.subtema_id,
             subtema_nome=subtema.nome,
+            tema_id=tema.id,
             tema_nome=tema.nome,
             materia_nome=materia.nome,
             ordem=etapa.ordem,
