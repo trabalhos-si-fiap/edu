@@ -52,6 +52,10 @@ void main() {
   test('campo ausente não derruba o parse — vira zero', () {
     final resumo = StudySummary.fromJson(const {'objetivo': null});
     expect(resumo.points.total, 0);
+    // Nível é a exceção: o piso é 1, não 0 — é a mesma garantia que
+    // `nivel_do_total(0) == 1` dá no backend, e sem esta asserção passando
+    // por `fromJson` (não pelo construtor direto) ela nunca foi pinada.
+    expect(resumo.points.level, 1);
     expect(resumo.roadmap.totalSteps, 0);
     expect(resumo.study.startedSubtopics, 0);
   });
