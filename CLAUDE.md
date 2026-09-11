@@ -18,6 +18,7 @@ App educacional com Flutter (frontend) e Python + FastAPI (backend em microservi
 | | [docs/smoke-test-spec-c.md](docs/smoke-test-spec-c.md) | Plano de smoke test da spec C: o desvio de substituicao, o escopo do token de lote, a posicao simulada e o avanco automatico |
 | | [docs/smoke-test-spec-d.md](docs/smoke-test-spec-d.md) | Plano de smoke test da spec D: o onboarding e suas duas portas, o percurso inteiro, materia sem questao, pontuacao idempotente e o perfil que nao mostra zero por falha |
 | | [docs/smoke-test-run-2026-09-10.md](docs/smoke-test-run-2026-09-10.md) | Execucao dos planos B e C em 2026-09-10: 123 confericoes automatizaveis, o que passou, o que so roda no aparelho e por que o stack local nao servia |
+| | [docs/smoke-test-run-spec-d.md](docs/smoke-test-run-spec-d.md) | Execucao do plano da spec D em 2026-09-10: 187 confericoes, zero 500, o P1 do seed confirmado e as cinco observacoes que nao sao falha de bloco |
 | **Backend** | [docs/back-end/microservices.md](docs/back-end/microservices.md) | Arquitetura de microservicos: gateway, servicos, edu-common, como subir e testar |
 | | [docs/back-end/order-flow.md](docs/back-end/order-flow.md) | Spec C: pedido de CRIADO a ENTREGUE pelos quatro perfis — maquina de estados, carregamento/credencial do entregador, posicao (declarada como simulacao), avanco automatico, push por transicao |
 | | [docs/back-end/study-tracker.md](docs/back-end/study-tracker.md) | Spec D: objetivo do aluno, roadmap ate a data-alvo, pontuacao e nivel, e o resumo que a tela inicial e o perfil leem |
