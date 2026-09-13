@@ -11,17 +11,36 @@ blame` atravessa a mudança normalmente, e `git shortlog -sn
 14af3a34dcc1e983d720d78fc5ed82c2a9ac65d7` lista os autores originais do
 painel.
 
-## Não funciona ainda
+## Como roda
 
-Os serviços Angular apontam para `localhost:8080/api/v1` — a API Java, que a
-spec A eliminou. **O painel não sobe contra este backend.**
+`cd web-admin && npm start` (`ng serve`, em `http://localhost:4200`) e entre
+com a conta de admin de demonstração (`admin@demo.edu`, ver
+[demo-accounts.md](../docs/back-end/demo-accounts.md)).
 
-A troca para o api-gateway (porta 8100) é escopo da
-[spec B](../docs/superpowers/specs/2026-09-07-spec-b-parceiros-estoque-transportadora-design.md),
-e depende de endpoints de estoque e transportadora que ainda não existem no
-`commerce-service`.
+Os serviços Angular chamam caminhos relativos, `/api/...`. Em
+desenvolvimento, o `proxy.conf.json` repassa `/api` para o **api-gateway** em
+`http://localhost:8100`, que roteia cada prefixo para o microserviço dono. Não
+existe mais `localhost:8080` nem `/api/v1`: essa era a API Java, eliminada na
+spec A; o painel passou a falar com o gateway na
+[spec B](../docs/superpowers/specs/2026-09-07-spec-b-parceiros-estoque-transportadora-design.md).
 
-Enquanto isso, `web-admin` não está no `docker-compose.yml`.
+O proxy só vale para o `ng serve`. Quem servir o `dist/` do `npm run build`
+precisa de um proxy reverso que mande `/api` para o gateway.
+
+`web-admin` não está no `docker-compose.yml`.
+
+## Telas
+
+| Rota | Tela | Rotas do backend (via gateway) |
+|---|---|---|
+| `/login` | Login | `POST /api/auth/login` |
+| `/dashboard` | Dashboard | `GET /api/analytics/executive-summary`, `GET /api/partners`, `GET /api/carriers` |
+| `/pedidos` | Pedidos: lista do mais novo para o mais antigo, filtro por status, confirmar pagamento de pedido `CRIADO`/`CONFIRMADO` | `GET /api/admin/orders`, `PATCH /api/admin/orders/{id}/confirm-payment` |
+| `/parceiros` | Parceiros: contato, origem de expedição, quantidade de produtos, ativo/inativo (somente leitura) | `GET /api/partners`, `GET /api/admin/inventory` |
+| `/produtos-estoque` | Produtos e estoque: catálogo, criação/edição de produto, ajuste de estoque com motivo | `/api/products`, `/api/admin/inventory` |
+| `/transportadoras` | Transportadoras: diretório, criação/edição, ativar/inativar | `/api/carriers`, `GET /api/occurrences` |
+| `/carregamentos` | Carregamentos: criação com credencial, atribuição de pedido | `/api/shipments` |
+| `/ocorrencias` | Ocorrências de transportadora: filtros e encerramento | `/api/occurrences` |
 
 ## O que veio junto e foi podado
 
