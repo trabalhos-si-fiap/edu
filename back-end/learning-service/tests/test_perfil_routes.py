@@ -124,6 +124,22 @@ async def test_streak_e_o_maior_do_aluno_e_estudo_soma_respostas(
     assert corpo["estudo"] == {"questoes_respondidas": 10, "subtemas_iniciados": 2}
 
 
+async def test_subtema_sem_resposta_nao_conta_como_iniciado(client, db_session, student_identity):
+    """`student.created` cria uma linha de progresso zerada para CADA subtema
+    (`events/consumer.py`). Contar linhas fazia um aluno recém-cadastrado
+    ver 107 subtemas iniciados sem ter respondido nada — medido no ensaio da
+    apresentação, com o seed do ENEM aplicado."""
+    subtemas = await _subtemas(db_session, quantos=3)
+    for subtema in subtemas:
+        db_session.add(
+            AlunoTemaProgresso(aluno_id=student_identity.aluno_id, subtema_id=subtema.id)
+        )
+    await db_session.commit()
+
+    corpo = (await client.get("/profile/summary", headers=student_identity.headers)).json()
+    assert corpo["estudo"] == {"questoes_respondidas": 0, "subtemas_iniciados": 0}
+
+
 async def test_objetivo_criado_hoje_nao_divide_por_zero(client, db_session, student_identity):
     db_session.add(
         ObjetivoAluno(
