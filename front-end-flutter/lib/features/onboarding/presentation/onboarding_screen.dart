@@ -194,7 +194,7 @@ class _OnboardingForm extends StatelessWidget {
           maxLength: 120,
           decoration: const InputDecoration(
             labelText: 'Objetivo',
-            hintText: 'Ex.: Medicina na USP',
+            hintText: 'Ex.: Medicina pelo ENEM',
             border: OutlineInputBorder(),
           ),
         ),

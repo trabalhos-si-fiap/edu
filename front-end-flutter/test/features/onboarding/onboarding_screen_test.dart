@@ -58,6 +58,14 @@ void main() {
     expect(find.text('Pular por enquanto'), findsOneWidget);
   });
 
+  testWidgets('a dica do objetivo sugere uma meta do ENEM', (tester) async {
+    await tester.pumpWidget(_harness(_FakeApi()));
+    await tester.pumpAndSettle();
+
+    final campo = tester.widget<TextField>(find.byType(TextField).first);
+    expect(campo.decoration?.hintText, 'Ex.: Medicina pelo ENEM');
+  });
+
   testWidgets('com objetivo, os campos vêm preenchidos e o botão diz Salvar', (tester) async {
     final api = _FakeApi(
       objetivo: Goal(
