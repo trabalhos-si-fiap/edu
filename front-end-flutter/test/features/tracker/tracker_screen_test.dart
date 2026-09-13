@@ -14,12 +14,13 @@ RoadmapStep _etapa({
   bool concluida = false,
   bool temQuestoes = true,
   int temaId = 5,
+  String materia = 'Biologia',
 }) => RoadmapStep(
   subtopicId: id,
   subtopicName: nome,
   topicId: temaId,
   topicName: 'Citologia',
-  subjectName: 'Biologia',
+  subjectName: materia,
   order: id - 1,
   deadline: DateTime(2026, 10, 1),
   done: concluida,
@@ -157,6 +158,38 @@ void main() {
     // chega pela aba não teria como sair do percurso.
     final barra = tester.widget<NavBar>(find.byType(NavBar));
     expect(barra.currentIndex, 3);
+  });
+
+  testWidgets('etapa pendente aparece como item de checklist desmarcado', (tester) async {
+    final provider = TrackerProvider(
+      api: _FakeApi(_roadmap(etapas: [_etapa(), _etapa(id: 2, nome: 'Organelas', concluida: true)])),
+    );
+    await tester.pumpWidget(_harness(provider));
+    await provider.load();
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.radio_button_unchecked), findsOneWidget);
+    expect(find.byIcon(Icons.check_circle), findsOneWidget);
+  });
+
+  testWidgets('cada matéria mostra quantas das suas etapas estão concluídas', (tester) async {
+    final provider = TrackerProvider(
+      api: _FakeApi(
+        _roadmap(
+          etapas: [
+            _etapa(concluida: true),
+            _etapa(id: 2, nome: 'Organelas'),
+            _etapa(id: 3, nome: 'Funções', materia: 'Matemática'),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpWidget(_harness(provider));
+    await provider.load();
+    await tester.pumpAndSettle();
+
+    expect(find.text('1/2 concluídas'), findsOneWidget); // Biologia
+    expect(find.text('0/1 concluídas'), findsOneWidget); // Matemática
   });
 
   testWidgets('falha mostra a mensagem, não uma tela em branco', (tester) async {

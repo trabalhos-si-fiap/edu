@@ -94,10 +94,35 @@ class _Conteudo extends StatelessWidget {
             ),
           ),
         for (final entrada in grupos.entries) ...[
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
+          _CabecalhoMateria(nome: entrada.key, etapas: entrada.value),
+          for (final etapa in entrada.value) _EtapaCard(etapa: etapa),
+        ],
+      ],
+    );
+  }
+}
+
+/// Nome da matéria e quantas das suas etapas já foram concluídas.
+///
+/// A conta sai das etapas que a tela já tem em mãos: o provider pede o
+/// percurso inteiro numa chamada só (até o teto de 200 do endpoint), sem
+/// uma segunda chamada só para contar.
+class _CabecalhoMateria extends StatelessWidget {
+  const _CabecalhoMateria({required this.nome, required this.etapas});
+
+  final String nome;
+  final List<RoadmapStep> etapas;
+
+  @override
+  Widget build(BuildContext context) {
+    final concluidas = etapas.where((e) => e.done).length;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Expanded(
             child: Text(
-              entrada.key,
+              nome,
               style: const TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w800,
@@ -105,9 +130,16 @@ class _Conteudo extends StatelessWidget {
               ),
             ),
           ),
-          for (final etapa in entrada.value) _EtapaCard(etapa: etapa),
+          Text(
+            '$concluidas/${etapas.length} concluídas',
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: AppColors.purple,
+            ),
+          ),
         ],
-      ],
+      ),
     );
   }
 }
@@ -128,11 +160,18 @@ class _EtapaCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                if (etapa.done)
-                  const Padding(
-                    padding: EdgeInsets.only(right: 8),
-                    child: Icon(Icons.check_circle, color: AppColors.purple, size: 20),
-                  ),
+                // Checklist: toda etapa tem o seu marcador, e só a concluída
+                // aparece preenchida.
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: etapa.done
+                      ? const Icon(Icons.check_circle, color: AppColors.purple, size: 20)
+                      : const Icon(
+                          Icons.radio_button_unchecked,
+                          color: AppColors.textSecondary,
+                          size: 20,
+                        ),
+                ),
                 Expanded(
                   child: Text(
                     etapa.subtopicName,
