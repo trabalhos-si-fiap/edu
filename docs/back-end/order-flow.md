@@ -78,6 +78,18 @@ entre `EM_SEPARACAO` e o resto do fluxo, e só é alcançável de lá:
   rota capaz de movê-lo, porque o próprio `resolve` recusa ocorrência que
   não esteja `ABERTA`.
 
+**Como o separador reencontra o pedido.** `GET /picking/queue` devolve, antes
+da fila por risco, os pedidos `EM_SEPARACAO` cujo `picker_id` é o próprio
+chamador — o de outro separador não aparece, e `AGUARDANDO_SUBSTITUICAO` fica
+de fora porque espera o aluno. `limit`/`offset` cortam a lista já
+concatenada. Sem isso, quem saía da tela de separação (trocar de perfil num
+aparelho só limpa a pilha de navegação) nunca mais alcançava o pedido devolvido
+pela decisão. A fila não traz itens; `GET /picking/{id}` traz, lidos do banco
+na hora, e é o que o app lê ao abrir o pedido — depois de uma substituição o
+item pode ter sido trocado ou removido. Mesma visibilidade da fila:
+`AGUARDANDO_SEPARACAO` a qualquer separador, o resto só ao `picker_id`, admin
+vê tudo. O app retoma um pedido `EM_SEPARACAO` sem chamar `/start` de novo.
+
 **No contrato público, `AGUARDANDO_SUBSTITUICAO` resolve para `SEPARATING`** —
 o mesmo valor que `EM_SEPARACAO` e `SEPARADO`. O aluno vê o pedido "em
 separação"; a tela de resolução de ocorrência (já existente,
