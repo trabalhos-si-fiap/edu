@@ -12,6 +12,7 @@ App educacional com Flutter (frontend) e Python + FastAPI (backend em microservi
 | | [docs/front-end/marketplace.md](docs/front-end/marketplace.md) | Modulo marketplace: loja, produto, carrinho, pagamento |
 | | [docs/front-end/order_tracking.md](docs/front-end/order_tracking.md) | Modulo order tracking: rastreio, mapa com rota (Google Maps) |
 | | [docs/front-end/firebase_setup.md](docs/front-end/firebase_setup.md) | Documento histórico: FCM saiu do app na spec A; nenhuma credencial é necessária para compilar |
+| | [docs/front-end/local_notifications.md](docs/front-end/local_notifications.md) | Notificacoes do sistema por polling do app (nao e push de servidor): intervalo, limites, como testar |
 | | [docs/front-end/running_ios.md](docs/front-end/running_ios.md) | Rodar no iOS (simulador/device), API_BASE_URL por plataforma |
 | **Entrega** | [docs/smoke-test.md](docs/smoke-test.md) | Roteiro manual de ponta a ponta pelos quatro perfis, com as lacunas conhecidas que nao sao bug |
 | | [docs/smoke-test-spec-b.md](docs/smoke-test-spec-b.md) | Plano de smoke test da spec B: as bordas e costuras que o roteiro de caminho feliz nao alcanca |
