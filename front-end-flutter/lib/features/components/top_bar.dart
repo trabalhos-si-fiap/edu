@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../notifications/presentation/widgets/notification_bell.dart';
+
 class TopBar extends StatelessWidget implements PreferredSizeWidget {
   const TopBar({super.key});
 
@@ -18,10 +20,8 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
               onPressed: () => Navigator.pushNamed(context, '/profile'),
               icon: const Icon(Icons.person_outline, size: 28),
             ),
-            IconButton(
-              onPressed: () => Navigator.pushNamed(context, '/notifications'),
-              icon: const Icon(Icons.notifications_none, size: 28),
-            ),
+            // Contador de não lidas vindo do polling de notificações.
+            const NotificationBell(),
           ],
         ),
       ),
