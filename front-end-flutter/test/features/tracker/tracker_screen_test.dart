@@ -1,3 +1,4 @@
+import 'package:edu_ia/features/components/nav_bar.dart';
 import 'package:edu_ia/features/tracker/data/tracker_api.dart';
 import 'package:edu_ia/features/tracker/domain/roadmap_step.dart';
 import 'package:edu_ia/features/tracker/domain/study_summary.dart';
@@ -144,6 +145,18 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byIcon(Icons.check_circle), findsOneWidget);
+  });
+
+  testWidgets('a barra de navegação aparece com a aba Estudo marcada', (tester) async {
+    final provider = TrackerProvider(api: _FakeApi(_roadmap(etapas: [_etapa()])));
+    await tester.pumpWidget(_harness(provider));
+    await provider.load();
+    await tester.pumpAndSettle();
+
+    // A aba Estudo troca a rota em vez de empilhar: sem a barra aqui, quem
+    // chega pela aba não teria como sair do percurso.
+    final barra = tester.widget<NavBar>(find.byType(NavBar));
+    expect(barra.currentIndex, 3);
   });
 
   testWidgets('falha mostra a mensagem, não uma tela em branco', (tester) async {

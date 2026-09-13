@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../components/nav_bar.dart';
 import '../domain/roadmap_step.dart';
 
 import 'tracker_provider.dart';
@@ -42,6 +43,7 @@ class TrackerView extends StatelessWidget {
         ),
         TrackerViewState.success => _Conteudo(provider: provider),
       },
+      bottomNavigationBar: const NavBar(currentIndex: 3),
     );
   }
 }
