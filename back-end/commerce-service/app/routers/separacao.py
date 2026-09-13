@@ -4,13 +4,14 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.dependencies import requer_papel, uuid_do_usuario
 from app.events.publisher import publish_event
 from app.models.ocorrencia import Ocorrencia
 from app.models.pedido import Order, PedidoStatusHistorico
-from app.schemas.pedido import PedidoFilaOut, PedidoStaffOut
+from app.schemas.pedido import PedidoFilaOut, PedidoSeparacaoOut, PedidoStaffOut
 from app.services.priorizacao_fila import priorizar_fila
 from app.services.status_pedido import StatusPedido, validar_transicao
 
@@ -180,6 +181,37 @@ async def fila_separacao(
         PedidoFilaOut(**PedidoStaffOut.de_order(pedido).model_dump(), score_risco=score)
         for pedido, score in pagina
     ]
+
+
+@router.get("/{pedido_id}", response_model=PedidoSeparacaoOut)
+async def detalhe_separacao(
+    pedido_id: uuid.UUID,
+    user: dict = Depends(requer_papel("separador", "admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    O pedido com os itens de agora — a fila não traz itens, e a tela de
+    separação lê daqui ao abrir, inclusive ao retomar um pedido que voltou
+    da substituição com item trocado ou removido.
+
+    Mesma visibilidade da fila: AGUARDANDO_SEPARACAO a qualquer separador,
+    o resto só a quem é o `picker_id`. Admin vê tudo, como no resto do
+    serviço.
+    """
+    result = await db.execute(
+        select(Order).where(Order.id == pedido_id).options(selectinload(Order.items))
+    )
+    pedido = result.scalar_one_or_none()
+    if not pedido:
+        raise HTTPException(404, "Pedido não encontrado")
+    if (
+        user["role"] != "admin"
+        and pedido.status != StatusPedido.AGUARDANDO_SEPARACAO.value
+        and str(pedido.picker_id) != user["sub"]
+    ):
+        raise HTTPException(403, "Sem permissão para ver este pedido")
+
+    return PedidoSeparacaoOut.de_order(pedido)
 
 
 @router.patch("/{pedido_id}/start", response_model=PedidoStaffOut)
