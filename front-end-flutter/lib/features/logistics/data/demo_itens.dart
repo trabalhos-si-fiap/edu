@@ -25,21 +25,18 @@ const bool demoItensMock = bool.fromEnvironment('DEMO_ITENS_MOCK');
 const List<PedidoItem> itensDeDemonstracao = [
   PedidoItem(
     produtoId: '019fee6a-90ee-7571-be6b-ce8eeec14f01',
-    fornecedorId: 1,
     quantidade: 1,
     precoUnitario: 149.90,
     nomeProduto: 'Curso de Matemática Essencial',
   ),
   PedidoItem(
     produtoId: '019fee6a-90ee-7571-be6b-ce3acb3778d1',
-    fornecedorId: 1,
     quantidade: 2,
     precoUnitario: 49.90,
     nomeProduto: 'Guia de Redação Nota 1000',
   ),
   PedidoItem(
     produtoId: '019fee6a-90ee-7571-be6b-ce63213bd4ca',
-    fornecedorId: 2,
     quantidade: 1,
     precoUnitario: 29.90,
     nomeProduto: 'Simulado ENEM Completo',

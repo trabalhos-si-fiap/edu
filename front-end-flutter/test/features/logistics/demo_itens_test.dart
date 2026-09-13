@@ -4,7 +4,6 @@ import 'package:flutter_test/flutter_test.dart';
 
 const _item = PedidoItem(
   produtoId: 'p1',
-  fornecedorId: 1,
   quantidade: 1,
   precoUnitario: 10,
   nomeProduto: 'Produto real',
