@@ -82,6 +82,15 @@ void main() {
       expect(mapeados.length, valoresConhecidos.length);
     });
 
+    // A spec C acrescentou AGUARDANDO_SUBSTITUICAO ao backend sem que este
+    // enum soubesse: o pedido parado à espera da decisão do aluno aparecia
+    // como "Status desconhecido" para o staff.
+    test('"AGUARDANDO_SUBSTITUICAO" has its own value and label', () {
+      final status = StatusPedido.fromApi('AGUARDANDO_SUBSTITUICAO');
+      expect(status, StatusPedido.aguardandoSubstituicao);
+      expect(status.label, 'Aguardando Substituição');
+    });
+
     test('an unknown value ("NAO_EXISTE") is not cancelado', () {
       expect(StatusPedido.fromApi('NAO_EXISTE'), isNot(StatusPedido.cancelado));
       expect(StatusPedido.fromApi('NAO_EXISTE'), StatusPedido.desconhecido);
