@@ -9,8 +9,10 @@ representações vetoriais de texto em português, usadas para:
      semântica (ver `recomendacao_semantica.py`).
 
 O modelo é carregado uma única vez por processo (singleton) e mantido em
-memória — o primeiro request após subir o container é mais lento (baixa e
-carrega o modelo, ~470MB); requests seguintes reaproveitam a instância.
+memória — o primeiro request após subir o container é mais lento (carrega o
+modelo, ~470MB); requests seguintes reaproveitam a instância. A imagem Docker
+já traz o modelo baixado (ver Dockerfile); fora dela, a primeira carga ainda
+baixa do Hugging Face.
 """
 
 import numpy as np
