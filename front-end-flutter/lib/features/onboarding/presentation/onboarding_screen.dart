@@ -95,8 +95,16 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       _erro = null;
     });
     try {
-      await _api.saveGoal(title: titulo, targetDate: dataAlvo, update: _edicao);
+      final salvo = await _api.saveGoal(title: titulo, targetDate: dataAlvo, update: _edicao);
       if (!mounted) return;
+      // O messenger é o do app, não o desta rota: o aviso sobrevive à troca
+      // e aparece já na home.
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_avisoPercurso(salvo.steps, dataAlvo, salvo.tightDeadline)),
+          backgroundColor: AppColors.purple,
+        ),
+      );
       Navigator.pushReplacementNamed(
         context,
         '/home',
@@ -259,6 +267,16 @@ class _OnboardingActions extends StatelessWidget {
       ],
     );
   }
+}
+
+/// O que a geração do percurso fez, dito logo depois de salvar — com os
+/// números da resposta do servidor, não uma estimativa da tela.
+String _avisoPercurso(int etapas, DateTime dataAlvo, bool prazoApertado) {
+  final aviso =
+      'Seu percurso tem $etapas ${etapas == 1 ? 'etapa' : 'etapas'} '
+      'até ${_formatarData(dataAlvo)}.';
+  if (!prazoApertado) return aviso;
+  return '$aviso Seu prazo é apertado: várias etapas caem no mesmo dia.';
 }
 
 String _formatarData(DateTime data) =>
