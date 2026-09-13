@@ -271,9 +271,11 @@ resposta, não lidos de coluna nenhuma: `nivel`, a partir de `total`
   qualquer subtema.
 - **`estudo`** — `questoes_respondidas` é a soma de
   `AlunoTemaProgresso.total_respondidas` entre todos os subtemas
-  (`func.sum`, com `coalesce` para zero); `subtemas_iniciados` é a
-  contagem de linhas de `AlunoTemaProgresso` do aluno (`func.count()`) —
-  um subtema só ganha linha na primeira resposta que o aluno dá nele.
+  (`func.sum`, com `coalesce` para zero); `subtemas_iniciados` conta só
+  as linhas de `AlunoTemaProgresso` com `total_respondidas > 0`. Contar
+  linhas não serve: `student.created` (`events/consumer.py`) cria uma linha
+  zerada para cada subtema no cadastro, e um aluno sem nenhuma resposta
+  aparecia com todos os subtemas "iniciados".
 
 Um aluno sem nenhuma atividade (zero respostas, zero objetivo) recebe
 `objetivo: null`, `roadmap` com os três campos zerados, `pontos` com
