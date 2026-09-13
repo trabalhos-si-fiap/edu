@@ -1,0 +1,185 @@
+.partners-page {
+  min-height: 100vh;
+  padding: 95px 32px 60px 24px;
+  color: #20262c;
+}
+
+.page-header {
+  h1 {
+    margin: 0;
+    font-size: 31px;
+    font-weight: 600;
+    letter-spacing: -1px;
+  }
+
+  p {
+    margin: 6px 0 0;
+    color: #41474f;
+    font-size: 16px;
+  }
+}
+
+.directory-card {
+  margin-top: 40px;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.directory-header {
+  min-height: 91px;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+
+  h2 {
+    margin: 0;
+    font-size: 21px;
+    font-weight: 600;
+  }
+}
+
+.select-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  span {
+    color: #535960;
+    font-size: 10px;
+    font-weight: 600;
+  }
+
+  select {
+    height: 40px;
+    min-width: 180px;
+    padding: 0 12px;
+    border: 1px solid #b9c5d2;
+    border-radius: 7px;
+    background: #f8fafc;
+    font: inherit;
+    font-size: 14px;
+  }
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  min-width: 820px;
+  border-collapse: collapse;
+}
+
+thead {
+  height: 55px;
+  background: #f2f4f7;
+}
+
+th {
+  padding: 0 16px;
+  color: #535960;
+  font-size: 10px;
+  font-weight: 600;
+  text-align: left;
+  letter-spacing: .55px;
+}
+
+tbody tr {
+  height: 74px;
+  border-bottom: 1px solid #e7eaed;
+
+  &.inactive-row {
+    color: #747980;
+  }
+}
+
+td {
+  padding: 0 16px;
+  font-size: 13px;
+}
+
+.name-cell {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+
+  strong {
+    font-size: 15px;
+    font-weight: 600;
+  }
+}
+
+.avatar {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  border-radius: 50%;
+  background: #e7f0f5;
+  color: #006b9f;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.muted {
+  display: block;
+  margin-top: 4px;
+  color: #747b82;
+  font-size: 11px;
+}
+
+.status-badge {
+  display: inline-flex;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #bfe4c9;
+  color: #147234;
+  font-size: 10px;
+  font-weight: 600;
+
+  &.inactive {
+    background: #e5e7e9;
+    color: #6f747a;
+  }
+}
+
+.state-cell {
+  height: 90px;
+  text-align: center;
+  color: #747b82;
+
+  &.error {
+    color: #b42318;
+  }
+}
+
+.directory-footer {
+  min-height: 57px;
+  padding: 0 17px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  p {
+    margin: 0;
+    color: #454b52;
+    font-size: 13px;
+  }
+}
+
+.pager button {
+  border: 0;
+  background: transparent;
+  color: #4d535a;
+  font-size: 27px;
+  cursor: pointer;
+
+  &:disabled {
+    opacity: .4;
+    cursor: default;
+  }
+}

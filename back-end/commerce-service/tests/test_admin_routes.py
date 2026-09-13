@@ -7,6 +7,7 @@ para traduzir o prefixo. Ver task-11-report.md."""
 
 import asyncio
 import uuid
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -250,6 +251,69 @@ async def test_orders_listing_actually_applies_limit_and_offset(client, db_sessi
     ids_first = {row["id"] for row in first_body}
     ids_last = {row["id"] for row in last_body}
     assert ids_first.isdisjoint(ids_last)
+
+
+def _uuid_de_teste(n: int) -> uuid.UUID:
+    return uuid.UUID(f"00000000-0000-7000-8000-{n:012d}")
+
+
+async def test_orders_listing_puts_the_newest_order_first(client, db_session):
+    """O painel abre na primeira página, e é nela que o admin procura o pedido
+    que acabou de chegar para confirmar o pagamento. Ordenada por `id`, a
+    lista punha o mais novo na ÚLTIMA página: o id é UUIDv7 (app/ids.py), que
+    cresce com o tempo.
+
+    Os ids são escolhidos para discordar da data nos dois sentidos — nem `id`
+    crescente nem decrescente reproduz a ordem esperada — então só uma
+    ordenação por `created_at` passa."""
+    agora = datetime.now(UTC)
+    for n, idade in ((3, timedelta(days=2)), (1, timedelta(days=1)), (2, timedelta(0))):
+        db_session.add(
+            Order(
+                id=_uuid_de_teste(n),
+                user_id=str(uuid.uuid4()),
+                status=StatusPedido.CRIADO.value,
+                total=Decimal("100.00"),
+                created_at=agora - idade,
+            )
+        )
+    await db_session.commit()
+
+    response = await client.get("/admin/orders", headers=headers_for("admin"))
+
+    assert response.status_code == 200
+    assert [row["id"] for row in response.json()] == [
+        str(_uuid_de_teste(2)),
+        str(_uuid_de_teste(1)),
+        str(_uuid_de_teste(3)),
+    ]
+
+
+async def test_orders_listing_breaks_a_created_at_tie_by_id(client, db_session):
+    """Pedidos gravados no mesmo commit recebem o mesmo `created_at` (o server
+    default é o `now()` da transação). Sem desempate, o Postgres não garante
+    ordem estável entre páginas — um pedido podia aparecer em duas e sumir de
+    outra."""
+    mesmo_instante = datetime.now(UTC)
+    for n in (1, 2):
+        db_session.add(
+            Order(
+                id=_uuid_de_teste(n),
+                user_id=str(uuid.uuid4()),
+                status=StatusPedido.CRIADO.value,
+                total=Decimal("100.00"),
+                created_at=mesmo_instante,
+            )
+        )
+    await db_session.commit()
+
+    response = await client.get("/admin/orders", headers=headers_for("admin"))
+
+    assert response.status_code == 200
+    assert [row["id"] for row in response.json()] == [
+        str(_uuid_de_teste(2)),
+        str(_uuid_de_teste(1)),
+    ]
 
 
 async def test_inventory_adjust_rejects_a_negative_quantity(client, db_session):

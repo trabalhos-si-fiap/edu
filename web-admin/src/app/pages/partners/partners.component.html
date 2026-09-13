@@ -1,0 +1,109 @@
+<section class="partners-page">
+  <div class="page-header">
+    <h1>Parceiros</h1>
+    <p>Lojas parceiras, seus contatos e a origem de expedição dos pedidos.</p>
+  </div>
+
+  <article class="directory-card">
+    <div class="directory-header">
+      <h2>Diretório de Parceiros</h2>
+
+      <label class="select-box">
+        <span>STATUS</span>
+        <select (change)="filterChanged($event)">
+          <option value="all">{{ filterLabel('Todos', totalCount) }}</option>
+          <option value="active">{{ filterLabel('Ativos', activeCount) }}</option>
+          <option value="inactive">{{ filterLabel('Inativos', inactiveCount) }}</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>PARCEIRO</th>
+            <th>CONTATO</th>
+            <th>ORIGEM DE EXPEDIÇÃO</th>
+            <th>PRODUTOS</th>
+            <th>STATUS</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          @if (loading) {
+            <tr>
+              <td colspan="5" class="state-cell">Carregando...</td>
+            </tr>
+          } @else if (loadError) {
+            <tr>
+              <td colspan="5" class="state-cell error">{{ loadError }}</td>
+            </tr>
+          } @else if (pagePartners.length) {
+            @for (partner of pagePartners; track partner.id) {
+              <tr [class.inactive-row]="!partner.ativo">
+                <td>
+                  <div class="name-cell">
+                    <span class="avatar">{{ initials(partner.nome) }}</span>
+                    <strong>{{ partner.nome }}</strong>
+                  </div>
+                </td>
+
+                <td>{{ partner.contato ?? '—' }}</td>
+
+                <td>
+                  {{ partner.origem_rotulo }}
+                  @if (partner.origem_lat !== null && partner.origem_lng !== null) {
+                    <span class="muted">
+                      {{ partner.origem_lat }}, {{ partner.origem_lng }}
+                    </span>
+                  }
+                </td>
+
+                <td>{{ productCount(partner) }}</td>
+
+                <td>
+                  <span class="status-badge" [class.inactive]="!partner.ativo">
+                    {{ partner.ativo ? 'Ativo' : 'Inativo' }}
+                  </span>
+                </td>
+              </tr>
+            }
+          } @else {
+            <tr>
+              <td colspan="5" class="state-cell">
+                Nenhum parceiro encontrado.
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <footer class="directory-footer">
+      <p>
+        Mostrando {{ startResult }} a {{ endResult }}
+        de {{ filteredPartners.length }} parceiros
+      </p>
+
+      <div class="pager">
+        <button
+          type="button"
+          aria-label="Página anterior"
+          [disabled]="page === 0"
+          (click)="previous()"
+        >
+          ‹
+        </button>
+        <button
+          type="button"
+          aria-label="Próxima página"
+          [disabled]="!hasNext"
+          (click)="next()"
+        >
+          ›
+        </button>
+      </div>
+    </footer>
+  </article>
+</section>
