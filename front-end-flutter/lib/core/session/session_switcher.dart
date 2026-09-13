@@ -17,8 +17,8 @@ import 'session_manager.dart';
 /// para o mesmo papel.
 Future<void> irParaTelaDoPapel(BuildContext context, String? role) async {
   // Toda sessão nova passa por aqui — login e troca de sessão —, então é
-  // aqui que o acompanhamento de notificações recomeça do zero para quem
-  // acabou de entrar. O fim da sessão não precisa de gancho: o poller para
+  // aqui que o acompanhamento de notificações recomeça para quem acabou de
+  // entrar. O fim da sessão não precisa de gancho: o poller para
   // sozinho quando o token some. Opcional na árvore para não quebrar quem
   // monta esta navegação sem o provider.
   unawaited(context.read<NotificationsPoller?>()?.iniciar());

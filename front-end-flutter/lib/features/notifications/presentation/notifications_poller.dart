@@ -23,13 +23,19 @@ typedef CriarTimerPeriodico =
 ///
 /// Ciclo de vida da sessão:
 /// - [iniciar] é chamado a cada sessão nova (login ou troca de sessão da
-///   demonstração, via `irParaTelaDoPapel`). Zera o estado e faz a primeira
-///   consulta na hora, que só SEMEIA: o histórico existente conta como já
+///   demonstração, via `irParaTelaDoPapel`). Recomeça o ciclo e faz a
+///   primeira consulta na hora. Na primeira vez que um usuário aparece neste
+///   processo essa consulta só SEMEIA: o histórico existente conta como já
 ///   visto, para o login não despejar notificações antigas na bandeja.
+/// - O que já foi visto fica guardado por usuário enquanto o processo vive.
+///   A apresentação alterna os quatro perfis no mesmo aparelho; ao voltar
+///   para a Ana, o que o separador fez nesse meio-tempo é novo para ela e vai
+///   para a bandeja — o que um push de verdade teria feito. [maxPorCiclo]
+///   limita esse acúmulo.
 /// - Cada ciclo relê o access token. Sem token (logout, sessão expirada) o
 ///   polling para sozinho — nenhum dos quatro caminhos de logout do app
-///   precisa lembrar de chamar [parar]. Um token de outro usuário semeia de
-///   novo, pelo mesmo motivo do login.
+///   precisa lembrar de chamar [parar]. Um token de outro usuário troca de
+///   memória, pelas mesmas regras do login.
 /// - Falhas (rede, 5xx, canal de notificação) são engolidas: o último estado
 ///   bom fica e o próximo ciclo tenta de novo. Só a primeira falha de uma
 ///   sequência vai para o log.
@@ -47,6 +53,10 @@ class NotificationsPoller extends ChangeNotifier {
        _criarTimer = criarTimer ?? _timerPeriodico;
 
   static const intervaloPadrao = Duration(seconds: 10);
+
+  /// Teto de notificações mandadas à bandeja numa mesma consulta — as mais
+  /// recentes. As que sobram continuam na lista e no contador do sino.
+  static const maxPorCiclo = 5;
 
   final LocalNotifier _notifier;
   final Future<List<NotificationModel>> Function() _buscar;
@@ -94,11 +104,14 @@ class NotificationsPoller extends ChangeNotifier {
   int? _consultandoGeracao;
 
   String? _usuario;
-  bool _semeado = false;
-  Set<String> _vistas = {};
 
-  /// Começa a acompanhar a sessão atual, do zero. Seguro chamar de novo a
-  /// cada login: cancela o ciclo anterior antes.
+  /// Ids já vistos, por `sub`. Um usuário ausente daqui ainda não foi
+  /// semeado neste processo. Só ids — nada da notificação em si.
+  final Map<String, Set<String>> _vistasPorUsuario = {};
+
+  /// Começa a acompanhar a sessão atual: zera lista e contador, recomeça o
+  /// ciclo e consulta na hora. Seguro chamar de novo a cada login: cancela o
+  /// ciclo anterior antes.
   Future<void> iniciar() async {
     _cancelarTimer();
     _geracao++;
@@ -136,7 +149,8 @@ class NotificationsPoller extends ChangeNotifier {
         return;
       }
       if (_usuario != null && usuario != _usuario) {
-        // Outro usuário sem passar por [iniciar]: nada do anterior vale.
+        // Outro usuário sem passar por [iniciar]: a lista e o contador do
+        // anterior não valem para ele.
         _zerarEstado();
         _notificar();
       }
@@ -145,7 +159,7 @@ class NotificationsPoller extends ChangeNotifier {
       final lista = await _buscar();
       if (geracao != _geracao) return;
 
-      await _aplicar(lista);
+      await _aplicar(usuario, lista);
       _falhando = false;
     } catch (e) {
       if (!_falhando) {
@@ -159,14 +173,15 @@ class NotificationsPoller extends ChangeNotifier {
     }
   }
 
-  Future<void> _aplicar(List<NotificationModel> lista) async {
-    final novas = _semeado
-        ? lista
-              .where((n) => n.readAt == null && !_vistas.contains(n.id))
-              .toList()
-        : const <NotificationModel>[];
-    _vistas.addAll(lista.map((n) => n.id));
-    _semeado = true;
+  Future<void> _aplicar(String usuario, List<NotificationModel> lista) async {
+    final vistas = _vistasPorUsuario[usuario];
+    final novas = vistas == null
+        ? const <NotificationModel>[]
+        : lista
+              .where((n) => n.readAt == null && !vistas.contains(n.id))
+              .take(maxPorCiclo)
+              .toList();
+    (_vistasPorUsuario[usuario] ??= {}).addAll(lista.map((n) => n.id));
 
     _itens = List.unmodifiable(lista);
     _naoLidas = lista.where((n) => n.readAt == null).length;
@@ -213,10 +228,9 @@ class NotificationsPoller extends ChangeNotifier {
     }
   }
 
+  /// Esquece a sessão corrente — não a memória de vistas por usuário.
   void _zerarEstado() {
     _usuario = null;
-    _semeado = false;
-    _vistas = {};
     _itens = const [];
     _naoLidas = 0;
   }
