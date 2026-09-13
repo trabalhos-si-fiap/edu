@@ -1,24 +1,18 @@
 /// Modelos de domínio do pedido, do ponto de vista de separador/entregador
 /// (Commerce Service — `back-end/commerce-service`).
 class PedidoItem {
-  // `products.id` é UUID desde a task B4 (bloco anterior); `fornecedores.id`
-  // continua inteiro — nenhuma task deste bloco tocou a tabela de
-  // fornecedores. Nenhum schema de staff devolve a chave `itens` hoje:
-  // medido, `grep -n "itens" back-end/commerce-service/app/schemas/pedido.py`
-  // devolve só a linha `itens: list[PedidoItemIn]` dentro de
-  // `PedidoCreateIn` (corpo de `POST /orders`, contrato do aluno) — nenhuma
-  // ocorrência em `PedidoStaffOut` nem `PedidoFilaOut`. Estes tipos existem
-  // para o dia em que a lacuna de produto citada em `picking_screen.dart`
-  // for fechada.
+  // Espelha `OrderItemOut` (chaves de `order_items`, em inglês), a forma que
+  // `GET /picking/{id}` devolve em `items`. Só essa rota traz itens para o
+  // staff: a fila (`PedidoFilaOut`) e as demais listagens não trazem.
+  // `products.id` é UUID desde a task B4; `unit_price` chega como string
+  // decimal, mesma convenção de `total`.
   final String produtoId;
-  final int fornecedorId;
   final int quantidade;
   final double precoUnitario;
   final String? nomeProduto;
 
   const PedidoItem({
     required this.produtoId,
-    required this.fornecedorId,
     required this.quantidade,
     required this.precoUnitario,
     this.nomeProduto,
@@ -26,11 +20,10 @@ class PedidoItem {
 
   factory PedidoItem.fromJson(Map<String, dynamic> json) {
     return PedidoItem(
-      produtoId: json['produto_id'] as String,
-      fornecedorId: json['fornecedor_id'] as int,
-      quantidade: json['quantidade'] as int,
-      precoUnitario: (json['preco_unitario'] as num).toDouble(),
-      nomeProduto: json['nome_produto'] as String?,
+      produtoId: json['product_id'] as String,
+      quantidade: (json['quantity'] as num).toInt(),
+      precoUnitario: double.parse(json['unit_price'] as String),
+      nomeProduto: json['product_name'] as String?,
     );
   }
 }
@@ -159,7 +152,7 @@ class Pedido {
           ? DateTime.parse(json['estimated_delivery_at'] as String)
           : null,
       createdAt: DateTime.parse(json['created_at'] as String),
-      itens: (json['itens'] as List<dynamic>? ?? [])
+      itens: (json['items'] as List<dynamic>? ?? [])
           .map((i) => PedidoItem.fromJson(i as Map<String, dynamic>))
           .toList(),
     );

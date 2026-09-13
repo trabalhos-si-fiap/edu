@@ -121,6 +121,27 @@ class LogisticsApi {
 
   Future<List<Pedido>> fetchFilaSeparacao() => _listaPedidos('/picking/queue');
 
+  /// O pedido com os itens de agora. A fila não traz itens, e a substituição
+  /// troca ou remove item no meio da separação — a tela de separação lê
+  /// daqui ao abrir, em vez de confiar no payload da fila.
+  Future<Pedido> fetchPedidoSeparacao(String pedidoId) async {
+    final http.Response res;
+    try {
+      res = await _client.get(
+        Uri.parse('${ApiConfig.baseUrl}/picking/$pedidoId'),
+        headers: await _headers(),
+      );
+    } on LogisticsException {
+      rethrow;
+    } on Exception {
+      throw LogisticsException('Não foi possível conectar ao servidor');
+    }
+    if (res.statusCode != 200) {
+      throw LogisticsException(_mensagemErro(res, 'carregar o pedido'));
+    }
+    return Pedido.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
+  }
+
   Future<Pedido> iniciarSeparacao(String pedidoId) =>
       _patchPedido('/picking/$pedidoId/start');
 
