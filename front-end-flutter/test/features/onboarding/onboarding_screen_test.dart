@@ -17,7 +17,7 @@ class _FakeApi extends TrackerApi {
   Future<Goal?> fetchGoal() async => objetivo;
 
   @override
-  Future<int> saveGoal({
+  Future<({int steps, bool tightDeadline})> saveGoal({
     required String title,
     required DateTime targetDate,
     required bool update,
@@ -26,7 +26,7 @@ class _FakeApi extends TrackerApi {
     tituloSalvo = title;
     dataSalva = targetDate;
     atualizou = update;
-    return 99;
+    return (steps: 99, tightDeadline: false);
   }
 }
 
