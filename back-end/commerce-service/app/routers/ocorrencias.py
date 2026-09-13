@@ -318,9 +318,13 @@ async def _montar_detalhe(db: AsyncSession, ocorrencia: Ocorrencia) -> Ocorrenci
         result = await db.execute(
             select(Product).where(Product.id.in_(ocorrencia.produtos_sugeridos))
         )
+        # `IN (...)` não preserva ordem; a lista guardada está na ordem da
+        # similaridade, e é ela que o aluno tem que ver.
+        por_id = {str(p.id): p for p in result.scalars().all()}
         produtos_sugeridos = [
             ProdutoSugeridoOut(id=p.id, nome=p.name, preco=float(p.price), imagem_url=p.image_url)
-            for p in result.scalars().all()
+            for p in (por_id.get(str(i)) for i in ocorrencia.produtos_sugeridos)
+            if p is not None
         ]
 
     return OcorrenciaDetalheOut(
