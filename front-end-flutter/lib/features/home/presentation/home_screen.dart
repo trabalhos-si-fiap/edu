@@ -117,15 +117,17 @@ class _FeatureRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
-      children: const [
+      children: [
         Expanded(
           child: _SquareCard(
             label: 'Identificar\nlacunas',
             image: 'assets/images/checklist.png',
-            color: Color(0xFF369FFF),
+            color: const Color(0xFF369FFF),
+            // O diagnóstico de lacunas começa pela escolha da matéria.
+            onTap: () => Navigator.pushNamed(context, '/quiz'),
           ),
         ),
-        SizedBox(width: 14),
+        const SizedBox(width: 14),
       ],
     );
   }
@@ -136,38 +138,43 @@ class _SquareCard extends StatelessWidget {
     required this.label,
     required this.image,
     required this.color,
+    required this.onTap,
   });
 
   final String label;
   final String image;
   final Color color;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 140,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(24),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Flexible(
-            child: Text(
-              label,
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-                color: AppColors.white,
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 140,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(24),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Flexible(
+              child: Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.white,
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 9),
-          Image.asset(image, width: 60, height: 60),
-        ],
+            const SizedBox(width: 9),
+            Image.asset(image, width: 60, height: 60),
+          ],
+        ),
       ),
     );
   }

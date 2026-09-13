@@ -26,4 +26,16 @@ void main() {
     expect(find.textContaining('Citologia'), findsNothing);
     expect(find.text('Revisar Agora'), findsNothing);
   });
+
+  testWidgets('Identificar lacunas leva ao seletor de matérias do quiz', (tester) async {
+    RouteSettings? rotaEmpurrada;
+    await tester.pumpWidget(_harness(aoNavegar: (settings) => rotaEmpurrada = settings));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Identificar\nlacunas'));
+    await tester.pumpAndSettle();
+
+    expect(rotaEmpurrada?.name, '/quiz');
+    expect(find.text('DESTINO'), findsOneWidget);
+  });
 }
