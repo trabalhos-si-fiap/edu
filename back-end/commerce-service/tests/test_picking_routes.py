@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from edu_common.security import create_access_token
@@ -280,3 +281,86 @@ async def test_a_student_facing_occurrence_still_blocks_the_picker(client, db_se
 
     assert response.status_code == 400
     assert "aguardando decisão do aluno" in response.json()["detail"]
+
+
+# ── A fila devolve ao separador o pedido que ele já começou ────────────────
+#
+# O desvio de substituição tira o pedido de EM_SEPARACAO e o devolve para lá
+# quando o aluno decide. Enquanto a fila listava só AGUARDANDO_SEPARACAO, um
+# separador que saía da tela de separação (trocar de perfil num aparelho só
+# limpa a pilha de navegação) nunca mais alcançava o pedido, e `finish`
+# ficava inalcançável na prática.
+
+
+async def _seed_pedido(
+    db_session, status: str, *, picker_id: str | None = None, horas_atras: float = 0
+) -> Order:
+    pedido = Order(
+        user_id=str(uuid.uuid4()),
+        status=status,
+        total=Decimal("100.00"),
+        picker_id=picker_id,
+        created_at=datetime.now(UTC) - timedelta(hours=horas_atras),
+    )
+    db_session.add(pedido)
+    await db_session.commit()
+    await db_session.refresh(pedido)
+    return pedido
+
+
+async def _ids_da_fila(client, sub: str, query: str = "") -> list[str]:
+    response = await client.get(f"/picking/queue{query}", headers=headers_for("separador", sub))
+    assert response.status_code == 200, response.text
+    return [pedido["id"] for pedido in response.json()]
+
+
+async def test_picking_queue_lists_my_in_progress_order_before_the_waiting_ones(client, db_session):
+    """O pedido aguardando é mais antigo — pontua MAIS pela espera do que o
+    pedido em andamento, criado agora. Mesmo assim o em andamento vem
+    primeiro: é trabalho que o separador já assumiu."""
+    aguardando = await _seed_pedido(
+        db_session, StatusPedido.AGUARDANDO_SEPARACAO.value, horas_atras=40
+    )
+    em_andamento = await _seed_pedido(
+        db_session, StatusPedido.EM_SEPARACAO.value, picker_id=PICKER_A
+    )
+
+    response = await client.get("/picking/queue", headers=headers_for("separador", PICKER_A))
+
+    assert response.status_code == 200
+    corpo = response.json()
+    assert [p["id"] for p in corpo] == [str(em_andamento.id), str(aguardando.id)]
+    assert corpo[0]["status"] == StatusPedido.EM_SEPARACAO.value
+    assert corpo[0]["picker_id"] == PICKER_A
+    assert isinstance(corpo[0]["score_risco"], float)
+
+
+async def test_picking_queue_hides_an_order_another_picker_is_working_on(client, db_session):
+    await _seed_pedido(db_session, StatusPedido.EM_SEPARACAO.value, picker_id=PICKER_A)
+    aguardando = await _seed_pedido(db_session, StatusPedido.AGUARDANDO_SEPARACAO.value)
+
+    assert await _ids_da_fila(client, PICKER_B) == [str(aguardando.id)]
+
+
+async def test_picking_queue_leaves_out_an_order_waiting_on_the_student(client, db_session):
+    """AGUARDANDO_SUBSTITUICAO espera a decisão do aluno — nada que o
+    separador possa fazer nele ainda."""
+    await _seed_pedido(db_session, StatusPedido.AGUARDANDO_SUBSTITUICAO.value, picker_id=PICKER_A)
+
+    assert await _ids_da_fila(client, PICKER_A) == []
+
+
+async def test_picking_queue_paginates_over_in_progress_and_waiting_together(client, db_session):
+    """`limit`/`offset` cortam a lista JÁ concatenada: em andamento primeiro,
+    depois a fila por risco (o mais antigo pontua mais)."""
+    recente = await _seed_pedido(db_session, StatusPedido.AGUARDANDO_SEPARACAO.value, horas_atras=1)
+    antigo = await _seed_pedido(db_session, StatusPedido.AGUARDANDO_SEPARACAO.value, horas_atras=30)
+    em_andamento = await _seed_pedido(
+        db_session, StatusPedido.EM_SEPARACAO.value, picker_id=PICKER_A
+    )
+
+    assert await _ids_da_fila(client, PICKER_A, "?limit=2&offset=0") == [
+        str(em_andamento.id),
+        str(antigo.id),
+    ]
+    assert await _ids_da_fila(client, PICKER_A, "?limit=2&offset=2") == [str(recente.id)]
