@@ -89,25 +89,40 @@ void main() {
   });
 
   group('PedidoItem.fromJson', () {
-    // Nenhum schema de staff devolve a chave `itens` — medido:
-    // `grep -n "itens" back-end/commerce-service/app/schemas/pedido.py`
-    // só encontra `itens` em `PedidoItemIn`/`PedidoCreateIn` (corpo de
-    // `POST /orders`, contrato do aluno), nunca em `PedidoStaffOut` nem
-    // `PedidoFilaOut`. Este teste garante que, se a chave um dia existir,
-    // os tipos já estão coerentes com o backend (produtos são UUID desde a
-    // B4; fornecedores continuam inteiro).
-    test('parses a UUID produto_id and an int fornecedor_id', () {
+    // Payload literal de `OrderItemOut`, a forma que `GET /picking/{id}`
+    // (`PedidoSeparacaoOut.items`) devolve: chaves de `order_items`, em
+    // inglês, e `unit_price` como string decimal.
+    test('parses the OrderItemOut contract served by GET /picking/{id}', () {
       final item = PedidoItem.fromJson({
-        'produto_id': 'd4e3c960-3333-4562-b3fc-2c963f66afa9',
-        'fornecedor_id': 7,
-        'quantidade': 2,
-        'preco_unitario': 49.9,
-        'nome_produto': 'Apostila',
+        'product_id': 'd4e3c960-3333-4562-b3fc-2c963f66afa9',
+        'product_name': 'Apostila',
+        'unit_price': '49.90',
+        'quantity': 2,
+        'image_url': '',
+        'rating_avg': 0.0,
+        'rating_count': 0,
       });
 
-      expect(item.produtoId, isA<String>());
       expect(item.produtoId, 'd4e3c960-3333-4562-b3fc-2c963f66afa9');
-      expect(item.fornecedorId, 7);
+      expect(item.nomeProduto, 'Apostila');
+      expect(item.quantidade, 2);
+      expect(item.precoUnitario, 49.9);
+    });
+
+    test('Pedido.fromJson reads the items under the "items" key', () {
+      final pedido = Pedido.fromJson({
+        ..._pedidoJson(),
+        'items': [
+          {
+            'product_id': 'd4e3c960-3333-4562-b3fc-2c963f66afa9',
+            'product_name': 'Apostila',
+            'unit_price': '49.90',
+            'quantity': 1,
+          },
+        ],
+      });
+
+      expect(pedido.itens.map((i) => i.nomeProduto), ['Apostila']);
     });
   });
 }
