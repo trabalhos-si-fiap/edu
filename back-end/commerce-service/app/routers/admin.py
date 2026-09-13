@@ -30,7 +30,10 @@ async def listar_pedidos(
     query = select(Order)
     if status:
         query = query.where(Order.status == status)
-    query = query.order_by(Order.id).limit(limit).offset(offset)
+    # Mais novo primeiro: é na primeira página que o painel procura o pedido
+    # que acabou de chegar. `id` desempata o `created_at` repetido de linhas
+    # gravadas na mesma transação — sem ele a paginação não é estável.
+    query = query.order_by(Order.created_at.desc(), Order.id.desc()).limit(limit).offset(offset)
     result = await db.execute(query)
     # `de_order`, não o ORM cru: `endereco_entrega` não é mais atributo do
     # model — precisa ser composto (ver PedidoStaffOut.de_order).
