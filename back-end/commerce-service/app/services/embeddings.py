@@ -4,8 +4,10 @@ usadas no Learning Service (`sentence-transformers`), aplicada aqui para
 sugerir produtos substitutos por similaridade semântica real, em vez de
 só "mesma categoria" (ver `services/substituicao_ia.py`).
 
-O modelo é carregado uma única vez por processo (singleton). Se o
-download falhar (sem internet, huggingface.co indisponível), quem chama
+O modelo é carregado uma única vez por processo (singleton). A imagem
+Docker já traz o modelo baixado (ver Dockerfile); fora dela, a primeira carga
+baixa do Hugging Face. Se o download falhar (sem internet, huggingface.co
+indisponível), quem chama
 `gerar_embeddings`/`gerar_embedding` recebe a exceção e deve degradar
 graciosamente — nunca deixar isso derrubar o fluxo de reportar uma
 ocorrência (ver nota em `substituicao_ia.py`, achado real testando o
