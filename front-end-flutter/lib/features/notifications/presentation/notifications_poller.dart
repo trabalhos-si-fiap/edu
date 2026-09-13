@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../../core/utils/jwt_utils.dart';
+import '../data/notifications_api.dart';
 import '../domain/local_notifier.dart';
 import '../domain/notification_model.dart';
 
@@ -164,7 +165,8 @@ class NotificationsPoller extends ChangeNotifier {
     } catch (e) {
       if (!_falhando) {
         debugPrint(
-          'NotificationsPoller: consulta falhou, tentando no próximo ciclo ($e)',
+          'NotificationsPoller: consulta falhou, tentando no próximo ciclo '
+          '(${_descrever(e)})',
         );
       }
       _falhando = true;
@@ -197,7 +199,8 @@ class NotificationsPoller extends ChangeNotifier {
         await _notifier.mostrar(notificacao);
       } catch (e) {
         debugPrint(
-          'NotificationsPoller: não foi possível mostrar a notificação ($e)',
+          'NotificationsPoller: não foi possível mostrar a notificação '
+          '(${_descrever(e)})',
         );
       }
     }
@@ -224,9 +227,19 @@ class NotificationsPoller extends ChangeNotifier {
     try {
       await _notifier.pedirPermissao();
     } catch (e) {
-      debugPrint('NotificationsPoller: pedido de permissão falhou ($e)');
+      debugPrint(
+        'NotificationsPoller: pedido de permissão falhou (${_descrever(e)})',
+      );
     }
   }
+
+  /// O que vai para o log de uma falha: a mensagem pronta de
+  /// [NotificationsException] (texto fixo) ou só o tipo do erro. O texto de
+  /// um erro qualquer pode trazer trecho da resposta — título e corpo de
+  /// notificação do aluno —, e isso não vai para o logcat.
+  static String _descrever(Object erro) => erro is NotificationsException
+      ? erro.message
+      : erro.runtimeType.toString();
 
   /// Esquece a sessão corrente — não a memória de vistas por usuário.
   void _zerarEstado() {
