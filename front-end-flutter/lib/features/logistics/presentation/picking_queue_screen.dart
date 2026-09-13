@@ -6,15 +6,20 @@ import '../domain/order.dart';
 import 'picking_screen.dart';
 import 'widgets/logistics_scaffold.dart';
 
+/// Fila de separação. Os pedidos que o próprio separador já começou
+/// (EM_SEPARACAO) vêm primeiro — o backend os põe ali para que um pedido
+/// devolvido pela substituição possa ser retomado e finalizado.
 class SeparadorFilaScreen extends StatefulWidget {
-  const SeparadorFilaScreen({super.key});
+  const SeparadorFilaScreen({super.key, LogisticsApi? api}) : _api = api;
+
+  final LogisticsApi? _api;
 
   @override
   State<SeparadorFilaScreen> createState() => _SeparadorFilaScreenState();
 }
 
 class _SeparadorFilaScreenState extends State<SeparadorFilaScreen> {
-  final _api = LogisticsApi();
+  late final LogisticsApi _api = widget._api ?? LogisticsApi();
   late Future<List<Pedido>> _filaFuture;
 
   @override
@@ -32,13 +37,15 @@ class _SeparadorFilaScreenState extends State<SeparadorFilaScreen> {
   }
 
   Future<void> _abrirPedido(Pedido pedido) async {
-    final resultado = await Navigator.push<bool>(
+    await Navigator.push<bool>(
       context,
       MaterialPageRoute(
-        builder: (_) => SeparadorPickingScreen(pedido: pedido),
+        builder: (_) => SeparadorPickingScreen(pedido: pedido, api: _api),
       ),
     );
-    if (resultado == true) _carregarFila();
+    // Recarrega em qualquer volta, não só depois de finalizar: um pedido
+    // iniciado e deixado pela metade precisa voltar marcado "Em separação".
+    if (mounted) _carregarFila();
   }
 
   @override
@@ -104,6 +111,7 @@ class _PedidoFilaCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final emAndamento = pedido.status == StatusPedido.emSeparacao;
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       elevation: 0,
@@ -151,6 +159,23 @@ class _PedidoFilaCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
                     ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        if (emAndamento) const _ChipEmSeparacao(),
+                        Text(
+                          emAndamento ? 'Continuar separação' : 'Iniciar separação',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.purple,
+                          ),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),
@@ -158,6 +183,29 @@ class _PedidoFilaCard extends StatelessWidget {
               const Icon(Icons.chevron_right, color: AppColors.textSecondary),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ChipEmSeparacao extends StatelessWidget {
+  const _ChipEmSeparacao();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppColors.purpleSoft,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: const Text(
+        'Em separação',
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: AppColors.purple,
         ),
       ),
     );
