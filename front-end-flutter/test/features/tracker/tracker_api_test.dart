@@ -86,6 +86,32 @@ void main() {
     expect(metodos, ['POST', 'PUT']);
   });
 
+  test('saveGoal devolve as etapas geradas e o aviso de prazo apertado', () async {
+    final client = MockClient(
+      (_) async => http.Response(
+        jsonEncode({
+          'objetivo': {
+            'titulo': 'Medicina',
+            'data_alvo': '2026-11-08',
+            'criado_em': '2026-09-10T10:00:00Z',
+            'atualizado_em': '2026-09-10T10:00:00Z',
+          },
+          'etapas_geradas': 107,
+          'prazo_apertado': true,
+        }),
+        201,
+      ),
+    );
+
+    final salvo = await TrackerApi(
+      client: client,
+      tokenStore: _FakeTokenStore(),
+    ).saveGoal(title: 'Medicina', targetDate: DateTime(2026, 11, 8), update: false);
+
+    expect(salvo.steps, 107);
+    expect(salvo.tightDeadline, isTrue);
+  });
+
   test('data vai como AAAA-MM-DD, não como ISO com hora', () async {
     late http.Request capturada;
     final client = MockClient((req) async {

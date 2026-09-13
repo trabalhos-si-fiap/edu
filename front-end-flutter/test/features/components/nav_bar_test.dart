@@ -36,4 +36,23 @@ void main() {
     await tester.pumpWidget(_wrap(const NavBar(currentIndex: 1)));
     expect(find.text('Quiz'), findsOneWidget);
   });
+
+  testWidgets('Estudo tab opens the study roadmap', (tester) async {
+    String? pushedRoute;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: const Scaffold(bottomNavigationBar: NavBar(currentIndex: 0)),
+        onGenerateRoute: (settings) {
+          pushedRoute = settings.name;
+          return MaterialPageRoute(builder: (_) => const Scaffold(body: Text('DESTINO')));
+        },
+      ),
+    );
+
+    await tester.tap(find.text('Estudo'));
+    await tester.pumpAndSettle();
+
+    expect(pushedRoute, '/tracker');
+    expect(find.text('Em breve'), findsNothing);
+  });
 }
