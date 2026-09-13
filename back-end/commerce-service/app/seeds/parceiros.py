@@ -74,6 +74,14 @@ SEED_PARCEIROS: list[dict] = [FORNECEDOR_EDU, FORNECEDOR_LEROY]
 # Produtos de ambiente de estudo, como a spec pede: mesa, luminária, cadeira,
 # organizadores. Preço e estoque plausíveis; a foto usa o mesmo caminho
 # Unsplash do seed de produto.
+#
+# DUAS mesas, de propósito: quando o separador reporta a de 120 cm em falta,
+# `app/services/substituicao_ia.py` só pode sugerir produto ativo com
+# estoque, e sem a compacta a melhor sugestão era uma cadeira. A compacta
+# repete `type`/`subtype` (o fallback por categoria compara esses dois) e o
+# vocabulário de nome e descrição (os embeddings comparam esses dois) —
+# medido com o modelo real, nome + descrição dela dão 0,89 de similaridade
+# com a de 120 cm, contra 0,44 da cadeira.
 SEED_PRODUTOS_LEROY: list[dict] = [
     {
         "sku": "LM-MESA-120",
@@ -85,6 +93,19 @@ SEED_PRODUTOS_LEROY: list[dict] = [
         "photo_id": "photo-1518455027359-f3f8164ba6bd",
         "quantidade": 24,
         "estoque_minimo": 4,
+    },
+    {
+        "sku": "LM-MESA-90",
+        "name": "Mesa de estudo compacta 90 cm",
+        "type": "mobiliario",
+        "subtype": "Mesa",
+        "description": (
+            "Tampo de 90 x 50 cm em MDF, com passa-cabos e pés de aço, para espaços pequenos."
+        ),
+        "price": "279.90",
+        "photo_id": "photo-1611269154421-4e27233ac5c7",
+        "quantidade": 18,
+        "estoque_minimo": 3,
     },
     {
         "sku": "LM-LUMI-LED",

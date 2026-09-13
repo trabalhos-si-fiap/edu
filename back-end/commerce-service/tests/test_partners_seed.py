@@ -10,14 +10,21 @@ que os contém sai sem origem. Aqui eles passam a pertencer ao fornecedor
 
 import uuid
 
+import pytest
 from edu_common.security import create_access_token
 from sqlalchemy import func, select
 
 from app.config import settings
 from app.models.pedido import Order
 from app.models.produto import Estoque, Fornecedor, Product
-from app.seeds.parceiros import FORNECEDOR_EDU, FORNECEDOR_LEROY, seed_parceiros
+from app.seeds.parceiros import (
+    FORNECEDOR_EDU,
+    FORNECEDOR_LEROY,
+    SEED_PRODUTOS_LEROY,
+    seed_parceiros,
+)
 from app.seeds.products import SEED_PRODUCTS, seed_products
+from app.services.substituicao_ia import sugerir_substitutos
 
 _ALUNO = "00000000-0000-0000-0000-0000000000dd"
 _ADMIN = "00000000-0000-0000-0000-0000000000a9"
@@ -96,6 +103,68 @@ async def test_every_seeded_leroy_product_has_a_unique_sku(db_session):
     skus = [p.sku for p in produtos]
     assert all(skus)
     assert len(set(skus)) == len(skus)
+
+
+def test_every_leroy_product_has_its_own_photo():
+    fotos = [dados["photo_id"] for dados in SEED_PRODUTOS_LEROY]
+    assert len(set(fotos)) == len(fotos)
+
+
+# ── Uma segunda mesa, para a substituição ter o que sugerir ────────────────
+#
+# O roteiro de demonstração faz o separador reportar a mesa de 120 cm em
+# falta. `sugerir_substitutos` só sugere produto ATIVO com estoque — sem outra
+# mesa no catálogo, o aluno recebia uma cadeira ou nada.
+
+
+async def _produto_por_sku(db_session, sku: str) -> Product:
+    return (await db_session.execute(select(Product).where(Product.sku == sku))).scalar_one()
+
+
+async def test_the_leroy_catalog_has_a_second_desk_with_stock(db_session):
+    await seed_parceiros(db_session)
+
+    mesa_grande = await _produto_por_sku(db_session, "LM-MESA-120")
+    mesa_compacta = await _produto_por_sku(db_session, "LM-MESA-90")
+
+    assert mesa_compacta.name == "Mesa de estudo compacta 90 cm"
+    assert mesa_compacta.active is True
+    # Mesmo `type` e `subtype`: é o que o fallback por categoria de
+    # `sugerir_substitutos` compara quando os embeddings não respondem.
+    assert (mesa_compacta.type, mesa_compacta.subtype) == (mesa_grande.type, mesa_grande.subtype)
+    assert mesa_compacta.price < mesa_grande.price
+
+    leroy = (
+        await db_session.execute(select(Fornecedor).where(Fornecedor.nome == "Leroy Merlin"))
+    ).scalar_one()
+    estoque = (
+        await db_session.execute(
+            select(Estoque).where(
+                Estoque.produto_id == mesa_compacta.id, Estoque.fornecedor_id == leroy.id
+            )
+        )
+    ).scalar_one()
+    assert estoque.quantidade > 0
+
+
+async def test_a_desk_out_of_stock_gets_the_other_desk_suggested_without_embeddings(
+    db_session, monkeypatch: pytest.MonkeyPatch
+):
+    """O caminho degradado, que é o determinístico: com o modelo de
+    embeddings fora do ar, a sugestão cai para "mesmo `type` com estoque" — e
+    a mesa compacta tem que estar nela."""
+    await seed_parceiros(db_session)
+    mesa_grande = await _produto_por_sku(db_session, "LM-MESA-120")
+    mesa_compacta = await _produto_por_sku(db_session, "LM-MESA-90")
+
+    def _modelo_fora_do_ar(*args, **kwargs):
+        raise RuntimeError("sem internet")
+
+    monkeypatch.setattr("app.services.substituicao_ia.gerar_embedding", _modelo_fora_do_ar)
+
+    sugeridos = await sugerir_substitutos(db_session, mesa_grande.id)
+
+    assert str(mesa_compacta.id) in sugeridos
 
 
 async def test_the_seed_adopts_the_pre_existing_edu_catalog(db_session):

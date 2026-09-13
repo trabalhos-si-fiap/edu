@@ -1,9 +1,14 @@
 """Idempotent seed for the products catalog.
 
-SEED_PRODUCTS is a byte-for-byte copy of the legacy seed's list
-(`legacy/app/seeds/products.py`), so `commerce_db` shows the same catalog the
-legacy database shows today. Safe to run repeatedly — products are keyed by
-name and skipped if already present.
+SEED_PRODUCTS started as a byte-for-byte copy of the legacy seed's list
+(`legacy/app/seeds/products.py`), so `commerce_db` showed the same catalog the
+legacy database did. It diverges in two entries on purpose (2026-09-13): the
+English "Mastering Data Synthesis" / "Premium Course" and "Diagnostic AI
+Toolkit" / "Digital Tool" became the Portuguese names below, keeping type,
+price, photo and position. Safe to run repeatedly — products are keyed by
+name and skipped if already present, so on a database seeded before the
+rename the two Portuguese entries are inserted as NEW rows and the English
+rows stay behind until someone deactivates them.
 
 The legacy docstring said this mirrored the Flutter mock catalog
 (`mock_marketplace.dart`). That file no longer exists: it was deleted in
@@ -139,12 +144,13 @@ SEED_PRODUCTS: list[dict] = [
         ],
     },
     {
-        "name": "Mastering Data Synthesis",
+        "name": "Curso de Gráficos e Tabelas do ENEM",
         "photo_url": _unsplash("photo-1551288049-bebda4e38f71"),
         "type": "curso",
-        "subtype": "Premium Course",
+        "subtype": "Curso Premium",
         "description": (
-            "Módulo avançado de Educação 5.0 com trilhas práticas de análise e síntese de dados."
+            "Módulo avançado com trilhas práticas de leitura e interpretação de "
+            "gráficos, tabelas e infográficos das quatro áreas da prova."
         ),
         "price": "189.90",
         "rating_avg": 4.8,
@@ -159,10 +165,10 @@ SEED_PRODUCTS: list[dict] = [
         ],
     },
     {
-        "name": "Diagnostic AI Toolkit",
+        "name": "Diagnóstico ENEM com IA",
         "photo_url": _unsplash("photo-1488590528505-98d2b5aba04b"),
         "type": "digital",
-        "subtype": "Digital Tool",
+        "subtype": "Ferramenta Digital",
         "description": (
             "Ferramenta de diagnóstico com IA para mapear pontos fracos e gerar "
             "planos de estudo personalizados."

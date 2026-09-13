@@ -62,24 +62,28 @@ docker exec -i edu-postgres psql -U edu -d learning_db \
   < back-end/learning-service/scripts/seed_enem.sql
 ```
 
-O seed de conteúdo de Biologia tem a mesma lacuna e é igualmente necessário —
-ele é a única fonte de **questão** do repositório:
+Os seeds de conteúdo de Biologia têm a mesma lacuna e são igualmente
+necessários — eles são a única fonte de **questão** do repositório. A ordem
+entre os dois importa: o de Genética só acrescenta questões aos subtemas 7 e 8,
+que o de Citologia cria, e rodado antes dele falha na chave estrangeira:
 
 ```bash
 docker exec -i edu-postgres psql -U edu -d learning_db \
   < back-end/learning-service/scripts/seed_biologia_citologia.sql
+docker exec -i edu-postgres psql -U edu -d learning_db \
+  < back-end/learning-service/scripts/seed_biologia_genetica.sql
 ```
 
-Conferir, depois dos dois:
+Conferir, depois dos três:
 
 ```sql
 SELECT (SELECT count(*) FROM materia)  AS materias,   -- 11
        (SELECT count(*) FROM tema)     AS temas,      -- 36  (33 do ENEM + 3 de Citologia)
        (SELECT count(*) FROM subtema)  AS subtemas,   -- 107 (99 do ENEM + 8 de Citologia)
-       (SELECT count(*) FROM questao)  AS questoes;   -- 26
+       (SELECT count(*) FROM questao)  AS questoes;   -- 34  (26 de Citologia + 8 de Genética)
 ```
 
-Os dois seeds são idempotentes: rodar de novo não duplica nada.
+Os três seeds são idempotentes: rodar de novo não duplica nada.
 
 ### P2 — O aluno de demonstração precisa existir
 
@@ -187,7 +191,7 @@ metade.
 pronto é permanente.
 
 Neste corte, **8 das 107 etapas são praticáveis** — as oito de Biologia
-(Introdução à Célula, Citologia e Genética Básica), que somam 26 questões. As
+(Introdução à Célula, Citologia e Genética Básica), que somam 34 questões. As
 outras 99 têm estrutura e nenhuma questão.
 
 | # | Provocar | Esperado |
@@ -287,7 +291,7 @@ pega.
 | # | Provocar | Esperado |
 |---|---|---|
 | 8.1 | Rodar `seed_enem.sql` duas vezes | Nenhuma duplicata; as contagens do P1 não mudam |
-| 8.2 | Rodar `seed_biologia_citologia.sql` depois do ENEM | Nenhuma colisão — as faixas de id não se cruzam |
+| 8.2 | Rodar `seed_biologia_citologia.sql` depois do ENEM, e `seed_biologia_genetica.sql` depois dele | Nenhuma colisão — as faixas de id não se cruzam; os subtemas 7 e 8 ficam com seis questões cada |
 | 8.3 | Conferir se toda matéria tem ao menos um subtema | Sim, nas 11 |
 | 8.4 | Criar um objetivo **antes** de rodar o seed | O percurso nasce vazio, e a tela diz o motivo em vez de mostrar lista vazia muda |
 
