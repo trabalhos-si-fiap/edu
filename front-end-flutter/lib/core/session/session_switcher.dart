@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../../features/admin/presentation/admin_dashboard_screen.dart';
 import '../../features/logistics/presentation/delivery_queue_screen.dart';
 import '../../features/logistics/presentation/picking_queue_screen.dart';
+import '../../features/notifications/presentation/notifications_poller.dart';
 import 'session_manager.dart';
 
 /// Decide para onde navegar a partir do claim `role` do access token.
@@ -12,6 +16,13 @@ import 'session_manager.dart';
 /// vez de duplicar o `switch` — login e troca de sessão levam ao mesmo lugar
 /// para o mesmo papel.
 Future<void> irParaTelaDoPapel(BuildContext context, String? role) async {
+  // Toda sessão nova passa por aqui — login e troca de sessão —, então é
+  // aqui que o acompanhamento de notificações recomeça para quem acabou de
+  // entrar. O fim da sessão não precisa de gancho: o poller para
+  // sozinho quando o token some. Opcional na árvore para não quebrar quem
+  // monta esta navegação sem o provider.
+  unawaited(context.read<NotificationsPoller?>()?.iniciar());
+
   switch (role) {
     case 'separador':
       Navigator.pushReplacement(
