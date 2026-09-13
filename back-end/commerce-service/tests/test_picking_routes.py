@@ -2,12 +2,14 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+import pytest
 from edu_common.security import create_access_token
 from sqlalchemy import insert
 
 from app.config import settings
 from app.models.ocorrencia import Ocorrencia
 from app.models.pedido import Order, OrderItem
+from app.models.produto import Product
 from app.models.transportadora import Carrier
 from app.services.status_pedido import StatusPedido
 
@@ -436,3 +438,67 @@ async def test_order_detail_of_an_unknown_order_is_404(client):
     response = await client.get(f"/picking/{uuid.uuid4()}", headers=headers_for("separador"))
 
     assert response.status_code == 404
+
+
+# ── O desvio inteiro, pelas rotas: falta → decisão do aluno → retomar → finish
+
+
+@pytest.mark.parametrize(
+    ("resolucao", "itens_esperados"),
+    [("substituir", ["Caderno substituto"]), ("remover_item", [])],
+)
+async def test_the_picker_resumes_and_finishes_an_order_after_the_student_decides(
+    client, db_session, resolucao, itens_esperados
+):
+    aluno = str(uuid.uuid4())
+    original = Product(
+        name="Caderno", description="Caderno", price=Decimal("19.90"), type="papelaria"
+    )
+    substituto = Product(
+        name="Caderno substituto", description="Caderno", price=Decimal("24.90"), type="papelaria"
+    )
+    db_session.add_all([original, substituto])
+    await db_session.commit()
+    pedido = Order(
+        user_id=aluno,
+        status=StatusPedido.EM_SEPARACAO.value,
+        total=Decimal("19.90"),
+        picker_id=PICKER_A,
+    )
+    db_session.add(pedido)
+    await db_session.commit()
+    db_session.add(
+        OrderItem(
+            order_id=pedido.id,
+            product_id=original.id,
+            product_name=original.name,
+            unit_price=original.price,
+            quantity=1,
+        )
+    )
+    await db_session.commit()
+    separador = headers_for("separador", PICKER_A)
+
+    falta = await client.post(
+        "/occurrences/stock-shortage",
+        headers=separador,
+        json={"pedido_id": str(pedido.id), "produto_id": str(original.id), "motivo": "Sem estoque"},
+    )
+    assert falta.status_code == 201, falta.text
+    assert await _ids_da_fila(client, PICKER_A) == []
+
+    decisao = await client.post(
+        f"/occurrences/{falta.json()['id']}/resolve",
+        headers=headers_for("student", aluno),
+        json={"resolucao": resolucao, "produto_escolhido_id": str(substituto.id)},
+    )
+    assert decisao.status_code == 200, decisao.text
+
+    assert await _ids_da_fila(client, PICKER_A) == [str(pedido.id)]
+    detalhe = await client.get(f"/picking/{pedido.id}", headers=separador)
+    assert detalhe.json()["status"] == StatusPedido.EM_SEPARACAO.value
+    assert [i["product_name"] for i in detalhe.json()["items"]] == itens_esperados
+
+    fim = await client.patch(f"/picking/{pedido.id}/finish", headers=separador)
+    assert fim.status_code == 200, fim.text
+    assert fim.json()["status"] == StatusPedido.AGUARDANDO_COLETA.value
