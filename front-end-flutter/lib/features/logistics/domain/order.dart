@@ -33,6 +33,7 @@ enum StatusPedido {
   confirmado,
   aguardandoSeparacao,
   emSeparacao,
+  aguardandoSubstituicao,
   separado,
   aguardandoColeta,
   emTransito,
@@ -58,6 +59,8 @@ enum StatusPedido {
         return StatusPedido.aguardandoSeparacao;
       case 'EM_SEPARACAO':
         return StatusPedido.emSeparacao;
+      case 'AGUARDANDO_SUBSTITUICAO':
+        return StatusPedido.aguardandoSubstituicao;
       case 'SEPARADO':
         return StatusPedido.separado;
       case 'AGUARDANDO_COLETA':
@@ -83,6 +86,8 @@ enum StatusPedido {
         return 'Aguardando Separação';
       case StatusPedido.emSeparacao:
         return 'Em Separação';
+      case StatusPedido.aguardandoSubstituicao:
+        return 'Aguardando Substituição';
       case StatusPedido.separado:
         return 'Separado';
       case StatusPedido.aguardandoColeta:
