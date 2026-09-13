@@ -2,9 +2,11 @@ import 'package:edu_ia/core/theme/app_colors.dart';
 import 'package:edu_ia/features/components/nav_bar.dart';
 import 'package:edu_ia/features/marketplace/presentation/incident_resolution_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../data/notifications_api.dart';
 import '../domain/notification_model.dart';
+import 'notifications_poller.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key, NotificationsApi? api}) : _api = api;
@@ -19,10 +21,36 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   late final NotificationsApi _api = widget._api ?? NotificationsApi();
   late Future<List<NotificationModel>> _future;
 
+  /// Opcional pelo mesmo motivo do `NotificationBell`: a tela montada sem o
+  /// poller na árvore continua funcionando, só sem a atualização sozinha.
+  NotificationsPoller? _poller;
+  int _versaoVista = 0;
+
   @override
   void initState() {
     super.initState();
     _future = _api.list();
+    _poller = context.read<NotificationsPoller?>();
+    _versaoVista = _poller?.versao ?? 0;
+    _poller?.addListener(_aoMudarPolling);
+  }
+
+  @override
+  void dispose() {
+    _poller?.removeListener(_aoMudarPolling);
+    super.dispose();
+  }
+
+  /// O polling achou notificação nova com a lista aberta: mostra a lista que
+  /// ele acabou de trazer, sem outra ida ao servidor e sem o usuário precisar
+  /// puxar para atualizar. Ciclos sem novidade não mexem na tela.
+  void _aoMudarPolling() {
+    final poller = _poller;
+    if (!mounted || poller == null || poller.versao == _versaoVista) return;
+    _versaoVista = poller.versao;
+    setState(() {
+      _future = Future.value(poller.itens);
+    });
   }
 
   Future<void> _refresh() async {
@@ -108,7 +136,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Widget _buildBody(AsyncSnapshot<List<NotificationModel>> snapshot) {
-    if (snapshot.connectionState == ConnectionState.waiting) {
+    // Spinner só na primeira carga: numa recarga (puxar para atualizar ou
+    // polling) a lista anterior fica na tela até a nova chegar.
+    if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
       return const Padding(
         padding: EdgeInsets.only(top: 80),
         child: Center(child: CircularProgressIndicator()),
