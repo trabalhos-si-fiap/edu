@@ -15,7 +15,10 @@ já traz o modelo baixado (ver Dockerfile); fora dela, a primeira carga ainda
 baixa do Hugging Face.
 """
 
+import asyncio
+
 import numpy as np
+from loguru import logger
 from sentence_transformers import SentenceTransformer
 
 # Modelo multilíngue leve, com bom desempenho em português — diferente do
@@ -32,6 +35,17 @@ def _get_modelo() -> SentenceTransformer:
     if _modelo is None:
         _modelo = SentenceTransformer(NOME_MODELO)
     return _modelo
+
+
+async def precarregar_modelo() -> None:
+    """Carrega o modelo numa thread, ao subir o serviço, para o primeiro
+    request não pagar a carga dentro do event loop. É só otimização: se a
+    carga falhar, loga e segue — o primeiro uso real tenta de novo e degrada
+    como sempre degradou."""
+    try:
+        await asyncio.to_thread(_get_modelo)
+    except Exception:
+        logger.exception("pré-carga do modelo de embeddings falhou")
 
 
 def gerar_embedding(texto: str) -> np.ndarray:
