@@ -808,3 +808,35 @@ async def test_occurrence_detail_applies_the_same_rule(client, db_session):
         f"/occurrences/{ocorrencia.id}", headers=headers_for("separador", sub=PICKER_B)
     )
     assert response.status_code == 403
+
+
+async def test_detail_keeps_the_suggested_substitutes_in_ranking_order(client, db_session):
+    """`produtos_sugeridos` guarda os ids na ordem da similaridade — o mais
+    parecido primeiro. O detalhe recarregava os produtos com `IN (...)` sem
+    ORDER BY, e o Postgres devolvia na ordem física: medido no ensaio da
+    apresentação, a mesa compacta (similaridade 0.89) chegou em terceiro,
+    atrás da luminária e da cadeira."""
+    produto = await _seed_produto(db_session)
+    candidatos = []
+    for nome in ("Luminária", "Cadeira", "Mesa compacta"):
+        candidato = Product(name=nome, price=Decimal("10.00"), type="mobiliario")
+        db_session.add(candidato)
+        await db_session.commit()
+        await db_session.refresh(candidato)
+        candidatos.append(candidato)
+    luminaria, cadeira, mesa = candidatos
+    pedido = await _seed_pedido(
+        db_session, StatusPedido.AGUARDANDO_SUBSTITUICAO.value, user_id=ALUNO
+    )
+    ocorrencia = await _seed_ocorrencia_falta_estoque(db_session, pedido, produto)
+    ocorrencia.produtos_sugeridos = [str(mesa.id), str(luminaria.id), str(cadeira.id)]
+    await db_session.commit()
+
+    response = await client.get(f"/occurrences/{ocorrencia.id}", headers=headers_for("student"))
+
+    assert response.status_code == 200
+    assert [p["nome"] for p in response.json()["produtos_sugeridos"]] == [
+        "Mesa compacta",
+        "Luminária",
+        "Cadeira",
+    ]
