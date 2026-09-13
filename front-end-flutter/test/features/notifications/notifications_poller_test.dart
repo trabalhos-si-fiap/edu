@@ -226,6 +226,41 @@ void main() {
     },
   );
 
+  test(
+    'voltar para um usuário já acompanhado neste processo mostra o que chegou enquanto estava fora',
+    () async {
+      // A apresentação alterna os quatro perfis no mesmo aparelho: o que o
+      // separador faz vira notificação da Ana enquanto a sessão dela está
+      // guardada. Ao voltar, isso é novo para ela — não é histórico.
+      c.lista = [_n('1')];
+      await c.poller.iniciar();
+
+      c.token = _token('separador-1', role: 'separador');
+      c.lista = [_n('s1')];
+      await c.poller.iniciar();
+
+      c.token = _token('aluno-1');
+      c.lista = [_n('3'), _n('2'), _n('1')];
+      await c.poller.iniciar();
+
+      expect(c.notificador.mostradas, ['2', '3']);
+    },
+  );
+
+  test('um ciclo manda no máximo 5 para a bandeja, as mais recentes', () async {
+    c.lista = [_n('0')];
+    await c.poller.iniciar();
+
+    c.lista = [for (var i = 8; i >= 0; i--) _n('$i')];
+    await c.poller.verificar();
+
+    expect(c.notificador.mostradas, ['4', '5', '6', '7', '8']);
+    // As que ficaram de fora continuam no contador e na lista.
+    expect(c.poller.naoLidas, 9);
+    await c.poller.verificar();
+    expect(c.notificador.mostradas, hasLength(5));
+  });
+
   test('a resposta atrasada da sessão anterior é descartada', () async {
     final antiga = Completer<List<NotificationModel>>();
     c.pendente = antiga;
