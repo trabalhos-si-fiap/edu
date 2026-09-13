@@ -1,7 +1,9 @@
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.config import settings
 from app.events.publisher import close_publisher, init_publisher
 from app.routers import (
     admin,
@@ -18,12 +20,17 @@ from app.routers import (
     transportadoras,
 )
 from app.scheduler import start_scheduler, stop_scheduler
+from app.services.embeddings import precarregar_modelo
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_publisher()
     start_scheduler()
+    if settings.precarregar_embeddings:
+        # Referência guardada em `app.state`: uma task sem referência pode ser
+        # coletada pelo GC antes de terminar.
+        app.state.precarga_embeddings = asyncio.create_task(precarregar_modelo())
     yield
     stop_scheduler()
     await close_publisher()
