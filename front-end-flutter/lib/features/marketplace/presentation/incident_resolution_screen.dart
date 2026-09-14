@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../../core/utils/currency.dart';
 import '../../logistics/data/logistics_api.dart';
 import '../../logistics/domain/occurrence.dart';
 
@@ -288,7 +289,7 @@ class _FaltaEstoqueContent extends StatelessWidget {
                     ),
                   ),
                   subtitle: Text(
-                    'R\$ ${produto.preco.toStringAsFixed(2)}',
+                    formatBRL(produto.preco),
                     style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
                   ),
                 ),
