@@ -1,3 +1,4 @@
+import 'package:edu_ia/core/network/session_store.dart';
 import 'package:edu_ia/core/network/token_store.dart';
 import 'package:edu_ia/core/session/session_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -28,6 +29,19 @@ class _FakeTokenStore extends TokenStore {
   }
 }
 
+class _FakeSessionStore extends SessionStore {
+  String? nome;
+
+  @override
+  Future<void> saveName(String name) async => nome = name;
+
+  @override
+  Future<String?> readName() async => nome;
+
+  @override
+  Future<void> clear() async => nome = null;
+}
+
 /// Armazenamento em memória com a mesma superfície que o manager usa.
 class _MemoriaSegura implements SecureStorageLike {
   final Map<String, String> _valores = {};
@@ -50,11 +64,48 @@ class _MemoriaSegura implements SecureStorageLike {
 
 void main() {
   late _FakeTokenStore tokenStore;
+  late _FakeSessionStore sessionStore;
+  late _MemoriaSegura memoria;
   late SessionManager manager;
 
   setUp(() {
     tokenStore = _FakeTokenStore();
-    manager = SessionManager(storage: _MemoriaSegura(), tokenStore: tokenStore);
+    sessionStore = _FakeSessionStore();
+    memoria = _MemoriaSegura();
+    manager = SessionManager(
+      storage: memoria,
+      tokenStore: tokenStore,
+      sessionStore: sessionStore,
+    );
+  });
+
+  // Medido no celular: depois de entrar como admin e trocar para a aluna pelo
+  // chip, a home dizia "Bem vindo(a) de volta, Admin!" — os tokens trocavam,
+  // o nome em cache (que a home e o perfil leem) não.
+  test('ativar uma sessão troca também o nome exibido', () async {
+    await tokenStore.save(accessToken: 'a-aluno', refreshToken: 'r-aluno');
+    await manager.guardarSessaoAtual(papel: 'student', nome: 'Ana Ensaio');
+    await tokenStore.save(accessToken: 'a-admin', refreshToken: 'r-admin');
+    await manager.guardarSessaoAtual(papel: 'admin', nome: 'Admin Demo');
+    sessionStore.nome = 'Admin Demo';
+
+    await manager.ativar('student');
+
+    expect(sessionStore.nome, 'Ana Ensaio');
+  });
+
+  test('ativar uma sessão sem nome guardado limpa o nome antigo', () async {
+    // Sessão gravada antes de o nome existir no formato guardado.
+    await memoria.write(
+      key: 'demo_sessions',
+      value: '{"student": {"access": "a", "refresh": "r"}}',
+    );
+    sessionStore.nome = 'Admin Demo';
+
+    await manager.ativar('student');
+
+    // Sem cache, `AuthApi.currentDisplayName` busca `/auth/me` do token novo.
+    expect(sessionStore.nome, isNull);
   });
 
   test('guarda a sessão ativa sob o papel', () async {
@@ -160,9 +211,7 @@ void main() {
         // A sessão ativa (a do separador) continua no TokenStore.
         expect(tokenStore.access, 'a-sep');
         expect(tokenStore.refresh, 'r-sep');
-        final nomes = {
-          for (final s in await manager.listar()) s.papel: s.nome,
-        };
+        final nomes = {for (final s in await manager.listar()) s.papel: s.nome};
         expect(nomes['student'], 'Aluno Demo');
 
         // E ativar a sessão depois usa o par renovado.
