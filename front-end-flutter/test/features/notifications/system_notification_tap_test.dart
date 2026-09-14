@@ -48,6 +48,19 @@ void main() {
       expect(ocorrenciaDoPayload(null), isNull);
       expect(ocorrenciaDoPayload('não é número'), isNull);
     });
+
+    test(
+      'de outra sessão guardada leva só a marca, e nenhuma ocorrência',
+      () {
+        final payload = payloadDaNotificacao(
+          _n(const {'occurrence_id': 7}),
+          deOutraSessao: true,
+        );
+
+        expect(payload, payloadDeOutraSessao);
+        expect(ocorrenciaDoPayload(payload), isNull);
+      },
+    );
   });
 
   testWidgets('com sessão ativa, o toque abre a lista de notificações', (
@@ -102,4 +115,28 @@ void main() {
     expect(find.text('tela atual'), findsOneWidget);
     expect(find.text('lista de notificações'), findsNothing);
   });
+
+  testWidgets(
+    'uma notificação de outra sessão guardada só traz o app para a frente',
+    (tester) async {
+      // Demonstração multi-sessão: a notificação é do aluno, mas quem está na
+      // tela é o separador. Abrir a lista (ou a resolução) mostraria as
+      // notificações de quem está na tela, não as do aluno.
+      final chave = await _montarApp(tester);
+
+      abrirNotificacaoDoSistema(
+        navigator: chave.currentState,
+        sessaoAtiva: true,
+        payload: payloadDaNotificacao(
+          _n(const {'occurrence_id': 7}),
+          deOutraSessao: true,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('tela atual'), findsOneWidget);
+      expect(find.text('lista de notificações'), findsNothing);
+      expect(find.byType(OcorrenciaResolucaoScreen), findsNothing);
+    },
+  );
 }

@@ -10,6 +10,9 @@ import 'package:flutter_test/flutter_test.dart';
 /// Guarda o que teria ido para a bandeja do sistema, sem canal de plataforma.
 class _NotificadorFalso implements LocalNotifier {
   final mostradas = <String>[];
+
+  /// Subconjunto de [mostradas] que veio de outra sessão guardada.
+  final deOutraSessao = <String>[];
   int pedidosDePermissao = 0;
   bool falhar = false;
 
@@ -17,9 +20,13 @@ class _NotificadorFalso implements LocalNotifier {
   Future<void> pedirPermissao() async => pedidosDePermissao++;
 
   @override
-  Future<void> mostrar(NotificationModel notificacao) async {
+  Future<void> mostrar(
+    NotificationModel notificacao, {
+    bool deOutraSessao = false,
+  }) async {
     if (falhar) throw Exception('canal indisponível');
     mostradas.add(notificacao.id);
+    if (deOutraSessao) this.deOutraSessao.add(notificacao.id);
   }
 }
 
