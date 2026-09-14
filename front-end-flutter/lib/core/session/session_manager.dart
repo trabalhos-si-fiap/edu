@@ -114,6 +114,36 @@ class SessionManager {
     return true;
   }
 
+  /// O par de tokens guardado sob [papel], ou `null` quando não há sessão
+  /// guardada para ele (ou o valor está corrompido). Não ativa nada: é o que
+  /// o poller de notificações usa para consultar uma sessão que NÃO é a ativa
+  /// — o par sai daqui só para virar cabeçalho de requisição, como o do
+  /// [TokenStore]; nunca para dentro de [SessaoGuardada].
+  Future<TokenPair?> lerTokens(String papel) async {
+    final sessao = (await _lerBruto())[papel];
+    final access = sessao?['access'];
+    final refresh = sessao?['refresh'];
+    if (access is! String || refresh is! String) return null;
+    return (accessToken: access, refreshToken: refresh);
+  }
+
+  /// Troca o par guardado sob [papel] por [par] — o renovado depois de o
+  /// access token expirar —, mantendo o nome. Só o armazenamento das sessões
+  /// guardadas muda: o [TokenStore] é da sessão ativa, e renovar outra sessão
+  /// não pode derrubar quem está na tela. Devolve `false` sem gravar nada
+  /// quando a sessão não existe mais (removida enquanto o refresh corria):
+  /// o par renovado não ressuscita uma sessão que o usuário apagou.
+  Future<bool> atualizarTokens(String papel, TokenPair par) async {
+    final sessoes = await _lerBruto();
+    final sessao = sessoes[papel];
+    if (sessao == null) return false;
+
+    sessao['access'] = par.accessToken;
+    sessao['refresh'] = par.refreshToken;
+    await _escreverBruto(sessoes);
+    return true;
+  }
+
   /// Remove só a sessão guardada sob [papel]; as demais permanecem.
   Future<void> remover(String papel) async {
     final sessoes = await _lerBruto();
