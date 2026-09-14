@@ -87,3 +87,27 @@ async def test_groq_call_uses_an_available_model_with_low_reasoning(monkeypatch)
     kwargs = fake_client.chat.completions.create.await_args.kwargs
     assert kwargs["model"] == "openai/gpt-oss-20b"
     assert kwargs["reasoning_effort"] == "low"
+
+
+def test_prompt_names_statuses_and_actions_in_portuguese_not_raw_codes():
+    """O modelo repetia no painel os códigos crus que recebia ("ENTREGUE com 9
+    ocorrências, seguido por EM_TRANSITO com 6" — medido no ensaio da
+    apresentação). E a contagem é de MUDANÇAS de status (`order.status_changed`),
+    não de pedidos: um pedido conta uma vez por etapa que atingiu, então chamar
+    isso de "pedidos por status" fazia o resumo comparar 2 pedidos criados
+    com 9 "pedidos entregues"."""
+    contexto = {
+        **CONTEXTO,
+        "pedidos_por_status": {"EM_TRANSITO": 6, "AGUARDANDO_SUBSTITUICAO": 1},
+        "diagnosticos_por_acao": {"estudar": 2},
+    }
+
+    prompt = resumo_ia._montar_prompt_usuario(contexto)
+
+    assert "EM_TRANSITO" not in prompt
+    assert "AGUARDANDO_SUBSTITUICAO" not in prompt
+    assert "Em trânsito: 6" in prompt
+    assert "Aguardando decisão do aluno sobre substituição: 1" in prompt
+    assert "Mudanças de status registradas" in prompt
+    assert "Pedidos por status" not in prompt
+    assert "Estudar o tema de novo: 2" in prompt
