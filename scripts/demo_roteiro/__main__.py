@@ -159,6 +159,7 @@ def main() -> int:
     inicio = time.monotonic()
     for nome in cenas.CENAS_GRAVADAS:
         passo(nome.replace("_", " "))
+        comeco = time.monotonic()
         try:
             passos.get(nome, lambda n=nome: getattr(cenas, n)(roteiro))()
         except (TelaNaoMostrouError, subprocess.CalledProcessError, ValueError) as exc:
@@ -166,6 +167,7 @@ def main() -> int:
             print(f"\n\033[1;31m✗ cena '{nome}': {exc}\033[0m", file=sys.stderr)
             print(f"  print e árvore da tela em {pasta}", file=sys.stderr)
             return 1
+        passo(f"  {time.monotonic() - comeco:.0f}s")
 
     titulo(f"Pronto em {time.monotonic() - inicio:.0f}s")
     passo(f"pedido #{roteiro.pedido_curto} entregue; pode parar a gravação")
