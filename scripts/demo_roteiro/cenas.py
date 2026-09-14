@@ -72,7 +72,7 @@ class Roteiro:
                 return
             if achar_em(tela, "Voltar", exato=True, clicavel=True):
                 t.voltar()
-                time.sleep(1.2)
+                time.sleep(0.5)
                 continue
             aba_home = achar_em(tela, "Home", clicavel=True)
             if aba_home:
@@ -85,10 +85,10 @@ class Roteiro:
                     continue
                 except TelaNaoMostrouError:
                     t.tocar_xy(*aba_home.centro)
-                    time.sleep(2)
+                    time.sleep(0.8)
                     continue
             t.voltar()
-            time.sleep(1.2)
+            time.sleep(0.5)
         raise TelaNaoMostrouError("não consegui voltar para a tela de login")
 
     def abrir_notificacoes(self) -> None:
@@ -202,7 +202,7 @@ def questionario(r: Roteiro) -> None:
 
     for _ in range(30):
         t.rolar_para_cima()
-        time.sleep(0.6)
+        time.sleep(0.2)
         elementos = t.elementos()
         enunciado = max(
             (
@@ -220,11 +220,11 @@ def questionario(r: Roteiro) -> None:
             if alternativa and alternativa.texto.startswith(f"{letra}\n"):
                 break
             t.rolar(500)
-            time.sleep(0.6)
+            time.sleep(0.2)
         if alternativa is None:
             raise TelaNaoMostrouError(f"alternativa {letra} não apareceu")
         t.tocar_xy(*alternativa.centro)
-        time.sleep(0.5)
+        time.sleep(0.3)
 
         botao = None
         for _ in range(4):
@@ -232,13 +232,13 @@ def questionario(r: Roteiro) -> None:
             if botao:
                 break
             t.rolar(500)
-            time.sleep(0.6)
+            time.sleep(0.2)
         if botao is None:
             raise TelaNaoMostrouError("nem Avançar nem Finalizar apareceram")
         t.tocar_xy(*botao.centro)
         if botao.texto == "Finalizar":
             break
-        time.sleep(0.8)
+        time.sleep(0.4)
 
     t.esperar("QUESTIONÁRIO CONCLUÍDO", prazo=90)
 
@@ -271,7 +271,7 @@ def loja_e_compra(r: Roteiro) -> None:
     t.esperar("Adicionar ao carrinho")
     r.pausa()
     t.tocar("Adicionar ao carrinho", exato=True)
-    time.sleep(1.5)
+    time.sleep(1)
     t.tocar_icone("direita")
     t.esperar("Revisão do Carrinho")
     r.pausa()

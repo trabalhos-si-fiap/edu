@@ -191,7 +191,7 @@ class Tela:
                 return elemento
             if time.monotonic() > limite:
                 raise TelaNaoMostrouError(f"não apareceu na tela em {prazo:.0f}s: {texto!r}")
-            time.sleep(0.5)
+            time.sleep(0.2)
 
     def campos(self) -> list[Elemento]:
         return [e for e in self.elementos() if e.classe == "EditText"]
@@ -215,7 +215,7 @@ class Tela:
                     return min(abaixo, key=lambda e: e.limites[1])
             # Rótulo fora da tela, ou o campo ainda abaixo da borda.
             self.rolar(500)
-            time.sleep(0.7)
+            time.sleep(0.2)
         raise TelaNaoMostrouError(f"nenhum campo abaixo do rótulo {rotulo!r}")
 
     # ── ação ──────────────────────────────────────────────────────────
@@ -278,7 +278,7 @@ class Tela:
     def fechar_teclado(self) -> None:
         if "mInputShown=true" in self.shell("dumpsys input_method", check=False):
             self.voltar()
-            time.sleep(0.6)
+            time.sleep(0.3)
 
     def voltar(self) -> None:
         self.shell("input keyevent KEYCODE_BACK")
@@ -295,7 +295,7 @@ class Tela:
             if elemento:
                 return elemento
             self.rolar()
-            time.sleep(0.8)
+            time.sleep(0.2)
         raise TelaNaoMostrouError(f"rolei {tentativas} vezes e não achei: {texto!r}")
 
     # ── notificações ──────────────────────────────────────────────────
@@ -307,7 +307,7 @@ class Tela:
             saida = self.shell("dumpsys notification --noredact", check=False)
             if trecho.lower() in saida.lower():
                 return True
-            time.sleep(2)
+            time.sleep(1)
         return False
 
     def mostrar_gaveta(self, segundos: float) -> None:
