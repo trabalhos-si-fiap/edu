@@ -2,7 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../../../core/session/session_manager.dart';
 import '../data/notifications_api.dart';
+import '../data/outras_sessoes_guardadas.dart';
 import '../domain/local_notifier.dart';
 import '../domain/notification_model.dart';
 import '../domain/usuario_notificavel.dart';
@@ -40,16 +42,29 @@ typedef CriarTimerPeriodico =
 /// - Falhas (rede, 5xx, canal de notificação) são engolidas: o último estado
 ///   bom fica e o próximo ciclo tenta de novo. Só a primeira falha de uma
 ///   sequência vai para o log.
+///
+/// Demonstração multi-sessão ([multiSessao], `DEMO_MULTI_SESSAO`): cada ciclo
+/// também consulta, por [buscarOutrasSessoes], as sessões guardadas que não
+/// são a ativa, e manda para a bandeja o que é novo para elas — a narração
+/// diz que o aluno acompanha tudo em tempo real enquanto a câmera está no
+/// separador. Mesma memória de vistas por usuário e mesmo [maxPorCiclo] por
+/// consulta; lista, contador e [versao] continuam sendo só da sessão ativa, e
+/// o toque nessas notificações só traz o app para a frente. Fora da
+/// demonstração nada disso roda.
 class NotificationsPoller extends ChangeNotifier {
   NotificationsPoller({
     required LocalNotifier notifier,
     required Future<List<NotificationModel>> Function() buscar,
     required Future<String?> Function() lerAccessToken,
+    Future<List<NotificacoesDeOutraSessao>> Function(String usuarioAtivo)?
+    buscarOutrasSessoes,
+    bool multiSessao = SessionManager.habilitado,
     Duration intervalo = intervaloPadrao,
     CriarTimerPeriodico? criarTimer,
   }) : _notifier = notifier,
        _buscar = buscar,
        _lerAccessToken = lerAccessToken,
+       _buscarOutrasSessoes = multiSessao ? buscarOutrasSessoes : null,
        _intervalo = intervalo,
        _criarTimer = criarTimer ?? _timerPeriodico;
 
@@ -62,6 +77,10 @@ class NotificationsPoller extends ChangeNotifier {
   final LocalNotifier _notifier;
   final Future<List<NotificationModel>> Function() _buscar;
   final Future<String?> Function() _lerAccessToken;
+
+  /// `null` fora da demonstração multi-sessão.
+  final Future<List<NotificacoesDeOutraSessao>> Function(String usuarioAtivo)?
+  _buscarOutrasSessoes;
   final Duration _intervalo;
   final CriarTimerPeriodico _criarTimer;
 
@@ -95,6 +114,7 @@ class NotificationsPoller extends ChangeNotifier {
   bool _disposed = false;
   bool _permissaoPedida = false;
   bool _falhando = false;
+  bool _falhandoOutrasSessoes = false;
 
   /// Muda a cada [iniciar]/[parar]: uma consulta que termina depois disso é
   /// de uma sessão que já acabou, e o resultado dela é descartado.
@@ -135,19 +155,35 @@ class NotificationsPoller extends ChangeNotifier {
     if (mudou) _notificar();
   }
 
-  /// Um ciclo: relê a sessão, consulta e notifica o que é novo. Nunca lança.
+  /// Um ciclo: relê a sessão, consulta e notifica o que é novo — a sessão
+  /// ativa e, na demonstração multi-sessão, as outras guardadas. Nunca lança.
   Future<void> verificar() async {
     final geracao = _geracao;
     if (!_ativo || _consultandoGeracao == geracao) return;
     _consultandoGeracao = geracao;
     try {
-      final token = await _lerAccessToken();
-      if (geracao != _geracao) return;
+      final usuario = await _verificarSessaoAtiva(geracao);
+      if (usuario != null && geracao == _geracao) {
+        await _verificarOutrasSessoes(usuario, geracao);
+      }
+    } finally {
+      if (_consultandoGeracao == geracao) _consultandoGeracao = null;
+    }
+  }
 
-      final usuario = token == null ? null : usuarioNotificavel(token);
+  /// Consulta a sessão ativa. Devolve o usuário dela — mesmo quando a busca
+  /// falhou, para as outras sessões ainda serem consultadas —, ou `null`
+  /// quando a sessão acabou ou deu lugar a outra no meio do caminho.
+  Future<String?> _verificarSessaoAtiva(int geracao) async {
+    String? usuario;
+    try {
+      final token = await _lerAccessToken();
+      if (geracao != _geracao) return null;
+
+      usuario = token == null ? null : usuarioNotificavel(token);
       if (usuario == null) {
         parar();
-        return;
+        return null;
       }
       if (_usuario != null && usuario != _usuario) {
         // Outro usuário sem passar por [iniciar]: a lista e o contador do
@@ -158,7 +194,7 @@ class NotificationsPoller extends ChangeNotifier {
       _usuario = usuario;
 
       final lista = await _buscar();
-      if (geracao != _geracao) return;
+      if (geracao != _geracao) return null;
 
       await _aplicar(usuario, lista);
       _falhando = false;
@@ -170,12 +206,57 @@ class NotificationsPoller extends ChangeNotifier {
         );
       }
       _falhando = true;
-    } finally {
-      if (_consultandoGeracao == geracao) _consultandoGeracao = null;
+    }
+    return usuario;
+  }
+
+  /// Demonstração multi-sessão: manda para a bandeja o que é novo para cada
+  /// sessão guardada que não é a de [usuarioAtivo]. Não toca em lista,
+  /// contador nem [versao] — esses são da sessão na tela.
+  Future<void> _verificarOutrasSessoes(String usuarioAtivo, int geracao) async {
+    final buscarOutrasSessoes = _buscarOutrasSessoes;
+    if (buscarOutrasSessoes == null) return;
+    try {
+      final outras = await buscarOutrasSessoes(usuarioAtivo);
+      // Depois de uma troca de sessão, o dono desta resposta pode ser quem
+      // acabou de entrar: o que é novo para ele chega pela consulta da
+      // sessão ativa, com o toque que abre a lista.
+      if (geracao != _geracao) return;
+
+      for (final outra in outras) {
+        final novas = _registrarVistas(outra.usuario, outra.itens);
+        await _mostrarNaBandeja(novas, deOutraSessao: true);
+      }
+      _falhandoOutrasSessoes = false;
+    } catch (e) {
+      if (!_falhandoOutrasSessoes) {
+        debugPrint(
+          'NotificationsPoller: consulta das outras sessões falhou, tentando '
+          'no próximo ciclo (${_descrever(e)})',
+        );
+      }
+      _falhandoOutrasSessoes = true;
     }
   }
 
   Future<void> _aplicar(String usuario, List<NotificationModel> lista) async {
+    final novas = _registrarVistas(usuario, lista);
+
+    _itens = List.unmodifiable(lista);
+    _naoLidas = lista.where((n) => n.readAt == null).length;
+    if (novas.isNotEmpty) _versao++;
+    _notificar();
+
+    await _mostrarNaBandeja(novas);
+  }
+
+  /// Marca [lista] como vista por [usuario] e devolve o que era novo e não
+  /// lido — no máximo [maxPorCiclo], as mais recentes. Na primeira vez de um
+  /// usuário no processo só semeia.
+  List<NotificationModel> _registrarVistas(
+    String usuario,
+    List<NotificationModel> lista,
+  ) {
     final vistas = _vistasPorUsuario[usuario];
     final novas = vistas == null
         ? const <NotificationModel>[]
@@ -184,19 +265,20 @@ class NotificationsPoller extends ChangeNotifier {
               .take(maxPorCiclo)
               .toList();
     (_vistasPorUsuario[usuario] ??= {}).addAll(lista.map((n) => n.id));
+    return novas;
+  }
 
-    _itens = List.unmodifiable(lista);
-    _naoLidas = lista.where((n) => n.readAt == null).length;
-    if (novas.isNotEmpty) _versao++;
-    _notificar();
-
+  Future<void> _mostrarNaBandeja(
+    List<NotificationModel> novas, {
+    bool deOutraSessao = false,
+  }) async {
     // A API devolve a mais recente primeiro; a bandeja recebe na ordem em
     // que aconteceram. Uma falha aqui não desfaz o "visto": repetir a mesma
     // notificação a cada ciclo seria pior do que perdê-la — ela continua na
     // lista e no contador do sino.
     for (final notificacao in novas.reversed) {
       try {
-        await _notifier.mostrar(notificacao);
+        await _notifier.mostrar(notificacao, deOutraSessao: deOutraSessao);
       } catch (e) {
         debugPrint(
           'NotificationsPoller: não foi possível mostrar a notificação '
