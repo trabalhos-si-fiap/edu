@@ -1,9 +1,14 @@
-"""Controle da tela do Android por `adb` e `uiautomator`.
+"""Controle da tela do Android por `adb` e `uiautomator2`.
 
 O Flutter publica o texto visível na árvore de acessibilidade, então dá para
 achar um botão pelo que ele diz em vez de por coordenada medida num aparelho
-só. `ler_elementos` e `escapar_texto` são puros e testados; `Tela` é a casca
-de I/O que o roteiro usa.
+só. `ler_elementos`, `achar_em` e `escapar_texto` são puros e testados; `Tela`
+é a casca de I/O que o roteiro usa.
+
+A árvore vem do agente do `uiautomator2`, que fica rodando no aparelho e
+responde em ~0,2s. O `uiautomator dump` do Android sobe uma JVM e espera a
+tela ficar ociosa a cada leitura: ~2,2s, e o roteiro lê a tela centenas de
+vezes.
 """
 
 from __future__ import annotations
@@ -36,11 +41,17 @@ def _atributo(no: str, nome: str) -> str:
     return html.unescape(achado.group(1)) if achado else ""
 
 
-def ler_elementos(xml: str) -> list[Elemento]:
-    """Elementos de um `uiautomator dump`, na ordem da árvore."""
+def ler_elementos(xml: str, pacote: str | None = None) -> list[Elemento]:
+    """Elementos de uma árvore do uiautomator, na ordem da árvore.
+
+    Com `pacote`, só os do app: a leitura inclui a barra do sistema e o
+    teclado, que também têm botões como "Voltar".
+    """
     elementos = []
     for achado in re.finditer(r"<node [^>]*>", xml):
         no = achado.group(0)
+        if pacote is not None and _atributo(no, "package") != pacote:
+            continue
         numeros = [int(n) for n in re.findall(r"\d+", _atributo(no, "bounds"))]
         if len(numeros) != 4:
             continue
@@ -54,6 +65,24 @@ def ler_elementos(xml: str) -> list[Elemento]:
             )
         )
     return elementos
+
+
+def achar_em(
+    elementos: list[Elemento],
+    texto: str,
+    exato: bool = False,
+    indice: int = 0,
+    clicavel: bool | None = None,
+) -> Elemento | None:
+    """O `indice`-ésimo elemento com o texto; sem `exato`, basta um trecho."""
+
+    def bate(e: Elemento) -> bool:
+        if clicavel is not None and e.clicavel != clicavel:
+            return False
+        return e.texto == texto if exato else texto.lower() in e.texto.lower()
+
+    achados = [e for e in elementos if bate(e)]
+    return achados[indice] if len(achados) > indice else None
 
 
 def escapar_texto(texto: str) -> str:
@@ -73,9 +102,19 @@ class TelaNaoMostrouError(RuntimeError):
 
 
 class Tela:
-    def __init__(self, serial: str, pasta_falhas: Path) -> None:
+    def __init__(
+        self, serial: str, pasta_falhas: Path, pacote: str = "br.com.fiap.estuda_app"
+    ) -> None:
         self.serial = serial
         self.pasta_falhas = pasta_falhas
+        self.pacote = pacote
+        self._agente = None
+
+    def encerrar(self) -> None:
+        """Para o agente do uiautomator2 no aparelho, se ele foi ligado."""
+        if self._agente is not None:
+            self._agente.stop_uiautomator()
+            self._agente = None
 
     # ── adb ───────────────────────────────────────────────────────────
 
@@ -93,22 +132,40 @@ class Tela:
 
     # ── leitura ───────────────────────────────────────────────────────
 
-    def garantir_app_em_foco(self, pacote: str = "br.com.fiap.estuda_app") -> None:
+    def garantir_app_em_foco(self) -> None:
         """Reabre o app se um voltar a mais o mandou para o launcher."""
         atividades = self.shell("dumpsys activity activities", check=False)
         topo = next((linha for linha in atividades.splitlines() if "ResumedActivity" in linha), "")
-        if pacote not in topo:
-            self.shell(f"am start -n {pacote}/.MainActivity", check=False)
+        if self.pacote not in topo:
+            self.shell(f"am start -n {self.pacote}/.MainActivity", check=False)
             time.sleep(3)
 
+    def _ler_arvore(self) -> list[Elemento]:
+        if self._agente is None:
+            try:
+                import uiautomator2
+            except ImportError as exc:
+                raise RuntimeError(
+                    "falta o uiautomator2: rode com `make demo`, que o instala pelo uv"
+                ) from exc
+            self._agente = uiautomator2.connect(self.serial)
+        return ler_elementos(self._agente.dump_hierarchy(), self.pacote)
+
     def elementos(self) -> list[Elemento]:
-        for _ in range(3):
-            self.shell("uiautomator dump /sdcard/edu-demo-ui.xml", check=False)
-            xml = self.shell("cat /sdcard/edu-demo-ui.xml", check=False)
-            if "<node" in xml:
-                return ler_elementos(xml)
-            time.sleep(0.5)
-        return []
+        """A tela depois de parar de mexer.
+
+        O agente não espera a tela ficar ociosa: uma leitura no meio de uma
+        transição ou de uma rolagem acharia o botão fora do lugar. Duas
+        leituras seguidas iguais fazem esse papel por uma fração do tempo.
+        """
+        anterior = self._ler_arvore()
+        for _ in range(8):
+            time.sleep(0.15)
+            atual = self._ler_arvore()
+            if atual == anterior:
+                return atual
+            anterior = atual
+        return anterior
 
     def achar(
         self,
@@ -117,13 +174,7 @@ class Tela:
         indice: int = 0,
         clicavel: bool | None = None,
     ) -> Elemento | None:
-        def bate(e: Elemento) -> bool:
-            if clicavel is not None and e.clicavel != clicavel:
-                return False
-            return e.texto == texto if exato else texto.lower() in e.texto.lower()
-
-        achados = [e for e in self.elementos() if bate(e)]
-        return achados[indice] if len(achados) > indice else None
+        return achar_em(self.elementos(), texto, exato=exato, indice=indice, clicavel=clicavel)
 
     def esperar(
         self,

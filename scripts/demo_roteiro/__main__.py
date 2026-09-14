@@ -9,6 +9,7 @@ Veja docs/demo-roteiro.md.
 from __future__ import annotations
 
 import argparse
+import atexit
 import os
 import subprocess
 import sys
@@ -123,7 +124,10 @@ def main() -> int:
 
         titulo("Aparelho")
         serial = achar_aparelho()
-        tela = Tela(serial, pasta_falhas)
+        tela = Tela(serial, pasta_falhas, PACOTE)
+        # O agente do uiautomator2 segue vivo no aparelho se ninguém o parar;
+        # atexit cobre o fim normal, a falha de uma cena e o Ctrl+C.
+        atexit.register(tela.encerrar)
         if args.skip_build:
             passo("reaproveitando o APK instalado")
         else:
