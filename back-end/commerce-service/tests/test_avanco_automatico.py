@@ -347,3 +347,51 @@ async def test_a_full_run_of_ticks_takes_an_order_from_created_to_delivered(
         StatusPedido.EM_TRANSITO.value,
         StatusPedido.ENTREGUE.value,
     ]
+
+
+async def test_a_status_changed_after_the_scan_is_never_trampled(
+    db_session, test_session_factory, seed_pedido_parado, monkeypatch, _stub_publish_event
+):
+    """A varredura carregava ENTIDADES `Order` na sessão do tique. O
+    `SELECT ... FOR UPDATE` de `transicionar_pedido`, na mesma sessão, devolve
+    a instância do identity map SEM repopular os atributos (o mesmo defeito
+    medido em `admin.py::confirmar_pagamento`) — então a revalidação com lock
+    olhava o status da varredura, não o do banco.
+
+    O caso que importa: o separador reporta falta de estoque entre a varredura
+    e a transição. O pedido está em AGUARDANDO_SUBSTITUICAO, esperando o
+    aluno, e a rede de segurança gravava SEPARADO por cima da decisão que ela
+    jurou nunca atropelar.
+
+    O tique roda numa sessão própria, como `scheduler.py::tick_avanco_automatico`
+    roda — a `db_session` do teste já guarda a instância semeada."""
+    from sqlalchemy import update
+
+    from app.models.pedido import Order
+    from app.services import avanco_automatico as avanco_module
+
+    pedido = await seed_pedido_parado(
+        status=StatusPedido.EM_SEPARACAO.value, parado_ha=timedelta(minutes=20)
+    )
+    real = avanco_module.transicionar_pedido
+
+    async def _falta_reportada_antes_da_transicao(db, pedido_id, *args, **kwargs):
+        async with test_session_factory() as separador:
+            await separador.execute(
+                update(Order)
+                .where(Order.id == pedido_id)
+                .values(status=StatusPedido.AGUARDANDO_SUBSTITUICAO.value)
+            )
+            await separador.commit()
+        return await real(db, pedido_id, *args, **kwargs)
+
+    monkeypatch.setattr(
+        "app.services.avanco_automatico.transicionar_pedido", _falta_reportada_antes_da_transicao
+    )
+
+    async with test_session_factory() as sessao_do_tique:
+        avancados = await avancar_parados(sessao_do_tique, datetime.now(UTC), 180)
+
+    assert avancados == []
+    await db_session.refresh(pedido)
+    assert pedido.status == StatusPedido.AGUARDANDO_SUBSTITUICAO.value
