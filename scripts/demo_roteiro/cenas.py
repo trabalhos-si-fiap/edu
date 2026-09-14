@@ -14,7 +14,7 @@ from datetime import date, datetime
 
 from .preparo import CONTAS_STAFF, Backend
 from .roteiro_dados import Questao, email_da_ana, escolher_alternativa, proximo_8_de_novembro
-from .tela import Tela, TelaNaoMostrouError
+from .tela import Tela, TelaNaoMostrouError, achar_em
 
 ENDERECO = {
     "Identificação": "Casa",
@@ -56,23 +56,25 @@ class Roteiro:
         t = self.tela
         for _ in range(8):
             t.garantir_app_em_foco()
-            if t.achar("Insira suas credenciais"):
+            # Uma leitura só por volta: cada saída é conferida na mesma tela.
+            tela = t.elementos()
+            if achar_em(tela, "Insira suas credenciais"):
                 return
-            sair = t.achar("Sair", exato=True, clicavel=True)
+            sair = achar_em(tela, "Sair", exato=True, clicavel=True)
             if sair:
                 t.tocar_xy(*sair.centro)
                 t.esperar("Insira suas credenciais", prazo=20)
                 return
-            if t.achar("Meu perfil", exato=True):
+            if achar_em(tela, "Meu perfil", exato=True):
                 t.rolar_ate("Sair", exato=True)
                 t.tocar("Sair", exato=True, clicavel=True)
                 t.esperar("Insira suas credenciais", prazo=20)
                 return
-            if t.achar("Voltar", exato=True, clicavel=True):
+            if achar_em(tela, "Voltar", exato=True, clicavel=True):
                 t.voltar()
                 time.sleep(1.2)
                 continue
-            aba_home = t.achar("Home", clicavel=True)
+            aba_home = achar_em(tela, "Home", clicavel=True)
             if aba_home:
                 # Numa aba raiz, voltar fecharia o app. A home e a loja têm o
                 # perfil no ícone da esquerda; as demais abas não — nelas,
