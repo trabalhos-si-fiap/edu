@@ -14,7 +14,7 @@ from datetime import date, datetime
 
 from .preparo import CONTAS_STAFF, Backend
 from .roteiro_dados import Questao, email_da_ana, escolher_alternativa, proximo_8_de_novembro
-from .tela import Tela, TelaNaoMostrouError, achar_em
+from .tela import Elemento, Tela, TelaNaoMostrouError, achar_em
 
 ENDERECO = {
     "Identificação": "Casa",
@@ -91,31 +91,46 @@ class Roteiro:
             time.sleep(0.5)
         raise TelaNaoMostrouError("não consegui voltar para a tela de login")
 
+    @staticmethod
+    def _sino(elementos: list[Elemento]) -> Elemento | None:
+        """O sino do topo. Sem não lidas ele se chama "Notificações"; com não
+        lidas, a acessibilidade anuncia só a contagem ("4")."""
+        meio = max((e.limites[2] for e in elementos), default=0) // 2
+        sinos = [
+            e
+            for e in elementos
+            if e.clicavel
+            and e.classe == "Button"
+            and e.limites[1] < 300
+            and e.centro[0] > meio
+            and (e.texto == "Notificações" or e.texto.isdigit())
+        ]
+        return max(sinos, key=lambda e: e.limites[2]) if sinos else None
+
     def abrir_notificacoes(self) -> None:
-        """Toca o sino do topo. Sem não lidas ele se chama "Notificações";
-        com não lidas, a acessibilidade anuncia só a contagem ("4")."""
+        """Toca o sino e confere que a tela abriu; um toque que cai numa
+        transição é engolido pelo app, então toca de novo."""
         t = self.tela
-        for _ in range(20):
-            elementos = t.elementos()
-            meio = max((e.limites[2] for e in elementos), default=0) // 2
-            sinos = [
-                e
-                for e in elementos
-                if e.clicavel
-                and e.classe == "Button"
-                and e.limites[1] < 300
-                and e.centro[0] > meio
-                and (e.texto == "Notificações" or e.texto.isdigit())
-            ]
-            if sinos:
-                t.tocar_xy(*max(sinos, key=lambda e: e.limites[2]).centro)
-                return
-            time.sleep(0.5)
-        raise TelaNaoMostrouError("o sino de notificações não apareceu no topo")
+        limite = time.monotonic() + 30
+        while time.monotonic() < limite:
+            sino = self._sino(t.elementos())
+            if sino is None:
+                time.sleep(0.5)
+                continue
+            t.tocar_xy(*sino.centro)
+            fim_da_espera = time.monotonic() + 6
+            while time.monotonic() < fim_da_espera:
+                if self._sino(t.elementos()) is None:
+                    return
+                time.sleep(0.3)
+        raise TelaNaoMostrouError("tocar o sino não abriu as notificações")
 
     def entrar_pelo_atalho(self, papel: str, marco: str) -> None:
         self.tela.tocar(f"({papel})", clicavel=True)
         self.tela.esperar(marco, prazo=30)
+        # O marco aparece ainda na transição da tela de login, e o app engole
+        # os toques até ela acabar.
+        time.sleep(0.6)
 
     def abrir_pedido(self) -> None:
         self.tela.tocar(f"Pedido #{self.pedido_curto}", prazo=30)
