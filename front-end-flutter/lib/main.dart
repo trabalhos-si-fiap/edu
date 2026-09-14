@@ -14,6 +14,7 @@ import 'package:edu_ia/features/review/presentation/review_screen.dart';
 import 'package:edu_ia/features/tracker/presentation/tracker_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'core/locale/app_locale.dart';
 import 'core/network/app_http.dart';
 import 'core/network/token_store.dart';
 import 'core/theme/app_theme.dart';
@@ -81,6 +82,9 @@ class _MyAppState extends State<MyApp> {
         navigatorKey: rootNavigatorKey,
         debugShowCheckedModeBanner: false,
         theme: AppTheme.light,
+        locale: AppLocale.locale,
+        supportedLocales: AppLocale.supportedLocales,
+        localizationsDelegates: AppLocale.localizationsDelegates,
         initialRoute: '/login',
         routes: {
           '/login': (_) => const LoginScreen(),
