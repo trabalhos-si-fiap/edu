@@ -120,4 +120,72 @@ void main() {
 
     expect(await manager.listar(), isEmpty);
   });
+
+  group('tokens de uma sessão guardada', () {
+    // O poller de notificações da demonstração consulta as sessões que NÃO
+    // estão ativas com o par guardado de cada uma, e grava de volta o par
+    // renovado quando o access token expira.
+    test('lerTokens devolve o par guardado sob o papel', () async {
+      await tokenStore.save(accessToken: 'a-aluno', refreshToken: 'r-aluno');
+      await manager.guardarSessaoAtual(papel: 'student', nome: 'Aluno Demo');
+
+      final par = await manager.lerTokens('student');
+
+      expect(par?.accessToken, 'a-aluno');
+      expect(par?.refreshToken, 'r-aluno');
+      expect(await manager.lerTokens('admin'), isNull);
+    });
+
+    test(
+      'atualizarTokens troca só o par daquela sessão e não mexe na ativa',
+      () async {
+        await tokenStore.save(accessToken: 'a-aluno', refreshToken: 'r-aluno');
+        await manager.guardarSessaoAtual(papel: 'student', nome: 'Aluno Demo');
+        await tokenStore.save(accessToken: 'a-sep', refreshToken: 'r-sep');
+        await manager.guardarSessaoAtual(
+          papel: 'separador',
+          nome: 'Separador Demo',
+        );
+
+        final gravou = await manager.atualizarTokens('student', (
+          accessToken: 'a-aluno-novo',
+          refreshToken: 'r-aluno-novo',
+        ));
+
+        expect(gravou, isTrue);
+        final aluno = await manager.lerTokens('student');
+        expect(aluno?.accessToken, 'a-aluno-novo');
+        expect(aluno?.refreshToken, 'r-aluno-novo');
+        expect((await manager.lerTokens('separador'))?.accessToken, 'a-sep');
+        // A sessão ativa (a do separador) continua no TokenStore.
+        expect(tokenStore.access, 'a-sep');
+        expect(tokenStore.refresh, 'r-sep');
+        final nomes = {
+          for (final s in await manager.listar()) s.papel: s.nome,
+        };
+        expect(nomes['student'], 'Aluno Demo');
+
+        // E ativar a sessão depois usa o par renovado.
+        await manager.ativar('student');
+        expect(tokenStore.access, 'a-aluno-novo');
+      },
+    );
+
+    test(
+      'atualizarTokens não recria uma sessão que foi removida no meio-tempo',
+      () async {
+        await tokenStore.save(accessToken: 'a1', refreshToken: 'r1');
+        await manager.guardarSessaoAtual(papel: 'student', nome: 'Aluno Demo');
+        await manager.remover('student');
+
+        final gravou = await manager.atualizarTokens('student', (
+          accessToken: 'a2',
+          refreshToken: 'r2',
+        ));
+
+        expect(gravou, isFalse);
+        expect(await manager.listar(), isEmpty);
+      },
+    );
+  });
 }
