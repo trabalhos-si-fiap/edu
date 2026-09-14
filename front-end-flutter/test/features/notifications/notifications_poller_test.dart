@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:edu_ia/features/notifications/data/notifications_api.dart';
+import 'package:edu_ia/features/notifications/data/outras_sessoes_guardadas.dart';
 import 'package:edu_ia/features/notifications/domain/local_notifier.dart';
 import 'package:edu_ia/features/notifications/domain/notification_model.dart';
 import 'package:edu_ia/features/notifications/presentation/notifications_poller.dart';
@@ -76,8 +77,31 @@ class _Cenario {
   final notificador = _NotificadorFalso();
   final timers = <_TimerFalso>[];
 
+  /// Demonstração multi-sessão (`DEMO_MULTI_SESSAO`). Definir antes do
+  /// primeiro uso do [poller].
+  bool multiSessao = false;
+
+  /// O que as outras sessões guardadas devolvem a cada ciclo.
+  List<NotificacoesDeOutraSessao> outras = [];
+  Object? erroOutras;
+  Completer<List<NotificacoesDeOutraSessao>>? outrasPendente;
+
+  /// O usuário ativo informado a cada consulta das outras sessões.
+  final consultasOutras = <String>[];
+
   late final poller = NotificationsPoller(
     notifier: notificador,
+    multiSessao: multiSessao,
+    buscarOutrasSessoes: (usuarioAtivo) async {
+      consultasOutras.add(usuarioAtivo);
+      final espera = outrasPendente;
+      if (espera != null) {
+        outrasPendente = null;
+        return espera.future;
+      }
+      if (erroOutras != null) throw erroOutras!;
+      return outras;
+    },
     buscar: () async {
       buscas++;
       final espera = pendente;
@@ -334,4 +358,165 @@ void main() {
       expect(c.poller.ativo, isFalse);
     },
   );
+
+  group('outras sessões guardadas (demonstração multi-sessão)', () {
+    // A gravação alterna os quatro perfis num aparelho só; a narração diz que
+    // o aluno acompanha tudo em tempo real enquanto a câmera está no separador
+    // e no entregador.
+    setUp(() {
+      c.multiSessao = true;
+      c.token = _token('separador-1', role: 'separador');
+      c.lista = [_n('s1')];
+    });
+
+    test(
+      'uma notificação nova de outra sessão vai para a bandeja, sem mexer no sino da sessão ativa',
+      () async {
+        c.outras = [
+          (usuario: 'aluno-1', itens: [_n('1')]),
+        ];
+        await c.poller.iniciar();
+        // Primeira vez que o aluno aparece neste processo: só semeia.
+        expect(c.notificador.mostradas, isEmpty);
+        final versaoAntes = c.poller.versao;
+
+        c.outras = [
+          (usuario: 'aluno-1', itens: [_n('3'), _n('2'), _n('1')]),
+        ];
+        await c.poller.verificar();
+        await c.poller.verificar();
+
+        expect(c.notificador.mostradas, ['2', '3']);
+        expect(c.notificador.deOutraSessao, ['2', '3']);
+        expect(c.consultasOutras, everyElement('separador-1'));
+        // Sino, lista e versão continuam sendo só do separador.
+        expect(c.poller.itens.map((n) => n.id), ['s1']);
+        expect(c.poller.naoLidas, 1);
+        expect(c.poller.versao, versaoAntes);
+      },
+    );
+
+    test(
+      'o que chegou com outra sessão na tela não se repete ao voltar para ela',
+      () async {
+        c.outras = [
+          (usuario: 'aluno-1', itens: [_n('1')]),
+        ];
+        await c.poller.iniciar();
+        c.outras = [
+          (usuario: 'aluno-1', itens: [_n('2'), _n('1')]),
+        ];
+        await c.poller.verificar();
+        expect(c.notificador.mostradas, ['2']);
+
+        c.token = _token('aluno-1');
+        c.lista = [_n('2'), _n('1')];
+        c.outras = [];
+        await c.poller.iniciar();
+
+        expect(c.notificador.mostradas, ['2']);
+        expect(c.poller.naoLidas, 2);
+      },
+    );
+
+    test('a sessão ativa continua avisando normalmente', () async {
+      await c.poller.iniciar();
+
+      c.lista = [_n('s2'), _n('s1')];
+      await c.poller.verificar();
+
+      expect(c.notificador.mostradas, ['s2']);
+      expect(c.notificador.deOutraSessao, isEmpty);
+    });
+
+    test('outra sessão também manda no máximo 5 por consulta', () async {
+      c.outras = [
+        (usuario: 'aluno-1', itens: [_n('0')]),
+      ];
+      await c.poller.iniciar();
+
+      c.outras = [
+        (usuario: 'aluno-1', itens: [for (var i = 8; i >= 0; i--) _n('$i')]),
+      ];
+      await c.poller.verificar();
+
+      expect(c.notificador.mostradas, ['4', '5', '6', '7', '8']);
+    });
+
+    test(
+      'falha ao consultar as outras sessões é engolida e não atrapalha a ativa',
+      () async {
+        await c.poller.iniciar();
+
+        c.erroOutras = Exception('armazenamento indisponível');
+        c.lista = [_n('s2'), _n('s1')];
+        await c.poller.verificar();
+
+        expect(c.poller.ativo, isTrue);
+        expect(c.notificador.mostradas, ['s2']);
+      },
+    );
+
+    test('sem sessão ativa, as outras sessões não são consultadas', () async {
+      c.token = null;
+
+      await c.poller.iniciar();
+
+      expect(c.consultasOutras, isEmpty);
+    });
+
+    test(
+      'a resposta atrasada das outras sessões, de antes de uma troca de sessão, é descartada',
+      () async {
+        c.outras = [
+          (usuario: 'aluno-1', itens: [_n('1')]),
+        ];
+        await c.poller.iniciar();
+
+        final antiga = Completer<List<NotificacoesDeOutraSessao>>();
+        c.outrasPendente = antiga;
+        unawaited(c.poller.verificar());
+        await pumpEventQueue();
+
+        // Troca para o aluno enquanto a consulta em segundo plano não voltou:
+        // o que é novo para ele chega pela sessão ativa, com o toque normal.
+        c.token = _token('aluno-1');
+        c.outras = [];
+        final novaAtiva = Completer<List<NotificationModel>>();
+        c.pendente = novaAtiva;
+        unawaited(c.poller.iniciar());
+        await pumpEventQueue();
+
+        antiga.complete([
+          (usuario: 'aluno-1', itens: [_n('2'), _n('1')]),
+        ]);
+        await pumpEventQueue();
+        novaAtiva.complete([_n('2'), _n('1')]);
+        await pumpEventQueue();
+
+        expect(c.notificador.mostradas, ['2']);
+        expect(c.notificador.deOutraSessao, isEmpty);
+      },
+    );
+
+    test('sem multi-sessão, só o usuário ativo é consultado', () async {
+      final semMultiSessao = _Cenario()
+        ..multiSessao = false
+        ..token = _token('separador-1', role: 'separador')
+        ..lista = [_n('s1')]
+        ..outras = [
+          (usuario: 'aluno-1', itens: [_n('1')]),
+        ];
+      await semMultiSessao.poller.iniciar();
+
+      semMultiSessao.outras = [
+        (usuario: 'aluno-1', itens: [_n('2'), _n('1')]),
+      ];
+      await semMultiSessao.poller.verificar();
+
+      expect(semMultiSessao.consultasOutras, isEmpty);
+      expect(semMultiSessao.notificador.mostradas, isEmpty);
+      expect(semMultiSessao.buscas, 2);
+    });
+  });
 }
