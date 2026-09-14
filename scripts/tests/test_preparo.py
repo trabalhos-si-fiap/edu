@@ -1,6 +1,6 @@
 import unittest
 
-from demo_roteiro.preparo import ContasFaltando, garantir_contas
+from demo_roteiro.preparo import ContasFaltandoError, garantir_contas
 
 CONTAS = ["admin@demo.edu", "separador@demo.edu", "entregador@demo.edu"]
 
@@ -25,27 +25,21 @@ class GarantirContasTest(unittest.TestCase):
             semeou.append(1)
             existentes.update(CONTAS)
 
-        resultado = garantir_contas(
-            CONTAS, entrar=lambda email: email in existentes, semear=semear
-        )
+        resultado = garantir_contas(CONTAS, entrar=lambda email: email in existentes, semear=semear)
 
         self.assertEqual(semeou, [1])
         self.assertEqual(resultado.existentes, ["admin@demo.edu"])
-        self.assertEqual(
-            resultado.criadas, ["separador@demo.edu", "entregador@demo.edu"]
-        )
+        self.assertEqual(resultado.criadas, ["separador@demo.edu", "entregador@demo.edu"])
 
     def test_seed_nao_resolve_levanta_com_as_que_faltam(self):
-        with self.assertRaises(ContasFaltando) as ctx:
+        with self.assertRaises(ContasFaltandoError) as ctx:
             garantir_contas(
                 CONTAS,
                 entrar=lambda email: email == "admin@demo.edu",
                 semear=lambda: None,
             )
 
-        self.assertEqual(
-            ctx.exception.faltando, ["separador@demo.edu", "entregador@demo.edu"]
-        )
+        self.assertEqual(ctx.exception.faltando, ["separador@demo.edu", "entregador@demo.edu"])
 
 
 if __name__ == "__main__":
