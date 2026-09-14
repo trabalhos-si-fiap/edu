@@ -120,9 +120,10 @@ os cards. O `LocationCard` recebe `onOpenMap`, ligado a
 ### OrderMapScreen
 Observa o `RouteProvider`. No sucesso renderiza um `GoogleMap` com:
 - marcador da **origem** (Centro de Distribuição = ponto de partida) como um
-  **ícone de caminhão**, gerado de `Icons.local_shipping` por
-  `truckMarkerBitmap` (`widgets/marker_icons.dart`) e carregado em `initState`;
-  o destino usa o pino padrão;
+  **ícone de armazém** (`Icons.warehouse`) e, quando há posição, marcador da
+  **transportadora** como um **ícone de caminhão** (`Icons.local_shipping`) —
+  ambos gerados por `markerBitmap` (`widgets/marker_icons.dart`) e carregados
+  em `initState`; o destino usa o pino padrão;
 - uma `Polyline` roxa com os `polylinePoints` decodificados;
 - a câmera enquadrando os dois pontos via `CameraUpdate.newLatLngBounds`,
   disparada num `addPostFrameCallback` (o mapa pode ter tamanho zero em
