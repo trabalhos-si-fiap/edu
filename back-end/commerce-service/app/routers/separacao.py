@@ -121,7 +121,8 @@ async def transicionar_pedido(
 
 async def tem_ocorrencia_aguardando_aluno(db: AsyncSession, pedido_id: uuid.UUID) -> bool:
     """Existe ocorrência ABERTA deste pedido que o ALUNO decide? É o guard de
-    `finalizar_separacao`."""
+    `finalizar_separacao` — e do avanço automático, que a substitui
+    (`app/services/avanco_automatico.py`)."""
     # `select(...).limit(1)` + `.scalars().first()`, NÃO `scalar_one_or_none()`:
     # o filtro `(pedido_id, status='ABERTA')` não é único — um pedido pode ter
     # mais de uma ocorrência aberta, e desde a spec B há TRÊS produtores

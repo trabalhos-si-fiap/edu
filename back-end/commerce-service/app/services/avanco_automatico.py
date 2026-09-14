@@ -24,7 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.pedido import Order
-from app.routers.separacao import transicionar_pedido
+from app.routers.separacao import tem_ocorrencia_aguardando_aluno, transicionar_pedido
 from app.services.posicao import congelar_destino
 from app.services.status_pedido import StatusPedido
 
@@ -111,6 +111,17 @@ async def avancar_parados(
 async def _avancar_um(db: AsyncSession, pedido_id: uuid.UUID, origem: StatusPedido) -> bool:
     """Grava os saltos de `origem` (`saltos_a_partir_de`). Devolve se ao menos
     um foi gravado."""
+    if origem is StatusPedido.EM_SEPARACAO and await tem_ocorrencia_aguardando_aluno(db, pedido_id):
+        # O salto EM_SEPARACAO -> SEPARADO -> AGUARDANDO_COLETA substitui
+        # `finalizar_separacao`, e ela recusa terminar com decisão do aluno
+        # pendente. Recusar aqui também é o que impede a rede de segurança de
+        # mandar para coleta um pedido cujo item o aluno ainda vai trocar.
+        logger.info(
+            "avanco_automatico: pedido {} segue em separação — ocorrência aberta "
+            "aguardando o aluno",
+            pedido_id,
+        )
+        return False
     avancou = False
     for destino in saltos_a_partir_de(origem):
         try:
