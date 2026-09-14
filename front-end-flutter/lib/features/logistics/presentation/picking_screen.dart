@@ -137,6 +137,9 @@ class _SeparadorPickingScreenState extends State<SeparadorPickingScreen> {
     final confirmar = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
+        // Com o teclado aberto para o motivo, o diálogo encolhe e o conteúdo
+        // estourava embaixo; rolável, ele cabe em qualquer altura.
+        scrollable: true,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('Reportar falta de estoque'),
         content: Column(
