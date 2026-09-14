@@ -83,9 +83,10 @@ class _LoginScreenState extends State<LoginScreen> {
     final accessToken = await _tokenStore.readAccessToken();
     final role = accessToken != null ? extrairRoleDoToken(accessToken) : null;
 
-    if (SessionManager.habilitado && role != null) {
-      final nome = await _authApi.currentDisplayName();
-      await SessionManager().guardarSessaoAtual(papel: role, nome: nome ?? role);
+    if (SessionManager.habilitado) {
+      await SessionManager().guardarSessaoDoToken(
+        lerNome: _authApi.currentDisplayName,
+      );
     }
 
     if (!mounted) return;

@@ -14,7 +14,8 @@ App educacional com Flutter (frontend) e Python + FastAPI (backend em microservi
 | | [docs/front-end/firebase_setup.md](docs/front-end/firebase_setup.md) | Documento histórico: FCM saiu do app na spec A; nenhuma credencial é necessária para compilar |
 | | [docs/front-end/local_notifications.md](docs/front-end/local_notifications.md) | Notificacoes do sistema por polling do app (nao e push de servidor): intervalo, limites, como testar |
 | | [docs/front-end/running_ios.md](docs/front-end/running_ios.md) | Rodar no iOS (simulador/device), API_BASE_URL por plataforma |
-| **Entrega** | [docs/smoke-test.md](docs/smoke-test.md) | Roteiro manual de ponta a ponta pelos quatro perfis, com as lacunas conhecidas que nao sao bug |
+| **Entrega** | [docs/demo-roteiro.md](docs/demo-roteiro.md) | `make demo`: dirige o app no Android pelo roteiro inteiro da apresentacao, com contas de staff idempotentes |
+| | [docs/smoke-test.md](docs/smoke-test.md) | Roteiro manual de ponta a ponta pelos quatro perfis, com as lacunas conhecidas que nao sao bug |
 | | [docs/smoke-test-spec-b.md](docs/smoke-test-spec-b.md) | Plano de smoke test da spec B: as bordas e costuras que o roteiro de caminho feliz nao alcanca |
 | | [docs/smoke-test-spec-c.md](docs/smoke-test-spec-c.md) | Plano de smoke test da spec C: o desvio de substituicao, o escopo do token de lote, a posicao simulada e o avanco automatico |
 | | [docs/smoke-test-spec-d.md](docs/smoke-test-spec-d.md) | Plano de smoke test da spec D: o onboarding e suas duas portas, o percurso inteiro, materia sem questao, pontuacao idempotente e o perfil que nao mostra zero por falha |
