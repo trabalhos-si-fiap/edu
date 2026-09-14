@@ -72,6 +72,15 @@ class Settings(BaseSettings):
     # `GET /auth/addresses/{id}` (snapshot de entrega no checkout).
     auth_service_url: str = "http://auth-users-service:8000"
 
+    # Confirmação de pagamento SEM verificação nenhuma: ligado, `POST /orders`
+    # encadeia CRIADO -> CONFIRMADO -> AGUARDANDO_SEPARACAO logo depois de
+    # gravar o pedido, pelo mesmo caminho do clique do admin
+    # (`app/routers/admin.py::confirmar_pagamento_do_pedido`). Não há provedor
+    # de pagamento por trás — é o roteiro da demonstração, não uma cobrança.
+    # Falso por padrão para a suíte manter o sentido de todo teste que cria
+    # pedido; o `docker-compose.yml` o liga.
+    confirmar_pagamento_automatico: bool = False
+
     # Rede de segurança da apresentação: avança um pedido parado no mesmo
     # estado há mais que este prazo. AUSENTE (0) É DESLIGADO — o default, e o
     # critério de pronto 6 da spec C.
