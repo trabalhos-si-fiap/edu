@@ -290,9 +290,10 @@ def loja_e_compra(r: Roteiro) -> None:
     t.tocar("PIX", exato=True)
     t.tocar("Salvar método", exato=True)
     t.esperar_sumir("Salvar método")
-    # O carrinho recarrega ao voltar; "Finalizar Pedido" só responde depois
-    # que o PIX aparece nele.
+    # O carrinho recarrega ao voltar, e o aviso de método adicionado cobre
+    # "Finalizar Pedido" por uns segundos: um toque antes disso se perde.
     t.rolar_ate("Outro método", exato=True)
+    t.esperar_sumir("Método de pagamento adicionado", prazo=15)
     r.pausa(0.7)
 
     t.tocar("Finalizar Pedido", exato=True, clicavel=True)
