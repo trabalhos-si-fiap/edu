@@ -66,4 +66,19 @@ void main() {
     expect(find.text('PEDIDO #01A09D8B'), findsOneWidget);
     expect(find.textContaining('cab4-7553'), findsNothing);
   });
+
+  testWidgets('um passo pendente não mostra horário, mesmo vindo no payload', (
+    tester,
+  ) async {
+    await _pump(tester);
+
+    // Os passos concluído e corrente mostram o horário que o backend mandou.
+    expect(find.text(OrderFormat.dayMonthTime(_confirmadoEm)), findsOneWidget);
+    expect(find.text(OrderFormat.dayMonthTime(_saiuEm)), findsOneWidget);
+    // O "Entregue" ainda não aconteceu: nada de horário embaixo dele.
+    expect(
+      find.text(OrderFormat.dayMonthTime(DateTime.utc(2026, 9, 14, 1, 39))),
+      findsNothing,
+    );
+  });
 }
