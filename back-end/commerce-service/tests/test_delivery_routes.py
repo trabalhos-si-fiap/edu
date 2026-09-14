@@ -502,6 +502,35 @@ async def test_collect_without_a_shipment_attaches_one_from_the_own_fleet(
     assert [chave for chave, _ in _stub_publish_event] == ["order.status_changed"]
 
 
+async def test_own_fleet_shipment_records_who_collected_it_from_the_token(
+    client, db_session, _stub_publish_event
+):
+    """O painel mostra em "RETIRADA" quem pegou a carga. Num lote do admin
+    quem grava é o login do lote; na frota própria não há esse login, então o
+    nome vem do token de quem coletou — sem ele o painel mostrava "— · data".
+    Token emitido antes da claim continua coletando, só sem nome."""
+    pedido = await _seed_pedido_sem_carregamento(db_session)
+    antigo = await _seed_pedido_sem_carregamento(db_session)
+    token = create_access_token(
+        DELIVERER_A, "entregador", settings.jwt_secret, nome="Entregador Demo"
+    )
+
+    com_nome = await client.patch(
+        f"/delivery/{pedido.id}/collect", headers={"Authorization": f"Bearer {token}"}
+    )
+    sem_nome = await client.patch(
+        f"/delivery/{antigo.id}/collect", headers=headers_for("entregador", sub=DELIVERER_A)
+    )
+
+    assert com_nome.status_code == 200, com_nome.text
+    assert sem_nome.status_code == 200, sem_nome.text
+    lotes = {lote.id: lote for lote in await _carregamentos(db_session)}
+    await db_session.refresh(pedido)
+    await db_session.refresh(antigo)
+    assert lotes[pedido.carregamento_id].entregador_nome == "Entregador Demo"
+    assert lotes[antigo.carregamento_id].entregador_nome is None
+
+
 async def test_an_own_fleet_shipment_moves_the_courier_on_the_students_map(
     client, db_session, monkeypatch, _stub_publish_event
 ):
