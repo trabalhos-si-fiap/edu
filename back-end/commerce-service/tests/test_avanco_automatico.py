@@ -234,3 +234,308 @@ async def test_one_bad_order_does_not_abort_the_rest_of_the_tick(
     assert bom.status == StatusPedido.EM_SEPARACAO.value
     await db_session.refresh(ruim)
     assert ruim.status == StatusPedido.AGUARDANDO_SEPARACAO.value
+
+
+# ── Estados de passagem: a rede de segurança atravessa, no mesmo tique, os
+# estados que as rotas manuais atravessam numa chamada só. ─────────────────
+
+
+async def _historico(db_session, pedido_id) -> list[str]:
+    from sqlalchemy import select
+
+    from app.models.pedido import PedidoStatusHistorico
+
+    resultado = await db_session.execute(
+        select(PedidoStatusHistorico.status)
+        .where(PedidoStatusHistorico.order_id == pedido_id)
+        .order_by(PedidoStatusHistorico.id)
+    )
+    return list(resultado.scalars().all())
+
+
+async def test_an_auto_advanced_picking_ends_waiting_for_collection(
+    db_session, seed_pedido_parado, _stub_publish_event
+):
+    """O bug: EM_SEPARACAO avançava para SEPARADO, e SEPARADO não tinha
+    próximo passo — o pedido ficava lá para sempre, fora da fila do
+    entregador (que lê AGUARDANDO_COLETA) e fora de qualquer rota manual
+    (`finish` exige EM_SEPARACAO). `finalizar_separacao` encadeia
+    SEPARADO -> AGUARDANDO_COLETA na mesma chamada; a rede de segurança faz o
+    mesmo, com as mesmas duas linhas de histórico e os dois eventos, nessa
+    ordem."""
+    pedido = await seed_pedido_parado(
+        status=StatusPedido.EM_SEPARACAO.value, parado_ha=timedelta(minutes=20)
+    )
+
+    avancados = await avancar_parados(db_session, datetime.now(UTC), 180)
+
+    assert avancados == [pedido.id]
+    await db_session.refresh(pedido)
+    assert pedido.status == StatusPedido.AGUARDANDO_COLETA.value
+    assert await _historico(db_session, pedido.id) == [
+        StatusPedido.SEPARADO.value,
+        StatusPedido.AGUARDANDO_COLETA.value,
+    ]
+    assert [payload["status"] for _chave, payload in _stub_publish_event] == [
+        StatusPedido.SEPARADO.value,
+        StatusPedido.AGUARDANDO_COLETA.value,
+    ]
+
+
+async def test_an_order_left_in_separado_is_moved_on(
+    db_session, seed_pedido_parado, _stub_publish_event
+):
+    """Quem já ficou preso em SEPARADO pelo bug antigo — ou por um encadeamento
+    interrompido no meio (broker fora entre as duas transições) — sai de lá no
+    tique seguinte."""
+    pedido = await seed_pedido_parado(
+        status=StatusPedido.SEPARADO.value, parado_ha=timedelta(minutes=20)
+    )
+
+    avancados = await avancar_parados(db_session, datetime.now(UTC), 180)
+
+    assert avancados == [pedido.id]
+    await db_session.refresh(pedido)
+    assert pedido.status == StatusPedido.AGUARDANDO_COLETA.value
+
+
+async def test_the_payment_confirmation_is_crossed_in_one_tick(
+    db_session, seed_pedido_parado, _stub_publish_event
+):
+    """Mesmo critério para CONFIRMADO: `confirmar_pagamento_do_pedido`
+    (admin.py) o atravessa numa chamada, e `CONFIRMADO` não tem destinatário
+    de push justamente por ser transitório. Repousar nele por um prazo
+    inteiro seria um passo que nenhuma rota manual produz."""
+    pedido = await seed_pedido_parado(
+        status=StatusPedido.CRIADO.value, parado_ha=timedelta(minutes=20)
+    )
+
+    await avancar_parados(db_session, datetime.now(UTC), 180)
+
+    await db_session.refresh(pedido)
+    assert pedido.status == StatusPedido.AGUARDANDO_SEPARACAO.value
+    assert await _historico(db_session, pedido.id) == [
+        StatusPedido.CONFIRMADO.value,
+        StatusPedido.AGUARDANDO_SEPARACAO.value,
+    ]
+
+
+async def test_a_full_run_of_ticks_takes_an_order_from_created_to_delivered(
+    db_session, seed_pedido_parado, _stub_publish_event
+):
+    """Ponta a ponta, só com a rede de segurança: nenhum estado do caminho
+    feliz pode ser um beco sem saída. Cada tique roda "no futuro" (o prazo já
+    venceu para a transição que o tique anterior acabou de carimbar)."""
+    pedido = await seed_pedido_parado(
+        status=StatusPedido.CRIADO.value, parado_ha=timedelta(minutes=20)
+    )
+
+    for tique in range(1, 11):
+        await avancar_parados(db_session, datetime.now(UTC) + timedelta(hours=tique), 180)
+        await db_session.refresh(pedido)
+        if pedido.status == StatusPedido.ENTREGUE.value:
+            break
+
+    assert pedido.status == StatusPedido.ENTREGUE.value
+    assert tique == 5
+    assert await _historico(db_session, pedido.id) == [
+        StatusPedido.CONFIRMADO.value,
+        StatusPedido.AGUARDANDO_SEPARACAO.value,
+        StatusPedido.EM_SEPARACAO.value,
+        StatusPedido.SEPARADO.value,
+        StatusPedido.AGUARDANDO_COLETA.value,
+        StatusPedido.EM_TRANSITO.value,
+        StatusPedido.ENTREGUE.value,
+    ]
+
+
+async def test_a_status_changed_after_the_scan_is_never_trampled(
+    db_session, test_session_factory, seed_pedido_parado, monkeypatch, _stub_publish_event
+):
+    """A varredura carregava ENTIDADES `Order` na sessão do tique. O
+    `SELECT ... FOR UPDATE` de `transicionar_pedido`, na mesma sessão, devolve
+    a instância do identity map SEM repopular os atributos (o mesmo defeito
+    medido em `admin.py::confirmar_pagamento`) — então a revalidação com lock
+    olhava o status da varredura, não o do banco.
+
+    O caso que importa: o separador reporta falta de estoque entre a varredura
+    e a transição. O pedido está em AGUARDANDO_SUBSTITUICAO, esperando o
+    aluno, e a rede de segurança gravava SEPARADO por cima da decisão que ela
+    jurou nunca atropelar.
+
+    O tique roda numa sessão própria, como `scheduler.py::tick_avanco_automatico`
+    roda — a `db_session` do teste já guarda a instância semeada."""
+    from sqlalchemy import update
+
+    from app.models.pedido import Order
+    from app.services import avanco_automatico as avanco_module
+
+    pedido = await seed_pedido_parado(
+        status=StatusPedido.EM_SEPARACAO.value, parado_ha=timedelta(minutes=20)
+    )
+    real = avanco_module.transicionar_pedido
+
+    async def _falta_reportada_antes_da_transicao(db, pedido_id, *args, **kwargs):
+        async with test_session_factory() as separador:
+            await separador.execute(
+                update(Order)
+                .where(Order.id == pedido_id)
+                .values(status=StatusPedido.AGUARDANDO_SUBSTITUICAO.value)
+            )
+            await separador.commit()
+        return await real(db, pedido_id, *args, **kwargs)
+
+    monkeypatch.setattr(
+        "app.services.avanco_automatico.transicionar_pedido", _falta_reportada_antes_da_transicao
+    )
+
+    async with test_session_factory() as sessao_do_tique:
+        avancados = await avancar_parados(sessao_do_tique, datetime.now(UTC), 180)
+
+    assert avancados == []
+    await db_session.refresh(pedido)
+    assert pedido.status == StatusPedido.AGUARDANDO_SUBSTITUICAO.value
+
+
+async def _abrir_ocorrencia(db_session, pedido_id, transportadora_id: int | None = None):
+    import uuid
+
+    from app.models.ocorrencia import Ocorrencia
+
+    db_session.add(
+        Ocorrencia(
+            pedido_id=pedido_id,
+            tipo="FALTA_ESTOQUE" if transportadora_id is None else "DANO",
+            status="ABERTA",
+            motivo="teste",
+            criado_por=uuid.uuid4(),
+            transportadora_id=transportadora_id,
+        )
+    )
+    await db_session.commit()
+
+
+async def test_an_occurrence_waiting_on_the_student_holds_the_picking(
+    db_session, seed_pedido_parado, _stub_publish_event
+):
+    """`finalizar_separacao` recusa terminar com ocorrência aberta que o aluno
+    decide. A rede de segurança substitui essa rota, então recusa pelo mesmo
+    motivo — senão o pedido sairia para coleta com a decisão do aluno
+    pendente."""
+    pedido = await seed_pedido_parado(
+        status=StatusPedido.EM_SEPARACAO.value, parado_ha=timedelta(minutes=20)
+    )
+    await _abrir_ocorrencia(db_session, pedido.id)
+
+    avancados = await avancar_parados(db_session, datetime.now(UTC), 180)
+
+    assert avancados == []
+    await db_session.refresh(pedido)
+    assert pedido.status == StatusPedido.EM_SEPARACAO.value
+
+
+async def test_a_carrier_occurrence_does_not_hold_the_picking(
+    db_session, seed_carregamento, seed_pedido_parado, _stub_publish_event
+):
+    """O mesmo escopo do guard da rota: ocorrência de transportadora é assunto
+    da administração, e não segura a separação."""
+    carregamento = await seed_carregamento()
+    pedido = await seed_pedido_parado(
+        status=StatusPedido.EM_SEPARACAO.value, parado_ha=timedelta(minutes=20)
+    )
+    await _abrir_ocorrencia(db_session, pedido.id, carregamento.transportadora_id)
+
+    avancados = await avancar_parados(db_session, datetime.now(UTC), 180)
+
+    assert avancados == [pedido.id]
+    await db_session.refresh(pedido)
+    assert pedido.status == StatusPedido.AGUARDANDO_COLETA.value
+
+
+# ── Frota própria: a coleta da rede de segurança também anexa um carregamento
+# ao pedido que não tem, para o mapa do aluno andar. ───────────────────────
+
+
+async def _carregamentos(db_session):
+    from sqlalchemy import select
+
+    from app.models.carregamento import Carregamento
+
+    resultado = await db_session.execute(select(Carregamento).order_by(Carregamento.id))
+    return list(resultado.scalars().all())
+
+
+async def test_the_collect_hop_attaches_an_own_fleet_shipment(
+    db_session, monkeypatch, _stub_publish_event
+):
+    """Mesma frota própria da coleta manual, com uma diferença honesta:
+    `criado_por` é o UUID nulo (`CRIADO_PELO_SISTEMA`), não um id de pessoa —
+    a coluna é NOT NULL e ninguém coletou."""
+    import uuid
+    from decimal import Decimal
+
+    from app.models.pedido import Order
+    from app.services.directions import DirectionsResult
+    from app.services.posicao import ultima_posicao
+    from app.services.simulador_posicao import avancar_carregamentos
+
+    pedido = Order(
+        user_id=str(uuid.uuid4()),
+        status=StatusPedido.AGUARDANDO_COLETA.value,
+        total=Decimal("1299.90"),
+        status_updated_at=datetime.now(UTC) - timedelta(minutes=20),
+        ship_street="Rua das Flores",
+        ship_number="42",
+        ship_city="Jundiaí",
+        ship_state="SP",
+        origem_rotulo="Leroy Merlin Marginal Tietê",
+        origem_lat=Decimal("-23.518300"),
+        origem_lng=Decimal("-46.627600"),
+    )
+    db_session.add(pedido)
+    await db_session.commit()
+    monkeypatch.setattr(settings, "google_maps_api_key", "test-key")
+
+    async def fake_fetch(client, *, origin, destination, api_key):
+        return DirectionsResult(
+            polyline="enc-poly",
+            distance_text="60 km",
+            distance_km=60.0,
+            duration_text="50 min",
+            duration_minutes=50,
+            destination_latitude=-23.185700,
+            destination_longitude=-46.897800,
+        )
+
+    monkeypatch.setattr("app.services.posicao.directions.fetch_directions", fake_fetch)
+
+    avancados = await avancar_parados(db_session, datetime.now(UTC), 180)
+
+    assert avancados == [pedido.id]
+    await db_session.refresh(pedido)
+    assert pedido.status == StatusPedido.EM_TRANSITO.value
+    [lote] = await _carregamentos(db_session)
+    assert pedido.carregamento_id == lote.id
+    assert pedido.carrier_name == "Frota própria Edu"
+    assert pedido.deliverer_id is None
+    assert lote.criado_por == uuid.UUID(int=0)
+    assert (lote.origem_lat, lote.origem_lng) == (pedido.origem_lat, pedido.origem_lng)
+    assert pedido.destino_lat == Decimal("-23.185700")
+    assert [chave for chave, _ in _stub_publish_event] == ["order.status_changed"]
+
+    assert await avancar_carregamentos(db_session, datetime.now(UTC)) == 1
+    assert await ultima_posicao(db_session, lote.id) is not None
+
+
+async def test_the_collect_hop_keeps_the_shipment_an_order_already_has(
+    db_session, seed_carregamento, _stub_publish_event
+):
+    carregamento = await seed_carregamento()
+    pedido = await _seed_pronto_para_coleta(db_session, carregamento.id, timedelta(minutes=20))
+
+    await avancar_parados(db_session, datetime.now(UTC), 180)
+
+    await db_session.refresh(pedido)
+    assert pedido.status == StatusPedido.EM_TRANSITO.value
+    assert pedido.carregamento_id == carregamento.id
+    assert [lote.id for lote in await _carregamentos(db_session)] == [carregamento.id]

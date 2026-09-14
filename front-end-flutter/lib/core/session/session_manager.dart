@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import '../network/session_store.dart';
 import '../network/token_store.dart';
 
 /// Uma sessão guardada para um papel: o suficiente para reativá-la sem
@@ -52,13 +53,19 @@ class _FlutterSecureStorageAdapter implements SecureStorageLike {
 /// constante de compilação, falsa em qualquer build normal, e todo o caminho
 /// que a usa some no tree-shaking.
 class SessionManager {
-  SessionManager({SecureStorageLike? storage, TokenStore? tokenStore})
-    : _storage =
-          storage ?? const _FlutterSecureStorageAdapter(FlutterSecureStorage()),
-      _tokenStore = tokenStore ?? TokenStore();
+  SessionManager({
+    SecureStorageLike? storage,
+    TokenStore? tokenStore,
+    SessionStore? sessionStore,
+  }) : _storage =
+           storage ??
+           const _FlutterSecureStorageAdapter(FlutterSecureStorage()),
+       _tokenStore = tokenStore ?? TokenStore(),
+       _sessionStore = sessionStore ?? SessionStore();
 
   final SecureStorageLike _storage;
   final TokenStore _tokenStore;
+  final SessionStore _sessionStore;
 
   static const _key = 'demo_sessions';
 
@@ -111,6 +118,46 @@ class SessionManager {
     if (access is! String || refresh is! String) return false;
 
     await _tokenStore.save(accessToken: access, refreshToken: refresh);
+    // O nome em cache é o que a home e o perfil cumprimentam. Sem trocá-lo
+    // junto, a aluna ativada pelo chip era saudada com o nome da sessão
+    // anterior. Sem nome guardado, limpa: `AuthApi.currentDisplayName` busca
+    // `/auth/me` com o token novo.
+    final nome = sessao['nome'];
+    if (nome is String && nome.isNotEmpty) {
+      await _sessionStore.saveName(nome);
+    } else {
+      await _sessionStore.clear();
+    }
+    return true;
+  }
+
+  /// O par de tokens guardado sob [papel], ou `null` quando não há sessão
+  /// guardada para ele (ou o valor está corrompido). Não ativa nada: é o que
+  /// o poller de notificações usa para consultar uma sessão que NÃO é a ativa
+  /// — o par sai daqui só para virar cabeçalho de requisição, como o do
+  /// [TokenStore]; nunca para dentro de [SessaoGuardada].
+  Future<TokenPair?> lerTokens(String papel) async {
+    final sessao = (await _lerBruto())[papel];
+    final access = sessao?['access'];
+    final refresh = sessao?['refresh'];
+    if (access is! String || refresh is! String) return null;
+    return (accessToken: access, refreshToken: refresh);
+  }
+
+  /// Troca o par guardado sob [papel] por [par] — o renovado depois de o
+  /// access token expirar —, mantendo o nome. Só o armazenamento das sessões
+  /// guardadas muda: o [TokenStore] é da sessão ativa, e renovar outra sessão
+  /// não pode derrubar quem está na tela. Devolve `false` sem gravar nada
+  /// quando a sessão não existe mais (removida enquanto o refresh corria):
+  /// o par renovado não ressuscita uma sessão que o usuário apagou.
+  Future<bool> atualizarTokens(String papel, TokenPair par) async {
+    final sessoes = await _lerBruto();
+    final sessao = sessoes[papel];
+    if (sessao == null) return false;
+
+    sessao['access'] = par.accessToken;
+    sessao['refresh'] = par.refreshToken;
+    await _escreverBruto(sessoes);
     return true;
   }
 

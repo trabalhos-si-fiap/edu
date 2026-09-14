@@ -58,4 +58,18 @@ void main() {
     expect(find.text('Posso ajudar com seu pedido?'), findsOneWidget);
     expect(find.text('SUPORTE EDU'), findsOneWidget);
   });
+
+  testWidgets(
+      'as a root tab (store bottom nav), there is no back arrow that does '
+      'nothing', (tester) async {
+    // Vindo da Loja pela NavBar (pushReplacementNamed), o suporte é a única
+    // rota: `maybePop` não tem para onde voltar e a seta ficava morta.
+    final provider = SupportProvider(service: _FakeService(const []));
+    await provider.load();
+
+    await tester.pumpWidget(_harness(provider));
+    await tester.pump();
+
+    expect(find.byIcon(Icons.arrow_back), findsNothing);
+  });
 }

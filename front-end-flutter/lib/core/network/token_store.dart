@@ -1,5 +1,8 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+/// An access + refresh JWT pair. Never log these values.
+typedef TokenPair = ({String accessToken, String refreshToken});
+
 /// Persists the JWT pair in the platform's encrypted storage (Keystore on
 /// Android). Never log these values.
 class TokenStore {

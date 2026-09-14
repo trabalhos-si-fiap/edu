@@ -52,6 +52,18 @@ Future<void> irParaTelaDoPapel(BuildContext context, String? role) async {
   }
 }
 
+/// Rótulo em português do papel guardado, para o chip de troca de sessão —
+/// o claim `role` do token vem em inglês para o aluno (`student`). Papel
+/// desconhecido sai como veio, em vez de sumir do chip.
+String rotuloDoPapel(String papel) => _rotulosDosPapeis[papel] ?? papel;
+
+const _rotulosDosPapeis = {
+  'student': 'aluno',
+  'separador': 'separador',
+  'entregador': 'entregador',
+  'admin': 'admin',
+};
+
 /// Seletor de sessões guardadas, para trocar de papel sem redigitar senha.
 ///
 /// RECURSO DE DEMONSTRAÇÃO — ver a docstring de [SessionManager]. O widget só
@@ -103,7 +115,7 @@ class _SessionSwitcherState extends State<SessionSwitcher> {
               for (final sessao in sessoes)
                 ActionChip(
                   avatar: const Icon(Icons.swap_horiz, size: 16),
-                  label: Text('${sessao.nome} (${sessao.papel})'),
+                  label: Text('${sessao.nome} (${rotuloDoPapel(sessao.papel)})'),
                   onPressed: () => _trocarPara(sessao.papel),
                 ),
             ],

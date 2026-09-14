@@ -37,10 +37,15 @@ class OrdersView extends StatelessWidget {
         appBar: AppBar(
           backgroundColor: Colors.white,
           elevation: 0,
-          leading: IconButton(
-            onPressed: () => Navigator.pop(context),
-            icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
-          ),
+          // Aberta pela NavBar (pushReplacementNamed), esta é a única rota da
+          // pilha: a seta faria pop dela e deixaria o app numa tela preta.
+          // Só mostra quando há para onde voltar (ex.: vindo do perfil).
+          leading: Navigator.canPop(context)
+              ? IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
+                )
+              : null,
           actions: [
             IconButton(
               onPressed: () => Navigator.pushNamed(context, '/profile'),

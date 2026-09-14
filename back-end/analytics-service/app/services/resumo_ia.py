@@ -47,22 +47,49 @@ def _get_client() -> AsyncGroq:
     return _client
 
 
+# O modelo repete no texto o que recebe: código cru no prompt vira código cru
+# no painel. Código desconhecido passa como veio, em vez de sumir.
+ROTULO_STATUS = {
+    "CRIADO": "Criado",
+    "CONFIRMADO": "Pagamento confirmado",
+    "AGUARDANDO_SEPARACAO": "Aguardando separação",
+    "EM_SEPARACAO": "Em separação",
+    "AGUARDANDO_SUBSTITUICAO": "Aguardando decisão do aluno sobre substituição",
+    "SEPARADO": "Separado",
+    "AGUARDANDO_COLETA": "Aguardando coleta",
+    "EM_TRANSITO": "Em trânsito",
+    "ENTREGUE": "Entregue",
+    "CANCELADO": "Cancelado",
+}
+
+ROTULO_ACAO = {
+    "estudar": "Estudar o tema de novo",
+    "avancar": "Avançar para o próximo tema",
+    "retroceder": "Voltar ao tema anterior",
+}
+
+
 def _montar_prompt_usuario(contexto: dict) -> str:
     linhas = [f"Período: últimos {contexto['periodo_dias']} dias", ""]
 
     linhas.append(f"Pedidos criados: {contexto['pedidos_criados']}")
     if contexto["pedidos_por_status"]:
-        linhas.append("Pedidos por status:")
+        # A contagem vem de `order.status_changed`: um pedido conta uma vez
+        # por etapa que atingiu. Chamar isso de "pedidos por status" fazia o
+        # resumo comparar pedidos criados com etapas, como se fossem pedidos.
+        linhas.append(
+            "Mudanças de status registradas (cada pedido conta uma vez por etapa que atingiu):"
+        )
         for status, total in contexto["pedidos_por_status"].items():
-            linhas.append(f"  - {status}: {total}")
+            linhas.append(f"  - {ROTULO_STATUS.get(status, status)}: {total}")
 
     linhas.append(f"Ocorrências abertas: {contexto['ocorrencias_abertas']}")
     linhas.append(f"Ocorrências resolvidas: {contexto['ocorrencias_resolvidas']}")
 
     if contexto["diagnosticos_por_acao"]:
-        linhas.append("Diagnósticos concluídos por ação:")
+        linhas.append("Diagnósticos concluídos, pela recomendação dada ao aluno:")
         for acao, total in contexto["diagnosticos_por_acao"].items():
-            linhas.append(f"  - {acao}: {total}")
+            linhas.append(f"  - {ROTULO_ACAO.get(acao, acao)}: {total}")
 
     return "\n".join(linhas)
 

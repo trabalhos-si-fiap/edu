@@ -25,6 +25,10 @@ class ProductsProvider extends ChangeNotifier {
   String get query => _query;
   String? get selectedType => _type;
 
+  /// Há busca ou categoria filtrando a grade. Mesmo critério de
+  /// [visibleProducts]: só espaços na busca não filtram nada.
+  bool get hasActiveFilter => _type != null || _query.trim().isNotEmpty;
+
   List<String> get types => _products
       .map((p) => p.type)
       .where((t) => t.isNotEmpty)

@@ -40,6 +40,35 @@ async def listar_pedidos(
     return [PedidoStaffOut.de_order(pedido) for pedido in result.scalars().all()]
 
 
+async def confirmar_pagamento_do_pedido(
+    db: AsyncSession,
+    pedido_id: uuid.UUID,
+    user_id: str | None,
+    observacao: str | None = None,
+) -> Order:
+    """O encadeamento CRIADO -> CONFIRMADO -> AGUARDANDO_SEPARACAO, fora da
+    rota, para o checkout com confirmação automática
+    (`app/routers/pedidos.py::criar_pedido`) passar pelo MESMO caminho que o
+    clique do admin — guard de idempotência e leitura escalar incluídos. O
+    porquê de cada um está na docstring de `confirmar_pagamento`, logo abaixo.
+
+    `user_id=None` é a confirmação sem pessoa (a do checkout): mesma convenção
+    de `PedidoStatusHistorico.user_id` nulo que o avanço automático e o token
+    de carregamento já usam.
+    """
+    result = await db.execute(select(Order.status).where(Order.id == pedido_id))
+    status_atual = result.scalar_one_or_none()
+    if status_atual == StatusPedido.CRIADO.value:
+        await transicionar_pedido(
+            db, pedido_id, StatusPedido.CONFIRMADO.value, user_id, observacao=observacao
+        )
+    # Sem `if status_atual is None`: um id inexistente cai no 404 de
+    # `transicionar_pedido`, que é a mesma resposta de antes deste guard.
+    return await transicionar_pedido(
+        db, pedido_id, StatusPedido.AGUARDANDO_SEPARACAO.value, user_id, observacao=observacao
+    )
+
+
 @router.patch("/orders/{pedido_id}/confirm-payment", response_model=PedidoStaffOut)
 async def confirmar_pagamento(
     pedido_id: uuid.UUID,
@@ -72,7 +101,9 @@ async def confirmar_pagamento(
     Com o guard, o segundo clique retoma de onde parou e não duplica a
     linha `CONFIRMADO` do histórico.
 
-    O `SELECT` abaixo lê a COLUNA (`select(Order.status)`), não a entidade
+    O `SELECT` de `confirmar_pagamento_do_pedido` (logo acima, onde o
+    encadeamento mora desde que o checkout também o usa) lê a COLUNA
+    (`select(Order.status)`), não a entidade
     `Order`, e isso é obrigatório — não estilo. Ler a entidade a coloca no
     identity map da sessão; o `SELECT ... FOR UPDATE` de dentro de
     `transicionar_pedido`, na MESMA sessão, traz a linha nova do banco mas o
@@ -95,15 +126,7 @@ async def confirmar_pagamento(
     envenena nada e não segura lock nenhum; quem serializa continua sendo o
     `SELECT ... FOR UPDATE` de `transicionar_pedido`.
     """
-    result = await db.execute(select(Order.status).where(Order.id == pedido_id))
-    status_atual = result.scalar_one_or_none()
-    if status_atual == StatusPedido.CRIADO.value:
-        await transicionar_pedido(db, pedido_id, StatusPedido.CONFIRMADO.value, user["sub"])
-    # Sem `if status_atual is None`: um id inexistente cai no 404 de
-    # `transicionar_pedido`, que é a mesma resposta de antes deste guard.
-    pedido = await transicionar_pedido(
-        db, pedido_id, StatusPedido.AGUARDANDO_SEPARACAO.value, user["sub"]
-    )
+    pedido = await confirmar_pagamento_do_pedido(db, pedido_id, user["sub"])
     return PedidoStaffOut.de_order(pedido)
 
 

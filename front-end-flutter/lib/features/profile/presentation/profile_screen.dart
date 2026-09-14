@@ -4,20 +4,25 @@ import '../../../core/theme/app_colors.dart';
 import '../../auth/data/auth_api.dart';
 import '../../cart/data/cart_store.dart';
 import '../../components/nav_bar.dart';
+import '../../tracker/data/tracker_api.dart';
 import '../../tracker/domain/study_summary.dart';
 import '../../tracker/presentation/points_card.dart';
 import '../../tracker/presentation/summary_provider.dart';
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key});
+  const ProfileScreen({super.key, this.authApi, this.trackerApi});
+
+  /// Injeção só para teste; o app sempre usa os defaults.
+  final AuthApi? authApi;
+  final TrackerApi? trackerApi;
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  final _authApi = AuthApi();
-  final _summaryProvider = SummaryProvider();
+  late final _authApi = widget.authApi ?? AuthApi();
+  late final _summaryProvider = SummaryProvider(api: widget.trackerApi);
   String? _name;
 
   @override
@@ -66,7 +71,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _AvatarSection(name: _name),
+              _AvatarSection(name: _name, provider: _summaryProvider),
               const SizedBox(height: 24),
               ProfileSummarySection(provider: _summaryProvider),
               const SizedBox(height: 24),
@@ -103,8 +108,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
               const SizedBox(height: 12),
               _SettingsCard(
                 items: const [
-                  _SettingsItem(Icons.help_outline, 'Help & Support'),
-                  _SettingsItem(Icons.verified_user_outlined, 'Privacy Policy'),
+                  _SettingsItem(Icons.help_outline, 'Ajuda e suporte'),
+                  _SettingsItem(Icons.verified_user_outlined, 'Política de privacidade'),
                 ],
                 trailing: _LogoutTile(onTap: () async {
                   final navigator = Navigator.of(context);
@@ -169,9 +174,10 @@ class ProfileSummarySection extends StatelessWidget {
 }
 
 class _AvatarSection extends StatelessWidget {
-  const _AvatarSection({this.name});
+  const _AvatarSection({this.name, required this.provider});
 
   final String? name;
+  final SummaryProvider provider;
 
   @override
   Widget build(BuildContext context) {
@@ -216,22 +222,32 @@ class _AvatarSection extends StatelessWidget {
               color: AppColors.textPrimary,
             ),
           ),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-            decoration: BoxDecoration(
-              color: AppColors.purple,
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: const Text(
-              'LEVEL 18 SCHOLAR',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                color: AppColors.white,
-                letterSpacing: 1,
-              ),
-            ),
+          AnimatedBuilder(
+            animation: provider,
+            builder: (context, _) {
+              // O nível é o mesmo do cartão de pontos logo abaixo. Sem o
+              // resumo (carregando ou com erro) o selo some, em vez de
+              // mostrar um nível de exemplo.
+              final resumo = provider.summary;
+              if (resumo == null) return const SizedBox.shrink();
+              return Container(
+                margin: const EdgeInsets.only(top: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                decoration: BoxDecoration(
+                  color: AppColors.purple,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  'NÍVEL ${resumo.points.level}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.white,
+                    letterSpacing: 1,
+                  ),
+                ),
+              );
+            },
           ),
         ],
       ),
@@ -289,7 +305,7 @@ class _LogoutTile extends StatelessWidget {
     return ListTile(
       leading: const Icon(Icons.logout, color: Colors.red),
       title: const Text(
-        'Logout',
+        'Sair',
         style: TextStyle(fontSize: 14, color: Colors.red, fontWeight: FontWeight.w600),
       ),
       onTap: onTap,

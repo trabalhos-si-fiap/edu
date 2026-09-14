@@ -3,6 +3,7 @@ import 'package:edu_ia/core/utils/currency.dart';
 import 'package:edu_ia/features/cart/data/cart_store.dart';
 import 'package:edu_ia/features/cart/domain/cart_item.dart';
 import 'package:edu_ia/features/marketplace/data/checkout_service.dart';
+import 'package:edu_ia/features/marketplace/presentation/widgets/product_image.dart';
 import 'package:edu_ia/features/marketplace/presentation/widgets/product_visuals.dart';
 import 'package:edu_ia/features/marketplace/presentation/widgets/rating_stars.dart';
 import 'package:edu_ia/features/payment/data/payment_methods_api.dart';
@@ -518,7 +519,7 @@ class _CartSection extends StatelessWidget {
       children: [
         for (var i = 0; i < items.length; i++) ...[
           if (i > 0) const SizedBox(height: 16),
-          _CartItemCard(item: items[i]),
+          CartItemCard(item: items[i]),
         ],
         const SizedBox(height: 16),
         Row(
@@ -547,10 +548,13 @@ class _CartSection extends StatelessWidget {
   }
 }
 
-class _CartItemCard extends StatelessWidget {
+/// Card de um item na revisão do carrinho. Público, não `_Privado`, para o
+/// teste montá-lo sem a tela inteira, que instancia as APIs de endereço e
+/// pagamento.
+class CartItemCard extends StatelessWidget {
   final CartItem item;
 
-  const _CartItemCard({required this.item});
+  const CartItemCard({super.key, required this.item});
 
   @override
   Widget build(BuildContext context) {
@@ -577,14 +581,16 @@ class _CartItemCard extends StatelessWidget {
             children: [
               ClipRRect(
                 borderRadius: BorderRadius.circular(14),
-                child: Container(
+                // A foto vem no `image_url` do carrinho (presign_cart no
+                // commerce-service), igual ao card e ao detalhe do produto;
+                // sem URL, ProductImage cai no ícone do tipo.
+                child: SizedBox(
                   width: 88,
                   height: 88,
-                  color: AppColors.cartImageBlue,
-                  child: Icon(
-                    iconForProduct(product.type),
-                    size: 36,
-                    color: AppColors.white.withValues(alpha: 0.9),
+                  child: ProductImage(
+                    imageUrl: product.imageUrl,
+                    type: product.type,
+                    iconSize: 36,
                   ),
                 ),
               ),

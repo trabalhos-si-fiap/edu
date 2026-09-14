@@ -386,3 +386,124 @@ async def test_order_status_history_actually_applies_limit_and_offset(client, db
     marcas_first = {row["observacao"] for row in first_body}
     marcas_last = {row["observacao"] for row in last_body}
     assert marcas_first.isdisjoint(marcas_last)
+
+
+# ── Confirmação automática de pagamento (roteiro da demonstração): com
+# `CONFIRMAR_PAGAMENTO_AUTOMATICO` ligado, o checkout atravessa o mesmo
+# encadeamento do clique do admin. ────────────────────────────────────────
+
+
+async def _checkout(client, db_session, aluno_id: str):
+    """Carrinho com um produto e `POST /orders` — o único jeito de criar pedido."""
+    from app.models.produto import Product
+
+    produto = Product(name="Mesa de estudo", price=Decimal("399.90"), type="movel")
+    db_session.add(produto)
+    await db_session.commit()
+    await db_session.refresh(produto)
+
+    await client.post(
+        "/cart/items",
+        json={"product_id": str(produto.id), "quantity": 1},
+        headers=headers_for("student", sub=aluno_id),
+    )
+    return await client.post(
+        "/orders",
+        json={"payment_method": "PIX"},
+        headers=headers_for("student", sub=aluno_id),
+    )
+
+
+async def _historico(db_session, order_id: str):
+    from sqlalchemy import select
+
+    from app.models.pedido import PedidoStatusHistorico
+
+    resultado = await db_session.execute(
+        select(PedidoStatusHistorico)
+        .where(PedidoStatusHistorico.order_id == uuid.UUID(order_id))
+        .order_by(PedidoStatusHistorico.id)
+    )
+    return list(resultado.scalars().all())
+
+
+async def test_checkout_confirms_the_payment_when_the_setting_is_on(
+    client, db_session, monkeypatch, _stub_publish_event
+):
+    """Sem verificação de pagamento, por ora: o pedido nasce e já entra na
+    fila de separação, pelo MESMO encadeamento de
+    `PATCH /admin/orders/{id}/confirm-payment` — duas linhas de histórico sem
+    pessoa, e os eventos na ordem em que o admin os produziria."""
+    from app.services.status_pedido import StatusContrato
+
+    monkeypatch.setattr(settings, "confirmar_pagamento_automatico", True)
+
+    response = await _checkout(client, db_session, str(uuid.uuid4()))
+
+    assert response.status_code == 201, response.text
+    corpo = response.json()
+    assert corpo["status"] == StatusContrato.SEPARATING.value
+    assert len(corpo["items"]) == 1
+
+    pedido = await db_session.get(Order, uuid.UUID(corpo["id"]))
+    assert pedido.status == StatusPedido.AGUARDANDO_SEPARACAO.value
+
+    historico = await _historico(db_session, corpo["id"])
+    assert [h.status for h in historico] == [
+        StatusPedido.CRIADO.value,
+        StatusPedido.CONFIRMADO.value,
+        StatusPedido.AGUARDANDO_SEPARACAO.value,
+    ]
+    assert [h.user_id for h in historico[1:]] == [None, None]
+    assert all(h.observacao == "Pagamento confirmado automaticamente" for h in historico[1:])
+
+    assert [(chave, payload.get("status")) for chave, payload in _stub_publish_event] == [
+        ("order.created", None),
+        ("order.status_changed", StatusPedido.CONFIRMADO.value),
+        ("order.status_changed", StatusPedido.AGUARDANDO_SEPARACAO.value),
+    ]
+
+
+async def test_checkout_leaves_the_order_created_when_the_setting_is_off(
+    client, db_session, _stub_publish_event
+):
+    """O default (desligado) mantém o contrato de antes: o pedido espera o
+    admin confirmar."""
+    from app.services.status_pedido import StatusContrato
+
+    assert settings.confirmar_pagamento_automatico is False
+
+    response = await _checkout(client, db_session, str(uuid.uuid4()))
+
+    assert response.status_code == 201, response.text
+    assert response.json()["status"] == StatusContrato.PENDING.value
+    historico = await _historico(db_session, response.json()["id"])
+    assert [h.status for h in historico] == [StatusPedido.CRIADO.value]
+    assert [chave for chave, _ in _stub_publish_event] == ["order.created"]
+
+
+async def test_a_failed_automatic_confirmation_never_loses_the_order(
+    client, db_session, monkeypatch, _stub_publish_event
+):
+    """Broker fora no meio do encadeamento: `CRIADO -> CONFIRMADO` já foi
+    gravado e o evento dele estourou. O pedido do aluno já existe e o
+    carrinho já foi esvaziado — um 500 aqui faria o app mostrar erro para uma
+    compra feita. A rota devolve o pedido como ele ficou, e o botão do admin
+    (retentável por construção) termina o trabalho."""
+    from app.services.status_pedido import StatusContrato
+
+    monkeypatch.setattr(settings, "confirmar_pagamento_automatico", True)
+
+    async def _broker_fora(routing_key: str, payload: dict) -> None:
+        raise RuntimeError("broker fora")
+
+    monkeypatch.setattr("app.routers.separacao.publish_event", _broker_fora)
+
+    response = await _checkout(client, db_session, str(uuid.uuid4()))
+
+    assert response.status_code == 201, response.text
+    corpo = response.json()
+    assert corpo["status"] == StatusContrato.CONFIRMED.value
+    assert len(corpo["items"]) == 1
+    pedido = await db_session.get(Order, uuid.UUID(corpo["id"]))
+    assert pedido.status == StatusPedido.CONFIRMADO.value

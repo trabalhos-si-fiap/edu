@@ -94,4 +94,57 @@ void main() {
 
     expect(ok, isFalse);
   });
+
+  group('exchange', () {
+    // The multi-session demo refreshes a SAVED session that is not the active
+    // one: the refresh token comes from outside the TokenStore, and the new
+    // pair must not land in it — that would overwrite the on-screen session.
+    test('posts the given refresh token and returns the new pair without '
+        'touching the token store', () async {
+      final store = _FakeTokenStore(refreshToken: 'active-refresh');
+      Object? capturedBody;
+      final client = MockClient((req) async {
+        capturedBody = jsonDecode(req.body);
+        return http.Response(
+          jsonEncode({
+            'access_token': 'other-access',
+            'refresh_token': 'other-refresh',
+            'token_type': 'bearer',
+          }),
+          200,
+        );
+      });
+      final refresher = TokenRefresher(client: client, tokenStore: store);
+
+      final pair = await refresher.exchange('saved-refresh');
+
+      expect(capturedBody, {'refresh_token': 'saved-refresh'});
+      expect(pair?.accessToken, 'other-access');
+      expect(pair?.refreshToken, 'other-refresh');
+      expect(store.savedAccess, isNull);
+      expect(store.savedRefresh, isNull);
+    });
+
+    test('returns null on a non-200 response', () async {
+      final client = MockClient((req) async => http.Response('bad', 401));
+      final refresher = TokenRefresher(
+        client: client,
+        tokenStore: _FakeTokenStore(),
+      );
+
+      expect(await refresher.exchange('saved-refresh'), isNull);
+    });
+
+    test('returns null on a network error', () async {
+      final client = MockClient((req) async {
+        throw http.ClientException('down');
+      });
+      final refresher = TokenRefresher(
+        client: client,
+        tokenStore: _FakeTokenStore(),
+      );
+
+      expect(await refresher.exchange('saved-refresh'), isNull);
+    });
+  });
 }

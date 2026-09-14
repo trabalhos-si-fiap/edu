@@ -18,6 +18,13 @@ class NotificationsException implements Exception {
   String toString() => message;
 }
 
+/// Raised by [NotificationsApi.listWithToken] when the backend answers `401`:
+/// the token expired (or was revoked), so the caller can refresh and retry.
+class NotificationsUnauthorizedException extends NotificationsException {
+  NotificationsUnauthorizedException()
+    : super('Falha ao carregar notificações (401)');
+}
+
 /// Client for the notifications backend: fetching the user's notification
 /// history, and registering/unregistering a device token.
 ///
@@ -42,17 +49,29 @@ class NotificationsApi {
     if (access == null) {
       throw NotificationsException('Sessão expirada. Entre novamente.');
     }
+    return listWithToken(access);
+  }
 
+  /// Same as [list], but authenticated with [accessToken] instead of the
+  /// active session's — the multi-session demo polls saved sessions that are
+  /// not on screen. Throws [NotificationsUnauthorizedException] on `401` so
+  /// the caller can refresh that session's pair itself.
+  ///
+  /// Build this API with a plain [http.Client] for that: `appAuthClient`
+  /// rewrites `Authorization` with the ACTIVE token and, on `401`, refreshes
+  /// (or logs out) the active session.
+  Future<List<NotificationModel>> listWithToken(String accessToken) async {
     final http.Response res;
     try {
       res = await _client.get(
         Uri.parse('${ApiConfig.baseUrl}/notifications'),
-        headers: {'Authorization': 'Bearer $access'},
+        headers: {'Authorization': 'Bearer $accessToken'},
       );
     } on Exception {
       throw NotificationsException('Não foi possível conectar ao servidor');
     }
 
+    if (res.statusCode == 401) throw NotificationsUnauthorizedException();
     if (res.statusCode != 200) {
       throw NotificationsException(
         'Falha ao carregar notificações (${res.statusCode})',

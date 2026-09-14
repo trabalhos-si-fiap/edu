@@ -11,6 +11,7 @@ from app.dependencies import PAPEL_CARREGAMENTO, AtorEntrega, ator_de_entrega
 from app.models.pedido import Order
 from app.routers.separacao import transicionar_pedido
 from app.schemas.pedido import PedidoStaffOut
+from app.services.carregamentos import anexar_a_frota_propria
 from app.services.posicao import congelar_destino
 from app.services.previsao_entrega import estimar_prazo_entrega
 from app.services.status_pedido import StatusPedido
@@ -122,6 +123,15 @@ async def confirmar_coleta(
     else:
         pedido.deliverer_id = ator.id
         quem_fez = ator.id
+        if pedido.carregamento_id is None and pedido.status == StatusPedido.AGUARDANDO_COLETA.value:
+            # Sem lote do admin: a frota própria leva. Sem isto,
+            # `congelar_destino` abaixo e o simulador de posição ignoram o
+            # pedido e o mapa do aluno nunca mostra o entregador. Depois do
+            # lock acima e antes da transição, na MESMA transação — ver
+            # `anexar_a_frota_propria`. Só no status que a transição aceita:
+            # uma coleta que vai levar 400 não sorteia lote nem gasta bcrypt.
+            # (O ator de lote nunca chega aqui: a posse dele já É o lote.)
+            await anexar_a_frota_propria(db, pedido, criado_por=uuid.UUID(ator.id))
     await db.flush()
 
     pedido_atualizado = await transicionar_pedido(

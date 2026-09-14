@@ -23,6 +23,23 @@ class TokenRefresher {
     final refreshToken = await _tokenStore.readRefreshToken();
     if (refreshToken == null) return false;
 
+    final pair = await exchange(refreshToken);
+    if (pair == null) return false;
+
+    await _tokenStore.save(
+      accessToken: pair.accessToken,
+      refreshToken: pair.refreshToken,
+    );
+    return true;
+  }
+
+  /// Exchanges [refreshToken] for a fresh pair WITHOUT persisting it, or
+  /// returns `null` on a network error or non-200 response.
+  ///
+  /// For a refresh token that is not the active session's (the multi-session
+  /// demo keeps other saved sessions alive): the caller decides where the new
+  /// pair goes, so the active [TokenStore] is never overwritten.
+  Future<TokenPair?> exchange(String refreshToken) async {
     final http.Response res;
     try {
       res = await _client.post(
@@ -31,16 +48,15 @@ class TokenRefresher {
         body: jsonEncode({'refresh_token': refreshToken}),
       );
     } on Exception {
-      return false;
+      return null;
     }
 
-    if (res.statusCode != 200) return false;
+    if (res.statusCode != 200) return null;
 
     final tokens = jsonDecode(res.body) as Map<String, dynamic>;
-    await _tokenStore.save(
+    return (
       accessToken: tokens['access_token'] as String,
       refreshToken: tokens['refresh_token'] as String,
     );
-    return true;
   }
 }

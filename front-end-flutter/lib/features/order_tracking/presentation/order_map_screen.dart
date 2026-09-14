@@ -80,15 +80,19 @@ class _RouteMap extends StatefulWidget {
 }
 
 class _RouteMapState extends State<_RouteMap> {
-  /// Ícone de caminhão para o ponto de partida; nulo até a imagem ser gerada
-  /// (o marcador usa o pino padrão nesse meio tempo).
-  BitmapDescriptor? _truckIcon;
+  /// Armazém no ponto de partida e caminhão na transportadora; nulos até a
+  /// imagem ser gerada (o marcador usa o pino padrão nesse meio tempo).
+  BitmapDescriptor? _originIcon;
+  BitmapDescriptor? _courierIcon;
 
   @override
   void initState() {
     super.initState();
-    truckMarkerBitmap().then((icon) {
-      if (mounted) setState(() => _truckIcon = icon);
+    markerBitmap(Icons.warehouse).then((icon) {
+      if (mounted) setState(() => _originIcon = icon);
+    });
+    markerBitmap(Icons.local_shipping).then((icon) {
+      if (mounted) setState(() => _courierIcon = icon);
     });
   }
 
@@ -116,7 +120,7 @@ class _RouteMapState extends State<_RouteMap> {
             Marker(
               markerId: const MarkerId('origin'),
               position: origin,
-              icon: _truckIcon ?? BitmapDescriptor.defaultMarker,
+              icon: _originIcon ?? BitmapDescriptor.defaultMarker,
               infoWindow: InfoWindow(title: route.origin.label),
             ),
             Marker(
@@ -132,7 +136,7 @@ class _RouteMapState extends State<_RouteMap> {
               Marker(
                 markerId: const MarkerId('courier'),
                 position: widget.courierPosition!.latLng,
-                icon: _truckIcon ?? BitmapDescriptor.defaultMarker,
+                icon: _courierIcon ?? BitmapDescriptor.defaultMarker,
                 anchor: const Offset(0.5, 0.5),
                 zIndexInt: 2,
                 infoWindow: const InfoWindow(title: 'Transportadora'),
@@ -199,7 +203,7 @@ class _RouteSummaryCard extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _point(Icons.local_shipping, AppColors.purple, 'Saída', route.origin.label),
+          _point(Icons.warehouse, AppColors.purple, 'Saída', route.origin.label),
           const SizedBox(height: 8),
           _point(Icons.place, AppColors.purple, 'Destino', route.destination.label),
           const Divider(height: 24),
