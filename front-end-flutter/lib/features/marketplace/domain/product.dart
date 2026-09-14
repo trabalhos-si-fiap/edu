@@ -37,9 +37,37 @@ class Product {
     );
   }
 
-  /// Rótulo de categoria exibido nos cards (subtype, com fallback no type).
-  String get categoryLabel =>
-      subtype.trim().isNotEmpty ? subtype.toUpperCase() : type.toUpperCase();
+  /// Rótulo de categoria exibido nos cards (subtype, com fallback no rótulo
+  /// do type — ver [categoryLabelFor]).
+  String get categoryLabel => subtype.trim().isNotEmpty
+      ? subtype.toUpperCase()
+      : categoryLabelFor(type).toUpperCase();
+}
+
+/// Rótulo pt-BR de um código de tipo do catálogo. O backend manda o tipo como
+/// código sem acento (`iluminacao`); o subtype já chega em português, então o
+/// código cru só aparecia nos chips de filtro e no fallback de
+/// [Product.categoryLabel]. Código desconhecido vira o próprio código
+/// capitalizado, para um tipo novo no catálogo não sumir da tela.
+String categoryLabelFor(String type) {
+  final codigo = type.trim().toLowerCase();
+  switch (codigo) {
+    case 'mobiliario':
+      return 'Mobiliário';
+    case 'iluminacao':
+      return 'Iluminação';
+    case 'organizacao':
+      return 'Organização';
+    case 'curso':
+      return 'Cursos';
+    case 'digital':
+      return 'Digital';
+    case 'apostila':
+      return 'Apostilas';
+  }
+  if (codigo.isEmpty) return '';
+  final texto = codigo.replaceAll('_', ' ');
+  return texto[0].toUpperCase() + texto.substring(1);
 }
 
 /// Avaliação de um produto. Espelha `ReviewOut` do backend (`id` UUID,

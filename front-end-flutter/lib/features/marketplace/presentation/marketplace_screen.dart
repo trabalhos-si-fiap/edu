@@ -334,7 +334,7 @@ class _CategoryChips extends StatelessWidget {
           for (final type in types) ...[
             const SizedBox(width: 8),
             _Chip(
-              label: type.toUpperCase(),
+              label: categoryLabelFor(type).toUpperCase(),
               selected: selected == type,
               onTap: () => onSelected(type),
             ),
