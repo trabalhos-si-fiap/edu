@@ -59,6 +59,16 @@ CONTAS_STAFF = {
 }
 
 
+def porta_do_gateway(raiz: Path) -> str:
+    """GATEWAY_PORT_EXTERNAL do back-end/.env, a mesma que o Makefile lê."""
+    env = raiz / "back-end" / ".env"
+    if env.exists():
+        for linha in env.read_text().splitlines():
+            if linha.startswith("GATEWAY_PORT_EXTERNAL="):
+                return linha.split("=", 1)[1].strip() or "8100"
+    return "8100"
+
+
 class PreparoFalhouError(RuntimeError):
     """Algo que o roteiro precisa não está pronto; a mensagem diz o que fazer."""
 
