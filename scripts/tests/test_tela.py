@@ -14,9 +14,9 @@ XML = """<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>
  package="br.com.fiap.estuda_app" content-desc="" checkable="false" checked="false" clickable="true"
  enabled="true" focusable="true" focused="false" scrollable="false" long-clickable="false"
  password="false" selected="false" bounds="[120,969][960,1137]" hint="E-mail" />
-<node index="2" text="" resource-id="" class="android.widget.ScrollView" package="br.com.fiap.estuda_app"
- content-desc="" checkable="false" checked="false" clickable="false" enabled="true" focusable="false"
- focused="false" scrollable="true" long-clickable="false" password="false" selected="false"
+<node index="2" text="" resource-id="" class="android.widget.ScrollView"
+ package="br.com.fiap.estuda_app" content-desc="" checkable="false" checked="false"
+ clickable="false" enabled="true" focusable="false" focused="false" scrollable="true" long-clickable="false" password="false" selected="false"
  bounds="[0,256][1080,2082]" hint="" />
 </node>
 </hierarchy>"""

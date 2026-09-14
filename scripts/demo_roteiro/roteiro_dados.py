@@ -36,9 +36,7 @@ def validar_senha(senha: str) -> None:
         raise ValueError("a senha precisa de 8 caracteres e um caractere especial")
 
 
-def escolher_alternativa(
-    enunciado_na_tela: str, gabarito: list[Questao], acertar: set[int]
-) -> str:
+def escolher_alternativa(enunciado_na_tela: str, gabarito: list[Questao], acertar: set[int]) -> str:
     """Letra a tocar: a certa nos subtemas de `acertar`, uma errada nos demais.
 
     O enunciado na tela é casado com o do banco por semelhança do texto
@@ -47,9 +45,7 @@ def escolher_alternativa(
     """
 
     def semelhanca(questao: Questao) -> float:
-        return difflib.SequenceMatcher(
-            None, questao.enunciado, enunciado_na_tela
-        ).ratio()
+        return difflib.SequenceMatcher(None, questao.enunciado, enunciado_na_tela).ratio()
 
     questao = max(gabarito, key=semelhanca)
     if questao.subtema_id in acertar:

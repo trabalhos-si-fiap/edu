@@ -45,17 +45,21 @@ class ProximoOitoDeNovembroTest(unittest.TestCase):
 
 class EscolherAlternativaTest(unittest.TestCase):
     def test_acerta_nos_subtemas_pedidos(self):
-        tela = "Em ervilhas, a cor amarela da semente (V) é dominante sobre a verde (v). Do cruzamento Vv x Vv, escolhe-se ao acaso uma semente amarela. Qual a chance"
+        tela = (
+            "Em ervilhas, a cor amarela da semente (V) é dominante sobre a verde (v). "
+            "Do cruzamento Vv x Vv, escolhe-se ao acaso uma semente amarela. Qual a chance"
+        )
         self.assertEqual(escolher_alternativa(tela, GABARITO, acertar={7}), "C")
 
     def test_distingue_enunciados_com_o_mesmo_comeco(self):
-        tela = "Em ervilhas, a cor amarela da semente (V) é dominante sobre a verde (v). Um agricultor possui uma planta de sementes amarelas"
+        tela = (
+            "Em ervilhas, a cor amarela da semente (V) é dominante sobre a verde (v). "
+            "Um agricultor possui uma planta de sementes amarelas"
+        )
         self.assertEqual(escolher_alternativa(tela, GABARITO, acertar={7}), "A")
 
     def test_erra_de_proposito_fora_dos_subtemas_pedidos(self):
-        tela = (
-            "Um indivíduo que possui dois alelos idênticos para um gene é chamado de:"
-        )
+        tela = "Um indivíduo que possui dois alelos idênticos para um gene é chamado de:"
         escolha = escolher_alternativa(tela, GABARITO, acertar={7})
         self.assertNotEqual(escolha, "D")
         self.assertIn(escolha, "ABC")

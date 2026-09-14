@@ -1,0 +1,15 @@
+# Mesmas regras dos serviços (back-end/*/pyproject.toml), para os scripts de
+# apoio não virarem um canto sem lint.
+target-version = "py312"
+line-length = 100
+
+[lint]
+select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "RUF", "ASYNC", "S"]
+ignore = ["S101"]
+
+[lint.per-file-ignores]
+# Fixtures copiam texto real (enunciado, árvore do uiautomator) sem quebrar.
+"tests/**" = ["S", "ASYNC", "E501"]
+# O roteiro da demo existe para chamar `adb`, `docker` e `flutter` do PATH
+# (S603/S607) e o gateway local cujo endereço vem da configuração (S310).
+"demo_roteiro/**" = ["S603", "S607", "S310"]
