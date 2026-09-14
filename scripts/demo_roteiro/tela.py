@@ -68,7 +68,7 @@ def escapar_texto(texto: str) -> str:
     return shlex.quote(texto.replace(" ", "%s"))
 
 
-class TelaNaoMostrou(RuntimeError):
+class TelaNaoMostrouError(RuntimeError):
     """O elemento esperado não apareceu no prazo."""
 
 
@@ -93,6 +93,14 @@ class Tela:
 
     # ── leitura ───────────────────────────────────────────────────────
 
+    def garantir_app_em_foco(self, pacote: str = "br.com.fiap.estuda_app") -> None:
+        """Reabre o app se um voltar a mais o mandou para o launcher."""
+        atividades = self.shell("dumpsys activity activities", check=False)
+        topo = next((linha for linha in atividades.splitlines() if "ResumedActivity" in linha), "")
+        if pacote not in topo:
+            self.shell(f"am start -n {pacote}/.MainActivity", check=False)
+            time.sleep(3)
+
     def elementos(self) -> list[Elemento]:
         for _ in range(3):
             self.shell("uiautomator dump /sdcard/edu-demo-ui.xml", check=False)
@@ -103,28 +111,61 @@ class Tela:
         return []
 
     def achar(
-        self, texto: str, exato: bool = False, indice: int = 0
+        self,
+        texto: str,
+        exato: bool = False,
+        indice: int = 0,
+        clicavel: bool | None = None,
     ) -> Elemento | None:
         def bate(e: Elemento) -> bool:
+            if clicavel is not None and e.clicavel != clicavel:
+                return False
             return e.texto == texto if exato else texto.lower() in e.texto.lower()
 
         achados = [e for e in self.elementos() if bate(e)]
         return achados[indice] if len(achados) > indice else None
 
     def esperar(
-        self, texto: str, prazo: float = 20, exato: bool = False, indice: int = 0
+        self,
+        texto: str,
+        prazo: float = 20,
+        exato: bool = False,
+        indice: int = 0,
+        clicavel: bool | None = None,
     ) -> Elemento:
         limite = time.monotonic() + prazo
         while True:
-            elemento = self.achar(texto, exato=exato, indice=indice)
+            elemento = self.achar(texto, exato=exato, indice=indice, clicavel=clicavel)
             if elemento:
                 return elemento
             if time.monotonic() > limite:
-                raise TelaNaoMostrou(f"não apareceu na tela em {prazo:.0f}s: {texto!r}")
+                raise TelaNaoMostrouError(f"não apareceu na tela em {prazo:.0f}s: {texto!r}")
             time.sleep(0.5)
 
     def campos(self) -> list[Elemento]:
         return [e for e in self.elementos() if e.classe == "EditText"]
+
+    def campo_abaixo(self, rotulo: str) -> Elemento:
+        """O campo de texto logo abaixo de um rótulo, na mesma coluna."""
+        self.fechar_teclado()
+        for _ in range(6):
+            elementos = self.elementos()
+            marcador = next((e for e in elementos if e.texto == rotulo and not e.clicavel), None)
+            if marcador:
+                x1, _, _, y2 = marcador.limites
+                abaixo = [
+                    e
+                    for e in elementos
+                    if e.classe == "EditText"
+                    and e.limites[1] >= y2 - 10
+                    and e.limites[0] <= x1 + 10 <= e.limites[2]
+                ]
+                if abaixo:
+                    return min(abaixo, key=lambda e: e.limites[1])
+            # Rótulo fora da tela, ou o campo ainda abaixo da borda.
+            self.rolar(500)
+            time.sleep(0.7)
+        raise TelaNaoMostrouError(f"nenhum campo abaixo do rótulo {rotulo!r}")
 
     # ── ação ──────────────────────────────────────────────────────────
 
@@ -132,10 +173,40 @@ class Tela:
         self.shell(f"input tap {x} {y}")
 
     def tocar(
-        self, texto: str, prazo: float = 20, exato: bool = False, indice: int = 0
+        self,
+        texto: str,
+        prazo: float = 20,
+        exato: bool = False,
+        indice: int = 0,
+        clicavel: bool | None = None,
     ) -> None:
-        x, y = self.esperar(texto, prazo=prazo, exato=exato, indice=indice).centro
-        self.tocar_xy(x, y)
+        elemento = self.esperar(texto, prazo=prazo, exato=exato, indice=indice, clicavel=clicavel)
+        self.tocar_xy(*elemento.centro)
+
+    def tocar_icone(self, canto: str) -> None:
+        """Toca o botão sem texto num canto do topo ("esquerda" ou "direita").
+
+        Ícone de perfil, carrinho e sino não publicam texto; o canto é o que
+        os distingue, e vale para qualquer largura de tela.
+        """
+        elementos = self.elementos()
+        meio = max((e.limites[2] for e in elementos), default=0) // 2
+        botoes = [
+            e
+            for e in elementos
+            if e.clicavel
+            and not e.texto
+            and e.classe == "Button"
+            and e.limites[1] < 300
+            and (e.centro[0] < meio if canto == "esquerda" else e.centro[0] > meio)
+        ]
+        if not botoes:
+            raise TelaNaoMostrouError(f"nenhum ícone sem texto no canto {canto} do topo")
+        if canto == "esquerda":
+            alvo = min(botoes, key=lambda e: e.limites[0])
+        else:
+            alvo = max(botoes, key=lambda e: e.limites[2])
+        self.tocar_xy(*alvo.centro)
 
     def digitar(self, texto: str) -> None:
         self.shell(f"input text {escapar_texto(texto)}")
@@ -149,6 +220,10 @@ class Tela:
         self.digitar(texto)
         time.sleep(0.3)
 
+    def preencher_campo(self, rotulo: str, texto: str) -> None:
+        self.preencher(self.campo_abaixo(rotulo), texto)
+        self.fechar_teclado()
+
     def fechar_teclado(self) -> None:
         if "mInputShown=true" in self.shell("dumpsys input_method", check=False):
             self.voltar()
@@ -157,21 +232,38 @@ class Tela:
     def voltar(self) -> None:
         self.shell("input keyevent KEYCODE_BACK")
 
-    def rolar(
-        self, distancia: int = 900, de_y: int = 1800, duracao_ms: int = 450
-    ) -> None:
+    def rolar(self, distancia: int = 900, de_y: int = 1800, duracao_ms: int = 450) -> None:
         self.shell(f"input swipe 540 {de_y} 540 {de_y - distancia} {duracao_ms}")
 
-    def rolar_ate(
-        self, texto: str, tentativas: int = 8, exato: bool = False
-    ) -> Elemento:
+    def rolar_para_cima(self) -> None:
+        self.shell("input swipe 540 700 540 1900 300")
+
+    def rolar_ate(self, texto: str, tentativas: int = 8, exato: bool = False) -> Elemento:
         for _ in range(tentativas):
             elemento = self.achar(texto, exato=exato)
             if elemento:
                 return elemento
             self.rolar()
             time.sleep(0.8)
-        raise TelaNaoMostrou(f"rolei {tentativas} vezes e não achei: {texto!r}")
+        raise TelaNaoMostrouError(f"rolei {tentativas} vezes e não achei: {texto!r}")
+
+    # ── notificações ──────────────────────────────────────────────────
+
+    def notificacao_chegou(self, trecho: str, prazo: float = 40) -> bool:
+        """Espera uma notificação com `trecho` no título ou no texto."""
+        limite = time.monotonic() + prazo
+        while time.monotonic() < limite:
+            saida = self.shell("dumpsys notification --noredact", check=False)
+            if trecho.lower() in saida.lower():
+                return True
+            time.sleep(2)
+        return False
+
+    def mostrar_gaveta(self, segundos: float) -> None:
+        self.shell("cmd statusbar expand-notifications", check=False)
+        time.sleep(segundos)
+        self.shell("cmd statusbar collapse", check=False)
+        time.sleep(0.8)
 
     # ── diagnóstico ───────────────────────────────────────────────────
 
