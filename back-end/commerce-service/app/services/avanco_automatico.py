@@ -1,8 +1,8 @@
 """Rede de segurança da apresentação: avança um pedido esquecido.
 
 Não é um simulador de pipeline. Ele existe para o caso de o apresentador ficar
-preso numa tela — e por isso é DESLIGADO por padrão, tem prazo longo, e perde
-para qualquer ação manual.
+preso numa tela — e por isso é DESLIGADO no código, e perde para qualquer ação
+manual. O `docker-compose.yml` o liga com três minutos por passo.
 
 Escreve pela MESMA função de transição que as rotas usam
 (`app/routers/separacao.py::transicionar_pedido`), nunca por UPDATE direto:

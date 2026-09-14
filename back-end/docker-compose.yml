@@ -223,9 +223,12 @@ services:
       # pedido já nasce na fila de separação (app/routers/pedidos.py). No
       # código o default é desligado; a demonstração o liga aqui.
       CONFIRMAR_PAGAMENTO_AUTOMATICO: ${CONFIRMAR_PAGAMENTO_AUTOMATICO:-true}
-      # Rede de segurança da apresentação (app/scheduler.py, task 7).
-      # AUSENTE = 0 = DESLIGADO, o default e o que a spec C pede.
-      AVANCO_AUTOMATICO_SEGUNDOS: ${AVANCO_AUTOMATICO_SEGUNDOS:-0}
+      # Rede de segurança da apresentação (app/scheduler.py, task 7): cada
+      # passo avança sozinho depois de 3 minutos parado (o job varre a cada
+      # 60s, então na prática entre 3 e 4). No código o default é 0 =
+      # desligado; a demonstração o liga aqui. `AVANCO_AUTOMATICO_SEGUNDOS=0`
+      # no .env desliga de novo.
+      AVANCO_AUTOMATICO_SEGUNDOS: ${AVANCO_AUTOMATICO_SEGUNDOS:-180}
     depends_on:
       postgres:
         condition: service_healthy
