@@ -5,14 +5,16 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../../core/theme/app_colors.dart';
 
-/// Renderiza o ícone de caminhão (Material `local_shipping`) dentro de um pino
-/// circular e o converte em um [BitmapDescriptor], para marcar o ponto de
-/// partida (Centro de Distribuição) no mapa.
+/// Renderiza um ícone Material ([icon]) dentro de um pino circular e o converte
+/// em um [BitmapDescriptor]. O mapa usa dois: o armazém (`warehouse`) no ponto
+/// de partida (Centro de Distribuição) e o caminhão (`local_shipping`) na
+/// transportadora em movimento — com o mesmo ícone, pareciam dois caminhões.
 ///
 /// `google_maps_flutter` não aceita um `IconData` direto, então pintamos o glifo
 /// num canvas off-screen e geramos um PNG. É assíncrono (a codificação da imagem
 /// é async); o chamador carrega o ícone uma vez e reusa.
-Future<BitmapDescriptor> truckMarkerBitmap({
+Future<BitmapDescriptor> markerBitmap(
+  IconData icon, {
   double size = 120,
   double displayWidth = 46,
   Color iconColor = AppColors.white,
@@ -26,7 +28,6 @@ Future<BitmapDescriptor> truckMarkerBitmap({
   canvas.drawCircle(center, size / 2, Paint()..color = AppColors.white);
   canvas.drawCircle(center, size / 2 - size * 0.06, Paint()..color = backgroundColor);
 
-  const icon = Icons.local_shipping;
   final painter = TextPainter(textDirection: TextDirection.ltr)
     ..text = TextSpan(
       text: String.fromCharCode(icon.codePoint),
