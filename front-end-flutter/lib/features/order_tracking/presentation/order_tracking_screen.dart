@@ -120,7 +120,7 @@ class OrderTrackingContent extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'PEDIDO #${order.id}',
+            'PEDIDO #${order.shortId}',
             style: const TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w700,

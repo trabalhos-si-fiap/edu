@@ -246,6 +246,12 @@ class OrderModel {
     'courier_position': courierPosition?.toJson(),
   };
 
+  /// "01A09D8B": os 8 primeiros caracteres do UUID em maiúsculas — o mesmo
+  /// id curto de "Meus pedidos" e das filas de separação/entrega
+  /// (`Pedido.idCurto`), para o aluno reconhecer o pedido entre as telas.
+  String get shortId =>
+      id.length > 8 ? id.substring(0, 8).toUpperCase() : id.toUpperCase();
+
   /// Etapa em andamento (ou a última concluída, se não houver "current").
   TrackingStep? get currentStep {
     for (final step in steps) {
