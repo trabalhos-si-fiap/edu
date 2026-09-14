@@ -107,7 +107,9 @@ async def responder(pergunta: str) -> str:
     # é quem converte qualquer exceção num 503 limpo, nunca um 500 cru.
     client = AsyncGroq(api_key=settings.groq_api_key, timeout=10.0)
     completion = await client.chat.completions.create(
-        model="llama-3.1-8b-instant",
+        # Mesmo modelo de `services/explicacao_questao.py::MODELO` — ver o
+        # comentário lá sobre a troca e o `reasoning_effort`.
+        model="openai/gpt-oss-20b",
         messages=[
             {"role": "system", "content": prompt_sistema},
             {
@@ -116,6 +118,7 @@ async def responder(pergunta: str) -> str:
             },
         ],
         temperature=0.3,
+        reasoning_effort="low",
     )
 
     return completion.choices[0].message.content
