@@ -26,7 +26,7 @@ from app.exceptions import (
 )
 from app.models.carregamento import Carregamento
 from app.models.pedido import Order
-from app.models.transportadora import Carrier
+from app.models.transportadora import Carrier, CarrierStatus
 
 # Sem I, O, 0 e 1: o código é ditado por telefone e digitado por quem está com
 # a carga na mão. Ambiguidade visual aqui vira uma tentativa de login perdida.
@@ -86,6 +86,116 @@ async def criar_carregamento(
         return carregamento, senha
 
     raise RuntimeError("inalcançável: o laço acima só sai por return ou raise")
+
+
+# ── Frota própria ──────────────────────────────────────────────────────────
+#
+# A coleta de um pedido SEM carregamento (o caminho da demonstração: ninguém
+# cadastrou transportadora nem montou lote) anexa o pedido a um carregamento
+# criado na hora, de uma transportadora interna única. Sem isso
+# `congelar_destino` e o simulador de posição ignoram o pedido — os dois
+# precisam da origem de um carregamento — e o mapa do aluno nunca mostra o
+# entregador.
+
+NOME_FROTA_PROPRIA = "Frota própria Edu"
+LOCAL_FROTA_PROPRIA = "Operação própria"
+# `.invalid` é TLD reservado (RFC 2606): nunca resolve, então nenhum envio
+# futuro para "a transportadora" desta frota chega a caixa de ninguém. E
+# nenhum sai hoje: `shipment.created` não é publicado para estes lotes.
+EMAIL_FROTA_PROPRIA = "frota-propria@edu.invalid"
+
+# `criado_por` é NOT NULL e não há pessoa quando a rede de segurança coleta.
+# O UUID nulo (RFC 9562, "Nil UUID") é o valor que nenhum id de conta desta
+# frota assume — o auth-users gera v7/v4 — e por isso não se passa por
+# ninguém. `CarregamentoOut` não expõe a coluna.
+CRIADO_PELO_SISTEMA = uuid.UUID(int=0)
+
+# Chave de `pg_advisory_xact_lock` que serializa o get-or-create da frota.
+# `carriers.name` não é único, e duas primeiras coletas simultâneas criariam
+# duas "Frota própria Edu". O lock é da TRANSAÇÃO: solta sozinho no commit ou
+# rollback da coleta, sem `finally`. Número arbitrário, fixo, sem outro uso.
+_TRAVA_FROTA_PROPRIA = 7_391_004_512
+
+
+async def obter_frota_propria(db: AsyncSession) -> Carrier:
+    """A transportadora interna, criada na primeira vez — sem seed. Não comita."""
+    await db.execute(select(func.pg_advisory_xact_lock(_TRAVA_FROTA_PROPRIA)))
+    frota = (
+        (
+            await db.execute(
+                select(Carrier)
+                .where(Carrier.name == NOME_FROTA_PROPRIA)
+                .order_by(Carrier.id)
+                .limit(1)
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if frota is None:
+        frota = Carrier(
+            name=NOME_FROTA_PROPRIA,
+            location=LOCAL_FROTA_PROPRIA,
+            email=EMAIL_FROTA_PROPRIA,
+            status=CarrierStatus.ACTIVE.value,
+        )
+        db.add(frota)
+        await db.flush()
+    return frota
+
+
+async def anexar_a_frota_propria(
+    db: AsyncSession, pedido: Order, *, criado_por: uuid.UUID
+) -> Carregamento:
+    """Cria o carregamento da frota própria para `pedido` e o anexa. NÃO comita.
+
+    Quem chama JÁ SEGURA `with_for_update()` no pedido e comita junto com a
+    transição para EM_TRANSITO (regra 3 do CLAUDE.md): uma segunda coleta
+    concorrente espera o lock, relê o pedido com `carregamento_id` preenchido
+    e não cria outro lote; uma coleta recusada depois daqui desfaz o lote
+    junto com o resto da transação.
+
+    Origem copiada de `orders.origem_*`, como `atribuir_pedido` faz com o
+    primeiro pedido de um lote. `aberto_em` agora: é o que o login do
+    entregador grava num lote do admin, e aqui a coleta É a retirada da
+    carga.
+
+    A senha é sorteada e descartada. `senha_hash` é NOT NULL, e um hash que
+    não fosse bcrypt faria `verify_password` estourar num login com este
+    código; um hash de verdade de um segredo que ninguém recebe faz esse login
+    responder 401 como qualquer senha errada. Ninguém usa credencial de lote
+    aqui — quem coleta já está autenticado (entregador) ou é o sistema.
+    """
+    frota = await obter_frota_propria(db)
+    senha_hash = hash_password(gerar_senha())
+
+    for tentativa in range(TENTATIVAS_CODIGO):
+        carregamento = Carregamento(
+            transportadora_id=frota.id,
+            codigo=gerar_codigo(),
+            senha_hash=senha_hash,
+            criado_por=criado_por,
+            origem_rotulo=pedido.origem_rotulo or "",
+            origem_lat=pedido.origem_lat,
+            origem_lng=pedido.origem_lng,
+            aberto_em=datetime.now(UTC),
+        )
+        # SAVEPOINT, não `rollback()` como em `criar_carregamento`: a
+        # transação de fora já tem o lock do pedido e `deliverer_id`. Uma
+        # colisão de código desfaz só o INSERT do lote.
+        try:
+            async with db.begin_nested():
+                db.add(carregamento)
+                await db.flush()
+        except IntegrityError:
+            if tentativa == TENTATIVAS_CODIGO - 1:
+                raise
+            continue
+        break
+
+    pedido.carregamento_id = carregamento.id
+    pedido.carrier_name = frota.name
+    return carregamento
 
 
 async def atribuir_pedido(db: AsyncSession, *, carregamento_id: int, pedido_id: uuid.UUID) -> Order:

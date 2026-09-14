@@ -3,9 +3,11 @@ from datetime import UTC, datetime
 
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.database import get_db
 from app.dependencies import get_current_user, uuid_do_usuario
 from app.events.publisher import publish_event
@@ -17,6 +19,7 @@ from app.exceptions import (
 )
 from app.models.pedido import Order, PedidoStatusHistorico
 from app.redis_client import get_redis
+from app.routers.admin import confirmar_pagamento_do_pedido
 from app.schemas.carrinho import QUANTIDADE_MAXIMA, CartItemIn, CartOut
 from app.schemas.pedido import (
     OrderCreateIn,
@@ -41,6 +44,48 @@ async def _order_out(order: Order, *, storage: ObjectStorage, redis: aioredis.Re
     for item in out.items:
         item.image_url = await presigned_image_url(item.image_url, storage=storage, redis=redis)
     return out
+
+
+OBSERVACAO_CONFIRMACAO_AUTOMATICA = "Pagamento confirmado automaticamente"
+
+
+async def _confirmar_pagamento_automaticamente(db: AsyncSession, order: Order) -> Order:
+    """CRIADO -> CONFIRMADO -> AGUARDANDO_SEPARACAO, sem verificar pagamento
+    nenhum (`settings.confirmar_pagamento_automatico`).
+
+    Mesmo encadeamento do admin, não uma cópia dele: histórico, eventos e o
+    guard de idempotência saem de `confirmar_pagamento_do_pedido`. Sem pessoa
+    por trás, `user_id=None` — a convenção de `PedidoStatusHistorico`.
+
+    `db.expunge(order)` antes: o `SELECT ... FOR UPDATE` de
+    `transicionar_pedido` devolve a instância que já está no identity map SEM
+    repopular os atributos (ver a docstring de `admin.py::confirmar_pagamento`).
+    Soltá-la faz o funil validar contra a linha do banco, não contra o objeto
+    que o checkout acabou de montar.
+
+    NUNCA derruba o checkout. O pedido já foi gravado, o carrinho já foi
+    esvaziado e `order.created` já saiu — um 500 aqui mostraria erro ao aluno
+    por uma compra feita. Qualquer falha (broker fora no meio, corrida com o
+    admin) vira log, e a resposta devolve o pedido como ele ficou no banco.
+    Quem termina é o botão do admin, retentável por construção.
+    """
+    db.expunge(order)
+    try:
+        await confirmar_pagamento_do_pedido(
+            db, order.id, None, observacao=OBSERVACAO_CONFIRMACAO_AUTOMATICA
+        )
+    except Exception as exc:
+        # Descarta o que a transição deixou pela metade antes de reler. Sem
+        # `str(exc)`: o detalhe de um broker ou banco fora do ar pode trazer
+        # URL com credencial (regra 5 do CLAUDE.md).
+        await db.rollback()
+        logger.warning(
+            "orders: confirmação automática do pedido {} falhou ({}); o pedido segue "
+            "como ficou e o admin pode confirmar pelo painel",
+            order.id,
+            type(exc).__name__,
+        )
+    return await services.buscar_pedido(db, order.user_id, order.id)
 
 
 @router.get("", response_model=list[OrderOut])
@@ -116,6 +161,8 @@ async def criar_pedido(
             "valor_total": float(order.total),
         },
     )
+    if settings.confirmar_pagamento_automatico:
+        order = await _confirmar_pagamento_automaticamente(db, order)
     return await _order_out(order, storage=storage, redis=redis)
 
 

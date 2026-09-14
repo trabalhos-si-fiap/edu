@@ -36,10 +36,17 @@ Para as etapas da spec C não há seed novo — só duas revisions aditivas
 `make stack-rebuild` continua obrigatório: o `commerce-service` ganhou uma
 dependência nova (`apscheduler`) e um `app/scheduler.py` importado no
 `main.py`, e uma imagem em cache não os tem. Confira `EMAIL_BACKEND`
-(`console` por padrão, não fala com a rede) no `.env`, e deixe
-`AVANCO_AUTOMATICO_SEGUNDOS` **ausente** a menos que o critério de pronto 6
-seja exatamente o que você quer exercitar — ver
-[`back-end/order-flow.md`](back-end/order-flow.md) §4.
+(`console` por padrão, não fala com a rede) no `.env`.
+
+> **Desde o roteiro da demonstração gravada, o `docker-compose.yml` liga duas
+> coisas por padrão** que este roteiro não pressupõe: a confirmação de
+> pagamento no próprio checkout (`CONFIRMAR_PAGAMENTO_AUTOMATICO`, o pedido
+> nasce em `AGUARDANDO_SEPARACAO` e a etapa 2.2 responde 400) e o avanço
+> automático a cada três minutos (`AVANCO_AUTOMATICO_SEGUNDOS=180`). Para
+> seguir este roteiro como está escrito, ponha
+> `CONFIRMAR_PAGAMENTO_AUTOMATICO=false` e `AVANCO_AUTOMATICO_SEGUNDOS=0` no
+> `back-end/.env` — ver [`back-end/order-flow.md`](back-end/order-flow.md) §1
+> e §4.
 
 Você vai precisar de:
 
@@ -350,7 +357,7 @@ entrega; cada um é lacuna conhecida com dono.
 |---|---|---|
 | Não existe push real de aparelho (FCM) | O Firebase saiu do app na spec A, porque quem enviava era o monolito. A spec C endereçou a notificação por transição a quem precisa dela (aluno **e** staff, ver [`back-end/order-flow.md`](back-end/order-flow.md) §5) mas não trouxe FCM de volta — as notificações existem **na tela do app**, lidas de `GET /notifications` e abertas pelo sino. | não agendado |
 | "Esqueci minha senha" não manda e-mail | O OTP é gerado, hasheado e guardado, e a resposta é sempre 200 — mas não existe provedor de e-mail configurado (`auth.py:229-231`). O remetente do reset continua sem existir; o primeiro envio real do backend desde a spec A foi a credencial do carregamento (spec C, e-mail à transportadora), não este. | não agendado |
-| O pedido não avança sozinho | Continua verdadeiro **por padrão** — mas deixou de ser "não foi portado": a spec C trouxe uma rede de segurança equivalente (`app/services/avanco_automatico.py`), desligada por padrão (`AVANCO_AUTOMATICO_SEGUNDOS` ausente = `0`) e sempre perdendo para ação manual. Ligar é opt-in, com prazo longo de propósito — ver [`back-end/order-flow.md`](back-end/order-flow.md) §4. | ninguém — é o desenho |
+| O pedido avança sozinho no stack | A spec C trouxe uma rede de segurança (`app/services/avanco_automatico.py`), desligada no código (`AVANCO_AUTOMATICO_SEGUNDOS` ausente = `0`) e sempre perdendo para ação manual. O `docker-compose.yml` a liga com três minutos por passo, por pedido do roteiro gravado; `AVANCO_AUTOMATICO_SEGUNDOS=0` no `.env` desliga. Pedido separado ou coletado por ela fica sem separador/entregador — ver [`back-end/order-flow.md`](back-end/order-flow.md) §4. | ninguém — é o desenho |
 | Meta, prazo e pontuação da home e do perfil são fixos | Valores escritos na tela, sem backend por trás. | spec D |
 | Os códigos de PIX e boleto não são pagáveis | São emitidos pelo backend (`codigos_pagamento.py`) com a **forma** de um EMV e de uma linha digitável, sem provedor de pagamento por trás. O CRC do EMV é fixo e falso. Deliberado. | ninguém — é o desenho |
 | O `web-admin` não tem suíte de teste | A spec B não criou uma (decisão D11). A verificação é `npm install && npm run build`: o build AOT faz type-check de template. Baseline: exit 0 com **três** avisos de budget SCSS. | não agendado |

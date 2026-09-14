@@ -46,3 +46,9 @@ def test_the_automatic_advance_is_off_unless_configured():
     """`AVANCO_AUTOMATICO_SEGUNDOS` ausente ⇒ `0` ⇒ desligado. Critério de
     pronto 6 da spec C."""
     assert Settings(**_campos_obrigatorios()).avanco_automatico_segundos == 0
+
+
+def test_the_automatic_payment_confirmation_is_off_unless_configured():
+    """Desligado no código, para a suíte manter o sentido de todo teste que
+    cria pedido; quem liga é o `docker-compose.yml` da demonstração."""
+    assert Settings(**_campos_obrigatorios()).confirmar_pagamento_automatico is False

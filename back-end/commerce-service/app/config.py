@@ -72,14 +72,25 @@ class Settings(BaseSettings):
     # `GET /auth/addresses/{id}` (snapshot de entrega no checkout).
     auth_service_url: str = "http://auth-users-service:8000"
 
+    # Confirmação de pagamento SEM verificação nenhuma: ligado, `POST /orders`
+    # encadeia CRIADO -> CONFIRMADO -> AGUARDANDO_SEPARACAO logo depois de
+    # gravar o pedido, pelo mesmo caminho do clique do admin
+    # (`app/routers/admin.py::confirmar_pagamento_do_pedido`). Não há provedor
+    # de pagamento por trás — é o roteiro da demonstração, não uma cobrança.
+    # Falso por padrão para a suíte manter o sentido de todo teste que cria
+    # pedido; o `docker-compose.yml` o liga.
+    confirmar_pagamento_automatico: bool = False
+
     # Rede de segurança da apresentação: avança um pedido parado no mesmo
-    # estado há mais que este prazo. AUSENTE (0) É DESLIGADO — o default, e o
-    # critério de pronto 6 da spec C.
+    # estado há mais que este prazo. AUSENTE (0) É DESLIGADO — o default do
+    # código, e o critério de pronto 6 da spec C.
     #
-    # Se ligar, use um valor BEM maior que três minutos: a apresentação é
-    # conduzida por uma pessoa alternando entre quatro perfis, e trocar de
-    # sessão já leva mais que isso. Um prazo curto faz o pedido correr na
-    # frente do apresentador, que é exatamente o acidente a evitar.
+    # O `docker-compose.yml` o liga com 180 (três minutos), por pedido do
+    # roteiro gravado: "cada passo avança sozinho depois de 3 minutos". O
+    # custo é conhecido — quem alterna entre quatro perfis num aparelho só
+    # pode ver o pedido correr na frente se demorar mais que isso num passo,
+    # e o que a rede de segurança faz no lugar de uma pessoa (sem separador,
+    # sem entregador no pedido) está em `docs/back-end/order-flow.md` §4.
     avanco_automatico_segundos: int = 0
     # De quanto em quanto tempo o simulador grava uma posição nova. Dez
     # segundos casa com o polling do app (`OrderProvider`, 8s).

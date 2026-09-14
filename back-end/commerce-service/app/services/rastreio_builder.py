@@ -26,9 +26,15 @@ from app.schemas.rastreio import (
     TrackingStepOut,
     TrackingStepStatus,
 )
+from app.services.carregamentos import NOME_FROTA_PROPRIA
 from app.services.status_pedido import FLUXO_CONTRATO, StatusContrato, status_do_contrato
 
-_CARRIER = "Logistics Intel Express"
+# Transportadora de quem ainda não tem carregamento: a frota própria, que é
+# quem leva todo pedido coletado sem lote do admin
+# (`services/carregamentos.py::anexar_a_frota_propria`). O nome inventado de
+# antes ("Logistics Intel Express") trocava de transportadora no meio do
+# rastreio do aluno.
+_CARRIER = NOME_FROTA_PROPRIA
 # Janela de entrega aproximada, mostrada enquanto o pedido ainda está em
 # trânsito. O pipeline de demo termina em minutos; em produção isso viria
 # da ETA real da logística.

@@ -208,7 +208,11 @@ async def criar_pedido_do_carrinho(
     # `advance_order_status_task.delay(...)` do legacy NÃO é portado aqui:
     # não há simulador de avanço de status na fase 2 (carve-out declarado,
     # constraint 22 do plano). O pedido fica em CRIADO/pending até um admin
-    # confirmar o pagamento via `PATCH /admin/orders/{id}/confirm-payment`.
+    # confirmar o pagamento via `PATCH /admin/orders/{id}/confirm-payment` —
+    # ou até a própria rota confirmar, com `CONFIRMAR_PAGAMENTO_AUTOMATICO`
+    # ligado (`app/routers/pedidos.py::_confirmar_pagamento_automaticamente`).
+    # Esta função continua só criando: quem encadeia é o router, depois de
+    # publicar `order.created`.
     return refreshed
 
 
