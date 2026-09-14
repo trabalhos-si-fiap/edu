@@ -13,10 +13,13 @@ import 'package:edu_ia/features/quiz/presentation/quiz_subjets_screen.dart';
 import 'package:edu_ia/features/review/presentation/review_screen.dart';
 import 'package:edu_ia/features/tracker/presentation/tracker_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'core/locale/app_locale.dart';
 import 'core/network/app_http.dart';
+import 'core/network/token_refresher.dart';
 import 'core/network/token_store.dart';
+import 'core/session/session_manager.dart';
 import 'core/theme/app_theme.dart';
 import 'features/cart/data/cart_store.dart';
 import 'features/auth/presentation/login_screen.dart';
@@ -25,6 +28,7 @@ import 'features/auth/presentation/forgot_password_screen.dart';
 import 'features/auth/presentation/reset_password_screen.dart';
 import 'features/home/presentation/home_screen.dart';
 import 'features/notifications/data/notifications_api.dart';
+import 'features/notifications/data/outras_sessoes_guardadas.dart';
 import 'features/notifications/data/plugin_local_notifier.dart';
 import 'features/notifications/presentation/notifications_poller.dart';
 import 'features/notifications/presentation/system_notification_tap.dart';
@@ -119,6 +123,7 @@ class _MyAppState extends State<MyApp> {
 
 /// Monta o poller do app: busca pela API real, sessão lida do [TokenStore],
 /// e o toque numa notificação da bandeja navegando pelo [rootNavigatorKey].
+/// Na demonstração multi-sessão, também as outras sessões guardadas.
 NotificationsPoller _criarNotificationsPoller() {
   late final NotificationsPoller poller;
   poller = NotificationsPoller(
@@ -131,6 +136,23 @@ NotificationsPoller _criarNotificationsPoller() {
     ),
     buscar: NotificationsApi().list,
     lerAccessToken: TokenStore().readAccessToken,
+    // Constante de compilação: no build normal nada disto é montado.
+    buscarOutrasSessoes: SessionManager.habilitado
+        ? _criarOutrasSessoes().buscar
+        : null,
   );
   return poller;
+}
+
+/// Demonstração multi-sessão: as sessões guardadas que não são a ativa,
+/// consultadas com o próprio par de tokens por um cliente HTTP simples. O
+/// `appAuthClient` não serve aqui: ele troca o `Authorization` pelo token da
+/// sessão ATIVA e, num 401, renova — ou desloga — a sessão ativa.
+OutrasSessoesGuardadas _criarOutrasSessoes() {
+  final cliente = http.Client();
+  return OutrasSessoesGuardadas(
+    sessoes: SessionManager(),
+    buscarComToken: NotificationsApi(client: cliente).listWithToken,
+    renovar: TokenRefresher(client: cliente).exchange,
+  );
 }
