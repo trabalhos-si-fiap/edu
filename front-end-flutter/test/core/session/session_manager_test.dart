@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:edu_ia/core/network/session_store.dart';
 import 'package:edu_ia/core/network/token_store.dart';
 import 'package:edu_ia/core/session/session_manager.dart';
@@ -40,6 +42,12 @@ class _FakeSessionStore extends SessionStore {
 
   @override
   Future<void> clear() async => nome = null;
+}
+
+String _tokenDoPapel(String papel) {
+  String parte(Map<String, Object> m) =>
+      base64Url.encode(utf8.encode(jsonEncode(m))).replaceAll('=', '');
+  return '${parte({'alg': 'HS256'})}.${parte({'sub': 'u-1', 'role': papel})}.x';
 }
 
 /// Armazenamento em memória com a mesma superfície que o manager usa.
@@ -106,6 +114,48 @@ void main() {
 
     // Sem cache, `AuthApi.currentDisplayName` busca `/auth/me` do token novo.
     expect(sessionStore.nome, isNull);
+  });
+
+  // O cadastro entra logado mas não passava por aqui: a aluna recém-cadastrada
+  // ficava sem atalho e, por isso, fora do polling das sessões guardadas — o
+  // push dela não aparecia com o separador na tela.
+  test(
+    'guarda a sessão do token sob o papel que o próprio token declara',
+    () async {
+      await tokenStore.save(
+        accessToken: _tokenDoPapel('student'),
+        refreshToken: 'r',
+      );
+
+      final papel = await manager.guardarSessaoDoToken(
+        lerNome: () async => 'Ana',
+      );
+
+      expect(papel, 'student');
+      final sessoes = await manager.listar();
+      expect(sessoes.single.papel, 'student');
+      expect(sessoes.single.nome, 'Ana');
+    },
+  );
+
+  test('sem token não guarda nada', () async {
+    final papel = await manager.guardarSessaoDoToken(
+      lerNome: () async => 'Ana',
+    );
+
+    expect(papel, isNull);
+    expect(await manager.listar(), isEmpty);
+  });
+
+  test('sem nome disponível guarda com o papel como nome', () async {
+    await tokenStore.save(
+      accessToken: _tokenDoPapel('separador'),
+      refreshToken: 'r',
+    );
+
+    await manager.guardarSessaoDoToken(lerNome: () async => null);
+
+    expect((await manager.listar()).single.nome, 'separador');
   });
 
   test('guarda a sessão ativa sob o papel', () async {
