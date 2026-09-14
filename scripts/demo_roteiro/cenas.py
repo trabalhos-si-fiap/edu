@@ -281,14 +281,18 @@ def loja_e_compra(r: Roteiro) -> None:
     for rotulo, valor in ENDERECO.items():
         t.preencher_campo(rotulo, valor)
     t.tocar("Salvar endereço", exato=True)
-    t.esperar("Revisão do Carrinho", prazo=20)
+    t.esperar_sumir("Salvar endereço")
+    t.esperar("FAVORITO", prazo=20)
 
     t.rolar_ate("Sem método de pagamento")
     t.tocar("Sem método de pagamento")
     t.esperar("Adicionar Método")
     t.tocar("PIX", exato=True)
     t.tocar("Salvar método", exato=True)
-    t.esperar("Revisão do Carrinho", prazo=20)
+    t.esperar_sumir("Salvar método")
+    # O carrinho recarrega ao voltar; "Finalizar Pedido" só responde depois
+    # que o PIX aparece nele.
+    t.rolar_ate("Outro método", exato=True)
     r.pausa(0.7)
 
     t.tocar("Finalizar Pedido", exato=True, clicavel=True)
@@ -337,6 +341,7 @@ def aluna_escolhe_substituto(r: Roteiro) -> None:
     t.tocar("Mesa de estudo compacta 90 cm")
     r.pausa(0.5)
     t.tocar("Confirmar substituição", exato=True)
+    t.esperar_sumir("Confirmar substituição")
     t.esperar("Notificações", prazo=20)
     r.pausa(0.5)
 
@@ -349,6 +354,7 @@ def separador_finaliza(r: Roteiro) -> None:
     t.tocar("Mesa de estudo compacta 90 cm")
     r.pausa()
     t.tocar("Finalizar Separação", exato=True)
+    t.esperar_sumir("Finalizar Separação")
     t.esperar("Fila de Separação", prazo=20)
     r.pausa(0.5)
 
@@ -361,6 +367,7 @@ def entregador_coleta(r: Roteiro) -> None:
     t.esperar("Confirmar Coleta")
     r.pausa()
     t.tocar("Confirmar Coleta", exato=True)
+    t.esperar_sumir("Confirmar Coleta")
     t.esperar("Fila de Coleta", prazo=20)
     r.pausa(0.5)
 

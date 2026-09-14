@@ -208,6 +208,19 @@ class Tela:
                 raise TelaNaoMostrouError(f"não apareceu na tela em {prazo:.0f}s: {texto!r}")
             time.sleep(0.2)
 
+    def esperar_sumir(self, texto: str, prazo: float = 20, exato: bool = False) -> None:
+        """Espera a tela que tem `texto` fechar.
+
+        Depois de salvar um formulário, a tela de baixo já aparece na árvore
+        enquanto a de cima sai e antes de ela recarregar; esperar só pelo
+        texto da tela de baixo passaria cedo demais.
+        """
+        limite = time.monotonic() + prazo
+        while self.achar(texto, exato=exato):
+            if time.monotonic() > limite:
+                raise TelaNaoMostrouError(f"continuou na tela depois de {prazo:.0f}s: {texto!r}")
+            time.sleep(0.2)
+
     def campos(self) -> list[Elemento]:
         return [e for e in self.elementos() if e.classe == "EditText"]
 
