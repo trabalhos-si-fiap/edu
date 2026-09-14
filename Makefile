@@ -156,6 +156,19 @@ services-lint: ## Run ruff across every service
 services-sync: ## Sync deps of every service on the host (for IDE support)
 	@for s in $(SERVICES); do (cd $(BACK_ROOT)/$$s && uv sync) || exit 1; done
 
+# ── Demo ──────────────────────────────────────────────────
+
+.PHONY: demo demo-test
+
+# ARGS repassa opções ao roteiro, ex.: make demo ARGS="--skip-build --pausa 3"
+demo: ## Run the whole demo script on a connected Android (needs DEMO_ACCOUNTS_PASSWORD)
+	@test -n "$(DEMO_ACCOUNTS_PASSWORD)" || \
+	  { echo "defina DEMO_ACCOUNTS_PASSWORD antes de rodar"; exit 1; }
+	@cd scripts && DEMO_ACCOUNTS_PASSWORD='$(DEMO_ACCOUNTS_PASSWORD)' python3 -m demo_roteiro $(ARGS)
+
+demo-test: ## Run the demo script unit tests
+	cd scripts && python3 -m unittest discover -s tests -t .
+
 # ── Help ──────────────────────────────────────────────────
 
 .DEFAULT_GOAL := help
