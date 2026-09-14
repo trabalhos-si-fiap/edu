@@ -81,4 +81,13 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.text('home do aluno'), findsOneWidget);
   });
+
+  test('os chips de sessão mostram o papel em português', () {
+    expect(rotuloDoPapel('student'), 'aluno');
+    expect(rotuloDoPapel('separador'), 'separador');
+    expect(rotuloDoPapel('entregador'), 'entregador');
+    expect(rotuloDoPapel('admin'), 'admin');
+    // Papel que o app não conhece não some do chip: sai como veio.
+    expect(rotuloDoPapel('carregamento'), 'carregamento');
+  });
 }
