@@ -395,3 +395,58 @@ async def test_a_status_changed_after_the_scan_is_never_trampled(
     assert avancados == []
     await db_session.refresh(pedido)
     assert pedido.status == StatusPedido.AGUARDANDO_SUBSTITUICAO.value
+
+
+async def _abrir_ocorrencia(db_session, pedido_id, transportadora_id: int | None = None):
+    import uuid
+
+    from app.models.ocorrencia import Ocorrencia
+
+    db_session.add(
+        Ocorrencia(
+            pedido_id=pedido_id,
+            tipo="FALTA_ESTOQUE" if transportadora_id is None else "DANO",
+            status="ABERTA",
+            motivo="teste",
+            criado_por=uuid.uuid4(),
+            transportadora_id=transportadora_id,
+        )
+    )
+    await db_session.commit()
+
+
+async def test_an_occurrence_waiting_on_the_student_holds_the_picking(
+    db_session, seed_pedido_parado, _stub_publish_event
+):
+    """`finalizar_separacao` recusa terminar com ocorrência aberta que o aluno
+    decide. A rede de segurança substitui essa rota, então recusa pelo mesmo
+    motivo — senão o pedido sairia para coleta com a decisão do aluno
+    pendente."""
+    pedido = await seed_pedido_parado(
+        status=StatusPedido.EM_SEPARACAO.value, parado_ha=timedelta(minutes=20)
+    )
+    await _abrir_ocorrencia(db_session, pedido.id)
+
+    avancados = await avancar_parados(db_session, datetime.now(UTC), 180)
+
+    assert avancados == []
+    await db_session.refresh(pedido)
+    assert pedido.status == StatusPedido.EM_SEPARACAO.value
+
+
+async def test_a_carrier_occurrence_does_not_hold_the_picking(
+    db_session, seed_carregamento, seed_pedido_parado, _stub_publish_event
+):
+    """O mesmo escopo do guard da rota: ocorrência de transportadora é assunto
+    da administração, e não segura a separação."""
+    carregamento = await seed_carregamento()
+    pedido = await seed_pedido_parado(
+        status=StatusPedido.EM_SEPARACAO.value, parado_ha=timedelta(minutes=20)
+    )
+    await _abrir_ocorrencia(db_session, pedido.id, carregamento.transportadora_id)
+
+    avancados = await avancar_parados(db_session, datetime.now(UTC), 180)
+
+    assert avancados == [pedido.id]
+    await db_session.refresh(pedido)
+    assert pedido.status == StatusPedido.AGUARDANDO_COLETA.value
