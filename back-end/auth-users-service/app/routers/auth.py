@@ -43,6 +43,7 @@ def _montar_resposta_auth(user: User) -> AuthResponseOut:
         settings.jwt_secret,
         settings.jwt_algorithm,
         settings.access_token_expire_minutes,
+        nome=user.nome,
     )
     refresh_token = create_refresh_token(
         str(user.id),
@@ -194,6 +195,7 @@ async def refresh(payload: RefreshIn, db: AsyncSession = Depends(get_db)):
         settings.jwt_secret,
         settings.jwt_algorithm,
         settings.access_token_expire_minutes,
+        nome=user.nome,
     )
     novo_refresh_token = create_refresh_token(
         str(user.id),
