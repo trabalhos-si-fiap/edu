@@ -58,4 +58,25 @@ void main() {
     provider.setType('curso');
     expect(provider.visibleProducts.map((p) => p.id), ['b']);
   });
+
+  test('hasActiveFilter reflects an active search or category', () async {
+    final provider = ProductsProvider(
+      service: _FakeService([_p('a', 'Guia', 'apostila')]),
+    );
+    await provider.load();
+    expect(provider.hasActiveFilter, isFalse);
+
+    provider.setQuery('guia');
+    expect(provider.hasActiveFilter, isTrue);
+
+    // Só espaços no campo de busca não filtram nada (visibleProducts faz trim).
+    provider.setQuery('   ');
+    expect(provider.hasActiveFilter, isFalse);
+
+    provider.setType('apostila');
+    expect(provider.hasActiveFilter, isTrue);
+
+    provider.setType(null);
+    expect(provider.hasActiveFilter, isFalse);
+  });
 }

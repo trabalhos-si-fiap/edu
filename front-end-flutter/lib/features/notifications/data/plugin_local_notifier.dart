@@ -57,7 +57,10 @@ class PluginLocalNotifier implements LocalNotifier {
   }
 
   @override
-  Future<void> mostrar(NotificationModel notificacao) async {
+  Future<void> mostrar(
+    NotificationModel notificacao, {
+    bool deOutraSessao = false,
+  }) async {
     await _inicializar();
     await _plugin.show(
       id: _idDoSistema(notificacao.id),
@@ -74,7 +77,7 @@ class PluginLocalNotifier implements LocalNotifier {
           styleInformation: BigTextStyleInformation(notificacao.body),
         ),
       ),
-      payload: payloadDaNotificacao(notificacao),
+      payload: payloadDaNotificacao(notificacao, deOutraSessao: deOutraSessao),
     );
   }
 

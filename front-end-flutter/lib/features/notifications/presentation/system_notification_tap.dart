@@ -12,12 +12,18 @@ import '../domain/notification_payload.dart';
 /// Sem sessão ativa (o usuário saiu depois de a notificação ser mostrada) o
 /// toque só traz o app para a frente: a lista pediria um token que não existe
 /// e mostraria "Sessão expirada" no lugar da tela de login.
+///
+/// Uma notificação de outra sessão guardada ([payloadDeOutraSessao], só na
+/// demonstração multi-sessão) também só traz o app para a frente: a lista e a
+/// resolução seriam as de quem está na tela, não as do dono da notificação.
+/// Para vê-la na lista, troca-se para a sessão dele no login.
 void abrirNotificacaoDoSistema({
   required NavigatorState? navigator,
   required bool sessaoAtiva,
   required String? payload,
 }) {
   if (navigator == null || !sessaoAtiva) return;
+  if (payload == payloadDeOutraSessao) return;
 
   navigator.pushNamed('/notifications');
 

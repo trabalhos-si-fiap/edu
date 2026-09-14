@@ -1,6 +1,7 @@
 import 'package:edu_ia/features/notifications/data/plugin_local_notifier.dart';
 import 'package:edu_ia/features/notifications/domain/local_notifier.dart';
 import 'package:edu_ia/features/notifications/domain/notification_model.dart';
+import 'package:edu_ia/features/notifications/domain/notification_payload.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -75,6 +76,24 @@ void main() {
       expect(show.arguments['body'], 'Seu pedido saiu para entrega.');
       expect(show.arguments['payload'], '7');
       expect(show.arguments['platformSpecifics']['channelId'], 'pedidos');
+    },
+  );
+
+  test(
+    'mostrar de outra sessão guardada mantém título e corpo e marca o payload',
+    () async {
+      final notifier = PluginLocalNotifier(aoTocar: (_) {});
+
+      await notifier.mostrar(
+        _n('43', data: const {'occurrence_id': 7}),
+        deOutraSessao: true,
+      );
+
+      final show = chamadas.singleWhere((c) => c.method == 'show');
+      expect(show.arguments['id'], 43);
+      expect(show.arguments['title'], 'Pedido #ABCDEF12: saiu para entrega');
+      expect(show.arguments['body'], 'Seu pedido saiu para entrega.');
+      expect(show.arguments['payload'], payloadDeOutraSessao);
     },
   );
 

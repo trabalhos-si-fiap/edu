@@ -10,8 +10,13 @@ abstract class LocalNotifier {
   /// nada onde a permissão não existe ou já foi decidida pelo usuário.
   Future<void> pedirPermissao();
 
-  /// Mostra [notificacao] na bandeja do sistema.
-  Future<void> mostrar(NotificationModel notificacao);
+  /// Mostra [notificacao] na bandeja do sistema. [deOutraSessao] marca uma
+  /// notificação de sessão guardada que não é a ativa (demonstração
+  /// multi-sessão), para o toque não abrir as telas de quem está na tela.
+  Future<void> mostrar(
+    NotificationModel notificacao, {
+    bool deOutraSessao = false,
+  });
 }
 
 /// Notificador que não faz nada: o que o app usa onde não há notificação do
@@ -24,5 +29,8 @@ class LocalNotifierInerte implements LocalNotifier {
   Future<void> pedirPermissao() async {}
 
   @override
-  Future<void> mostrar(NotificationModel notificacao) async {}
+  Future<void> mostrar(
+    NotificationModel notificacao, {
+    bool deOutraSessao = false,
+  }) async {}
 }
