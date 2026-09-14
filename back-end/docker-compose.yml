@@ -219,6 +219,10 @@ services:
       # Chamada serviço-a-serviço para app/services/auth_client.py (nome do
       # autor da review, hoje; endereço de entrega, a partir do bloco C).
       AUTH_SERVICE_URL: http://auth-users-service:8000
+      # Pagamento confirmado no próprio checkout, sem verificação nenhuma: o
+      # pedido já nasce na fila de separação (app/routers/pedidos.py). No
+      # código o default é desligado; a demonstração o liga aqui.
+      CONFIRMAR_PAGAMENTO_AUTOMATICO: ${CONFIRMAR_PAGAMENTO_AUTOMATICO:-true}
       # Rede de segurança da apresentação (app/scheduler.py, task 7).
       # AUSENTE = 0 = DESLIGADO, o default e o que a spec C pede.
       AVANCO_AUTOMATICO_SEGUNDOS: ${AVANCO_AUTOMATICO_SEGUNDOS:-0}
