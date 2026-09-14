@@ -42,18 +42,33 @@ def _atributo(no: str, nome: str) -> str:
 
 
 def ler_elementos(xml: str, pacote: str | None = None) -> list[Elemento]:
-    """Elementos de uma árvore do uiautomator, na ordem da árvore.
+    """Elementos visíveis de uma árvore do uiautomator, na ordem da árvore.
 
-    Com `pacote`, só os do app: a leitura inclui a barra do sistema e o
-    teclado, que também têm botões como "Voltar".
+    Os limites de cada elemento são cortados pela área visível dos
+    ancestrais, e o que fica fora dela some: o uiautomator2 devolve o
+    retângulo inteiro de um botão meio escondido embaixo da área rolável, e o
+    centro dele cai fora do app. Com `pacote`, só os do app: a leitura inclui
+    a barra do sistema e o teclado, que também têm botões como "Voltar".
     """
     elementos = []
-    for achado in re.finditer(r"<node [^>]*>", xml):
+    areas: list[tuple[int, int, int, int]] = []  # dos ancestrais ainda abertos
+    for achado in re.finditer(r"<node [^>]*>|</node>", xml):
         no = achado.group(0)
-        if pacote is not None and _atributo(no, "package") != pacote:
+        if no == "</node>":
+            if areas:
+                areas.pop()
             continue
         numeros = [int(n) for n in re.findall(r"\d+", _atributo(no, "bounds"))]
-        if len(numeros) != 4:
+        valido = len(numeros) == 4
+        x1, y1, x2, y2 = numeros if valido else (0, 0, 10**6, 10**6)
+        if areas:
+            px1, py1, px2, py2 = areas[-1]
+            x1, y1, x2, y2 = max(x1, px1), max(y1, py1), min(x2, px2), min(y2, py2)
+        if not no.endswith("/>"):
+            areas.append((x1, y1, x2, y2))
+        if not valido or x2 <= x1 or y2 <= y1:
+            continue
+        if pacote is not None and _atributo(no, "package") != pacote:
             continue
         elementos.append(
             Elemento(
@@ -61,7 +76,7 @@ def ler_elementos(xml: str, pacote: str | None = None) -> list[Elemento]:
                 classe=_atributo(no, "class").split(".")[-1],
                 clicavel=_atributo(no, "clickable") == "true",
                 rolavel=_atributo(no, "scrollable") == "true",
-                limites=(numeros[0], numeros[1], numeros[2], numeros[3]),
+                limites=(x1, y1, x2, y2),
             )
         )
     return elementos
