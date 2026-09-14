@@ -450,3 +450,92 @@ async def test_a_carrier_occurrence_does_not_hold_the_picking(
     assert avancados == [pedido.id]
     await db_session.refresh(pedido)
     assert pedido.status == StatusPedido.AGUARDANDO_COLETA.value
+
+
+# ── Frota própria: a coleta da rede de segurança também anexa um carregamento
+# ao pedido que não tem, para o mapa do aluno andar. ───────────────────────
+
+
+async def _carregamentos(db_session):
+    from sqlalchemy import select
+
+    from app.models.carregamento import Carregamento
+
+    resultado = await db_session.execute(select(Carregamento).order_by(Carregamento.id))
+    return list(resultado.scalars().all())
+
+
+async def test_the_collect_hop_attaches_an_own_fleet_shipment(
+    db_session, monkeypatch, _stub_publish_event
+):
+    """Mesma frota própria da coleta manual, com uma diferença honesta:
+    `criado_por` é o UUID nulo (`CRIADO_PELO_SISTEMA`), não um id de pessoa —
+    a coluna é NOT NULL e ninguém coletou."""
+    import uuid
+    from decimal import Decimal
+
+    from app.models.pedido import Order
+    from app.services.directions import DirectionsResult
+    from app.services.posicao import ultima_posicao
+    from app.services.simulador_posicao import avancar_carregamentos
+
+    pedido = Order(
+        user_id=str(uuid.uuid4()),
+        status=StatusPedido.AGUARDANDO_COLETA.value,
+        total=Decimal("1299.90"),
+        status_updated_at=datetime.now(UTC) - timedelta(minutes=20),
+        ship_street="Rua das Flores",
+        ship_number="42",
+        ship_city="Jundiaí",
+        ship_state="SP",
+        origem_rotulo="Leroy Merlin Marginal Tietê",
+        origem_lat=Decimal("-23.518300"),
+        origem_lng=Decimal("-46.627600"),
+    )
+    db_session.add(pedido)
+    await db_session.commit()
+    monkeypatch.setattr(settings, "google_maps_api_key", "test-key")
+
+    async def fake_fetch(client, *, origin, destination, api_key):
+        return DirectionsResult(
+            polyline="enc-poly",
+            distance_text="60 km",
+            distance_km=60.0,
+            duration_text="50 min",
+            duration_minutes=50,
+            destination_latitude=-23.185700,
+            destination_longitude=-46.897800,
+        )
+
+    monkeypatch.setattr("app.services.posicao.directions.fetch_directions", fake_fetch)
+
+    avancados = await avancar_parados(db_session, datetime.now(UTC), 180)
+
+    assert avancados == [pedido.id]
+    await db_session.refresh(pedido)
+    assert pedido.status == StatusPedido.EM_TRANSITO.value
+    [lote] = await _carregamentos(db_session)
+    assert pedido.carregamento_id == lote.id
+    assert pedido.carrier_name == "Frota própria Edu"
+    assert pedido.deliverer_id is None
+    assert lote.criado_por == uuid.UUID(int=0)
+    assert (lote.origem_lat, lote.origem_lng) == (pedido.origem_lat, pedido.origem_lng)
+    assert pedido.destino_lat == Decimal("-23.185700")
+    assert [chave for chave, _ in _stub_publish_event] == ["order.status_changed"]
+
+    assert await avancar_carregamentos(db_session, datetime.now(UTC)) == 1
+    assert await ultima_posicao(db_session, lote.id) is not None
+
+
+async def test_the_collect_hop_keeps_the_shipment_an_order_already_has(
+    db_session, seed_carregamento, _stub_publish_event
+):
+    carregamento = await seed_carregamento()
+    pedido = await _seed_pronto_para_coleta(db_session, carregamento.id, timedelta(minutes=20))
+
+    await avancar_parados(db_session, datetime.now(UTC), 180)
+
+    await db_session.refresh(pedido)
+    assert pedido.status == StatusPedido.EM_TRANSITO.value
+    assert pedido.carregamento_id == carregamento.id
+    assert [lote.id for lote in await _carregamentos(db_session)] == [carregamento.id]
