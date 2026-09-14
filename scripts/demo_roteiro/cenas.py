@@ -36,7 +36,7 @@ class Roteiro:
     backend: Backend
     gabarito: list[Questao]
     acertar: set[int]
-    pausa_segundos: float = 2.0
+    pausa_segundos: float = 1.0
     log: Callable[[str], None] = print
     email_ana: str = field(default_factory=lambda: email_da_ana(datetime.now()))
     pedido_curto: str = ""
@@ -365,7 +365,7 @@ def entregador_coleta(r: Roteiro) -> None:
     r.pausa(0.5)
 
 
-def aluna_acompanha(r: Roteiro, segundos_de_mapa: float = 20) -> None:
+def aluna_acompanha(r: Roteiro, segundos_de_mapa: float = 10) -> None:
     t = r.tela
     r.ir_para_login()
     r.entrar_pelo_atalho("aluno", "Percurso")

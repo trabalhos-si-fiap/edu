@@ -66,13 +66,13 @@ def argumentos() -> argparse.Namespace:
     )
     parser.add_argument("--skip-build", action="store_true", help="reaproveita o APK instalado")
     parser.add_argument(
-        "--pausa", type=float, default=2.0, help="segundos de respiro para a narração (padrão 2)"
+        "--pausa", type=float, default=1.0, help="segundos de respiro para a narração (padrão 1)"
     )
     parser.add_argument(
         "--sem-pausa", action="store_true", help="não espera Enter antes do roteiro gravado"
     )
     parser.add_argument(
-        "--segundos-de-mapa", type=float, default=20, help="tempo mostrando o mapa (padrão 20)"
+        "--segundos-de-mapa", type=float, default=10, help="tempo mostrando o mapa (padrão 10)"
     )
     return parser.parse_args()
 
