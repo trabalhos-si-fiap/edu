@@ -4,20 +4,25 @@ import '../../../core/theme/app_colors.dart';
 import '../../auth/data/auth_api.dart';
 import '../../cart/data/cart_store.dart';
 import '../../components/nav_bar.dart';
+import '../../tracker/data/tracker_api.dart';
 import '../../tracker/domain/study_summary.dart';
 import '../../tracker/presentation/points_card.dart';
 import '../../tracker/presentation/summary_provider.dart';
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key});
+  const ProfileScreen({super.key, this.authApi, this.trackerApi});
+
+  /// Injeção só para teste; o app sempre usa os defaults.
+  final AuthApi? authApi;
+  final TrackerApi? trackerApi;
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  final _authApi = AuthApi();
-  final _summaryProvider = SummaryProvider();
+  late final _authApi = widget.authApi ?? AuthApi();
+  late final _summaryProvider = SummaryProvider(api: widget.trackerApi);
   String? _name;
 
   @override
