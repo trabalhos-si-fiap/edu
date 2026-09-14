@@ -133,4 +133,53 @@ void main() {
     expect(find.text('falhou'), findsOneWidget);
     expect(find.text('Tentar novamente'), findsOneWidget);
   });
+
+  testWidgets(
+      'as a root tab (store bottom nav), there is no back arrow to pop into '
+      'an empty navigator', (tester) async {
+    // A NavBar troca de aba com pushReplacementNamed: vindo da Loja, "Meus
+    // Pedidos" é a única rota da pilha. A seta fazia pop dela e o app ficava
+    // numa tela preta.
+    final provider = OrdersProvider(service: _FakeService(const []));
+    await provider.load();
+
+    await tester.pumpWidget(_harness(provider));
+    await tester.pump();
+
+    expect(find.byIcon(Icons.arrow_back), findsNothing);
+  });
+
+  testWidgets('pushed from another screen, the back arrow returns to it',
+      (tester) async {
+    final provider = OrdersProvider(service: _FakeService(const []));
+    await provider.load();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ChangeNotifierProvider.value(
+                    value: provider,
+                    child: const OrdersView(),
+                  ),
+                ),
+              ),
+              child: const Text('perfil'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('perfil'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.arrow_back));
+    await tester.pumpAndSettle();
+
+    expect(find.text('perfil'), findsOneWidget);
+  });
 }
