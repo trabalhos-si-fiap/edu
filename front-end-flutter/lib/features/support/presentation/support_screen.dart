@@ -35,10 +35,14 @@ class SupportView extends StatelessWidget {
           backgroundColor: Colors.transparent,
           elevation: 0,
           centerTitle: true,
-          leading: IconButton(
-            onPressed: () => Navigator.maybePop(context),
-            icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
-          ),
+          // Aberta pela NavBar (pushReplacementNamed), esta é a única rota da
+          // pilha e a seta não teria para onde voltar. Só mostra quando há.
+          leading: Navigator.canPop(context)
+              ? IconButton(
+                  onPressed: () => Navigator.maybePop(context),
+                  icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
+                )
+              : null,
           title: const Text(
             'Suporte de Pedidos',
             style: TextStyle(
