@@ -15,6 +15,7 @@ import 'package:edu_ia/features/tracker/presentation/tracker_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'core/network/app_http.dart';
+import 'core/network/token_store.dart';
 import 'core/theme/app_theme.dart';
 import 'features/cart/data/cart_store.dart';
 import 'features/auth/presentation/login_screen.dart';
@@ -22,6 +23,10 @@ import 'features/auth/presentation/register_screen.dart';
 import 'features/auth/presentation/forgot_password_screen.dart';
 import 'features/auth/presentation/reset_password_screen.dart';
 import 'features/home/presentation/home_screen.dart';
+import 'features/notifications/data/notifications_api.dart';
+import 'features/notifications/data/plugin_local_notifier.dart';
+import 'features/notifications/presentation/notifications_poller.dart';
+import 'features/notifications/presentation/system_notification_tap.dart';
 import 'features/onboarding/presentation/onboarding_screen.dart';
 import 'features/profile/presentation/profile_screen.dart';
 import 'features/profile/presentation/addresses_screen.dart';
@@ -45,6 +50,11 @@ import 'features/support/presentation/support_screen.dart';
 // dependência custava a compilação num clone limpo, porque
 // `firebase_options.dart` é git-ignored. A spec C reintroduz push com um
 // backend capaz de enviar.
+//
+// Enquanto isso, o "tempo real" é LOCAL: com o app vivo, o
+// `NotificationsPoller` consulta `GET /notifications` a cada 10 s e mostra na
+// bandeja do sistema o que chegou (flutter_local_notifications). Não é push de
+// servidor — ver docs/front-end/local_notifications.md.
 void main() {
   runApp(const MyApp());
 }
@@ -62,6 +72,9 @@ class _MyAppState extends State<MyApp> {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => CartStore()),
+        // Iniciado a cada login em `irParaTelaDoPapel`; lido pelo sino
+        // (`NotificationBell`) e pela lista de notificações.
+        ChangeNotifierProvider(create: (_) => _criarNotificationsPoller()),
       ],
       child: MaterialApp(
         title: 'Edu IA',
@@ -98,4 +111,22 @@ class _MyAppState extends State<MyApp> {
       ),
     );
   }
+}
+
+/// Monta o poller do app: busca pela API real, sessão lida do [TokenStore],
+/// e o toque numa notificação da bandeja navegando pelo [rootNavigatorKey].
+NotificationsPoller _criarNotificationsPoller() {
+  late final NotificationsPoller poller;
+  poller = NotificationsPoller(
+    notifier: criarLocalNotifier(
+      aoTocar: (payload) => abrirNotificacaoDoSistema(
+        navigator: rootNavigatorKey.currentState,
+        sessaoAtiva: poller.ativo,
+        payload: payload,
+      ),
+    ),
+    buscar: NotificationsApi().list,
+    lerAccessToken: TokenStore().readAccessToken,
+  );
+  return poller;
 }

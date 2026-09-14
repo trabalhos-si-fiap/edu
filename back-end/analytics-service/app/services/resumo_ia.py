@@ -17,7 +17,11 @@ from app.config import settings
 
 _client: AsyncGroq | None = None
 
-MODELO = "llama-3.1-8b-instant"
+# `llama-3.1-8b-instant` saiu do Groq (404 `model_not_found` em 2026-09-13).
+# `gpt-oss-20b` é modelo de raciocínio: a chamada passa
+# `reasoning_effort="low"`, senão o raciocínio consome o `max_tokens` e o
+# conteúdo volta vazio.
+MODELO = "openai/gpt-oss-20b"
 
 PROMPT_SISTEMA = (
     "Você escreve resumos executivos curtos (3 a 5 frases) para o painel "
@@ -79,6 +83,7 @@ async def gerar_resumo_executivo(contexto: dict) -> str | None:
             ],
             temperature=0.5,
             max_tokens=220,
+            reasoning_effort="low",
         )
         texto = resposta.choices[0].message.content
         return texto.strip() if texto else None

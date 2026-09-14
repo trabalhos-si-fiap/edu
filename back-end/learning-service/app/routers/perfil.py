@@ -65,7 +65,9 @@ async def resumo(
             select(
                 func.coalesce(func.max(AlunoTemaProgresso.streak_acertos), 0),
                 func.coalesce(func.sum(AlunoTemaProgresso.total_respondidas), 0),
-                func.count(),
+                # `student.created` já cria uma linha zerada por subtema:
+                # iniciado é quem tem resposta, não quem tem linha.
+                func.count().filter(AlunoTemaProgresso.total_respondidas > 0),
             ).where(AlunoTemaProgresso.aluno_id == aluno_id)
         )
     ).one()

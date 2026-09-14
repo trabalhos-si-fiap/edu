@@ -101,11 +101,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(height: 16),
                 const _FeatureRow(),
-                const SizedBox(height: 16),
-                const SizedBox(height: 24),
-                const _SubjectsSection(),
-                const SizedBox(height: 24),
-                const _CycleReviewCard(),
               ],
             ),
           ),
@@ -122,15 +117,17 @@ class _FeatureRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
-      children: const [
+      children: [
         Expanded(
           child: _SquareCard(
             label: 'Identificar\nlacunas',
             image: 'assets/images/checklist.png',
-            color: Color(0xFF369FFF),
+            color: const Color(0xFF369FFF),
+            // O diagnóstico de lacunas começa pela escolha da matéria.
+            onTap: () => Navigator.pushNamed(context, '/quiz'),
           ),
         ),
-        SizedBox(width: 14),
+        const SizedBox(width: 14),
       ],
     );
   }
@@ -141,257 +138,43 @@ class _SquareCard extends StatelessWidget {
     required this.label,
     required this.image,
     required this.color,
+    required this.onTap,
   });
 
   final String label;
   final String image;
   final Color color;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 140,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(24),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Flexible(
-            child: Text(
-              label,
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-                color: AppColors.white,
-              ),
-            ),
-          ),
-          const SizedBox(width: 9),
-          Image.asset(image, width: 60, height: 60),
-        ],
-      ),
-    );
-  }
-}
-
-
-class _SubjectsSection extends StatelessWidget {
-  const _SubjectsSection();
-
-  static const _subjects = [
-    _SubjectData('Biologia', '42 aulas concluídas', 'icon_biologia.png'),
-    _SubjectData('Matemática', '28 aulas concluídas', 'matematica.png'),
-    _SubjectData('Geografia', '15 aulas concluídas', 'geografia.png'),
-    _SubjectData('História', '56 aulas concluídas', 'historia.png'),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 140,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(24),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            const Text(
-              'Suas Trilhas',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.w800,
-                color: AppColors.textPrimary,
-              ),
-            ),
-            GestureDetector(
-              onTap: () {},
+            Flexible(
               child: Text(
-                'Ver todas',
-                style: TextStyle(
+                label,
+                style: const TextStyle(
                   fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.purple,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.white,
                 ),
               ),
             ),
+            const SizedBox(width: 9),
+            Image.asset(image, width: 60, height: 60),
           ],
         ),
-        const SizedBox(height: 16),
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: _subjects.length,
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            mainAxisSpacing: 12,
-            crossAxisSpacing: 12,
-            mainAxisExtent: 168 * MediaQuery.textScalerOf(context).scale(1),
-          ),
-          itemBuilder: (context, index) {
-            final s = _subjects[index];
-            return _SubjectCard(
-              name: s.name,
-              subtitle: s.subtitle,
-              image: 'assets/images/subjects/${s.image}',
-            );
-          },
-        ),
-      ],
-    );
-  }
-}
-
-class _SubjectData {
-  const _SubjectData(this.name, this.subtitle, this.image);
-  final String name;
-  final String subtitle;
-  final String image;
-}
-
-class _SubjectCard extends StatelessWidget {
-  const _SubjectCard({
-    required this.name,
-    required this.subtitle,
-    required this.image,
-  });
-
-  final String name;
-  final String subtitle;
-  final String image;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: Image.asset(
-              image,
-              width: 56,
-              height: 56,
-              filterQuality: FilterQuality.high,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            name,
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textPrimary,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            subtitle,
-            style: const TextStyle(
-              fontSize: 13,
-              color: AppColors.textSecondary,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CycleReviewCard extends StatelessWidget {
-  const _CycleReviewCard();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: const Color(0xFF1A1A2E),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: const Color(0xFF2A2A4A),
-          width: 1.5,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 28, 24, 0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Revisão de Ciclo',
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.white,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  'Detectamos que o tópico de "Citologia" precisa de um reforço antes do seu próximo simulado. Vamos resolver 10 questões rápidas?',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Color(0xFFB0B0C0),
-                    height: 1.5,
-                  ),
-                ),
-                const SizedBox(height: 20),
-                ElevatedButton(
-                  onPressed: () {},
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.purple,
-                    foregroundColor: AppColors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 32,
-                      vertical: 14,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(24),
-                    ),
-                  ),
-                  child: const Text(
-                    'Revisar Agora',
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 20),
-          Center(
-            child: Container(
-              margin: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFF2A2A3E),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Image.asset(
-                'assets/images/brain.png',
-                height: 140,
-                filterQuality: FilterQuality.high,
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }

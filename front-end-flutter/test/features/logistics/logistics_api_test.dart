@@ -74,6 +74,54 @@ void main() {
       expect(captured.url.path, endsWith('/picking/$_pedidoId/start'));
     });
 
+    test('fetchPedidoSeparacao GETs /picking/{id} and parses the current '
+        'items', () async {
+      late http.Request captured;
+      final client = MockClient((req) async {
+        captured = req;
+        return http.Response(
+          jsonEncode({
+            ..._pedidoJson(status: 'EM_SEPARACAO'),
+            'items': [
+              {
+                'product_id': _produtoId,
+                'product_name': 'Caderno substituto',
+                'unit_price': '24.90',
+                'quantity': 1,
+              },
+            ],
+          }),
+          200,
+        );
+      });
+      final api = LogisticsApi(client: client, tokenStore: _FakeTokenStore());
+
+      final pedido = await api.fetchPedidoSeparacao(_pedidoId);
+
+      expect(captured.method, 'GET');
+      expect(captured.url.path, endsWith('/picking/$_pedidoId'));
+      expect(captured.headers['Authorization'], 'Bearer fake-token');
+      expect(pedido.itens.single.nomeProduto, 'Caderno substituto');
+    });
+
+    test('fetchPedidoSeparacao surfaces the backend detail on failure', () async {
+      final client = MockClient(
+        (_) async => http.Response(
+          jsonEncode({'detail': 'Sem permissão para ver este pedido'}),
+          403,
+        ),
+      );
+      final api = LogisticsApi(client: client, tokenStore: _FakeTokenStore());
+
+      expect(
+        () => api.fetchPedidoSeparacao(_pedidoId),
+        throwsA(
+          isA<LogisticsException>()
+              .having((e) => e.message, 'message', 'Sem permissão para ver este pedido'),
+        ),
+      );
+    });
+
     test('reportarFaltaEstoque sends pedido_id and produto_id as strings in '
         'the request body', () async {
       late http.Request captured;

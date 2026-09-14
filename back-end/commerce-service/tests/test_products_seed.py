@@ -35,10 +35,16 @@ from app.seeds.products import SEED_PRODUCTS, seed_products
 # proteger: medido pelo review, trocar um preço ou APAGAR um produto inteiro
 # deixava a suíte com 176 verdes. Este é o único teste do arquivo que pega
 # essas duas mutações.
+#
+# Duas linhas divergem do legacy DE PROPÓSITO (2026-09-13): "Mastering Data
+# Synthesis" ("Premium Course") e "Diagnostic AI Toolkit" ("Digital Tool")
+# ganharam nome e subtipo em português — nome em inglês numa loja de estudo
+# para o ENEM parecia erro na demonstração. `type`, `price`, foto e posição na
+# lista não mudaram.
 _CATALOGO_LEGACY = (
     ("Guia de Redação Nota 1000", "apostila", "Apostila Digital", "49.90"),
-    ("Mastering Data Synthesis", "curso", "Premium Course", "189.90"),
-    ("Diagnostic AI Toolkit", "digital", "Digital Tool", "45.00"),
+    ("Curso de Gráficos e Tabelas do ENEM", "curso", "Curso Premium", "189.90"),
+    ("Diagnóstico ENEM com IA", "digital", "Ferramenta Digital", "45.00"),
     ("Simulado ENEM Completo", "apostila", "Apostila", "29.90"),
     ("Mapa Mental de Biologia", "digital", "Material Digital", "19.90"),
     ("Curso de Matemática Essencial", "curso", "Curso", "149.90"),

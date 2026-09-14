@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_colors.dart';
-import '../data/demo_itens.dart';
 import '../data/logistics_api.dart';
 import '../domain/occurrence.dart';
 import '../domain/order.dart';
@@ -15,20 +14,30 @@ import '../domain/order.dart';
 /// o aluno para decidir (substituir, remover item ou cancelar o pedido).
 /// Enquanto essa decisão não chega, a separação não pode ser finalizada.
 class SeparadorPickingScreen extends StatefulWidget {
-  const SeparadorPickingScreen({super.key, required this.pedido});
+  const SeparadorPickingScreen({super.key, required this.pedido, LogisticsApi? api})
+    : _api = api;
 
+  /// O pedido como veio da fila: identifica e preenche a tela enquanto o
+  /// detalhe carrega. Status e itens que valem são os de `GET /picking/{id}`,
+  /// lidos ao abrir — a fila não traz itens, e a substituição pode ter
+  /// trocado ou removido um deles desde que ela carregou.
   final Pedido pedido;
+  final LogisticsApi? _api;
 
   @override
   State<SeparadorPickingScreen> createState() => _SeparadorPickingScreenState();
 }
 
 class _SeparadorPickingScreenState extends State<SeparadorPickingScreen> {
-  final _api = LogisticsApi();
+  late final LogisticsApi _api = widget._api ?? LogisticsApi();
+  late Pedido _pedido = widget.pedido;
   late Set<int> _itensConferidos;
   bool _separacaoIniciada = false;
   bool _carregando = false;
   String? _erro;
+
+  bool _carregandoPedido = true;
+  bool _pedidoCarregado = false;
 
   List<Ocorrencia> _ocorrenciasAbertas = [];
   bool _carregandoOcorrencias = true;
@@ -37,8 +46,28 @@ class _SeparadorPickingScreenState extends State<SeparadorPickingScreen> {
   void initState() {
     super.initState();
     _itensConferidos = {};
+    // Um pedido EM_SEPARACAO é retomado, não reiniciado: o botão já nasce
+    // "Finalizar" e `/start` nunca é chamado de novo.
     _separacaoIniciada = widget.pedido.status == StatusPedido.emSeparacao;
+    _carregarPedido();
     _carregarOcorrencias();
+  }
+
+  Future<void> _carregarPedido() async {
+    try {
+      final pedido = await _api.fetchPedidoSeparacao(widget.pedido.id);
+      if (!mounted) return;
+      setState(() {
+        _pedido = pedido;
+        _separacaoIniciada = pedido.status == StatusPedido.emSeparacao;
+        _itensConferidos.clear();
+        _pedidoCarregado = true;
+      });
+    } on LogisticsException catch (e) {
+      if (mounted) setState(() => _erro = e.message);
+    } finally {
+      if (mounted) setState(() => _carregandoPedido = false);
+    }
   }
 
   Future<void> _carregarOcorrencias() async {
@@ -64,15 +93,13 @@ class _SeparadorPickingScreenState extends State<SeparadorPickingScreen> {
 
   bool get _temOcorrenciaAbertaGeral => _ocorrenciasAbertas.isNotEmpty;
 
-  /// Itens que a tela exibe e confere. Normalmente são os do pedido; numa
-  /// build de demonstração (`--dart-define=DEMO_ITENS_MOCK=true`) um pedido
-  /// que chega sem itens recebe a lista de vitrine — ver
-  /// `data/demo_itens.dart`. Fora dessa build isto é exatamente
-  /// `widget.pedido.itens`.
-  List<PedidoItem> get _itens => itensParaExibir(widget.pedido.itens);
+  List<PedidoItem> get _itens => _pedido.itens;
 
+  /// Só com o detalhe carregado: sem ele a lista vazia seria ausência de
+  /// dado, não conferência feita. Carregado e vazio é um pedido cujo único
+  /// item o aluno removeu — nada a conferir, e ele precisa poder sair da fila.
   bool get _todosConferidos =>
-      _itens.isNotEmpty && _itensConferidos.length == _itens.length;
+      _pedidoCarregado && _itensConferidos.length == _itens.length;
 
   Future<void> _iniciarSeparacao() async {
     setState(() {
@@ -201,7 +228,7 @@ class _SeparadorPickingScreenState extends State<SeparadorPickingScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _EnderecoCard(endereco: widget.pedido.enderecoEntrega),
+                      _EnderecoCard(endereco: _pedido.enderecoEntrega),
                       if (_temOcorrenciaAbertaGeral) ...[
                         const SizedBox(height: 16),
                         _AvisoOcorrenciaAberta(quantidade: _ocorrenciasAbertas.length),
@@ -223,13 +250,16 @@ class _SeparadorPickingScreenState extends State<SeparadorPickingScreen> {
                         style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
                       ),
                       const SizedBox(height: 16),
-                      if (_itens.isEmpty)
+                      if (_carregandoPedido)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 12),
+                          child: Center(child: CircularProgressIndicator()),
+                        )
+                      else if (_itens.isEmpty && _pedidoCarregado)
                         const Padding(
                           padding: EdgeInsets.symmetric(vertical: 12),
                           child: Text(
-                            'Este pedido não retornou itens detalhados '
-                            '(ver STATUS.md — Commerce Service precisa expor '
-                            'itens com nome do produto).',
+                            'Nenhum item restante neste pedido.',
                             style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
                           ),
                         )
@@ -274,7 +304,7 @@ class _SeparadorPickingScreenState extends State<SeparadorPickingScreen> {
                 child: SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed: (_carregando || _carregandoOcorrencias)
+                    onPressed: (_carregando || _carregandoPedido || _carregandoOcorrencias)
                         ? null
                         : (_separacaoIniciada
                             ? ((_todosConferidos && !_temOcorrenciaAbertaGeral)

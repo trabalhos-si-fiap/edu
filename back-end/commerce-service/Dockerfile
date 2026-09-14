@@ -12,6 +12,17 @@ COPY packages/edu-common /app/packages/edu-common
 COPY commerce-service/pyproject.toml commerce-service/uv.lock* ./
 RUN uv sync --no-install-project
 
+# O modelo de embeddings entra na imagem, não no primeiro request: sem isto
+# o container baixa ~470MB do Hugging Face na primeira chamada que precisa
+# dele e, sem internet, degrada em silêncio. Fica antes do COPY do código
+# para a camada sobreviver a qualquer mudança em app/. O nome tem que ser o
+# mesmo de `NOME_MODELO` em app/services/embeddings.py.
+RUN uv run --no-sync python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')"
+# Com o modelo já na imagem, a carga não precisa consultar o Hugging Face
+# (medido: 5.3 s com a consulta, 1.5 s sem), e a pré-carga ao subir tira
+# essa carga do primeiro request.
+ENV HF_HUB_OFFLINE=1 PRECARREGAR_EMBEDDINGS=true
+
 COPY commerce-service/ ./
 
 CMD ["uv", "run", "granian", "--interface", "asgi", "--host", "0.0.0.0", "--port", "8000", "app.main:app"]

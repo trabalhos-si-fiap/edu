@@ -1,0 +1,169 @@
+<section class="orders-page">
+  <div class="page-header">
+    <h1>Pedidos</h1>
+    <p>Visão geral dos pedidos, do checkout à entrega.</p>
+  </div>
+
+  <article class="directory-card">
+    <div class="directory-header">
+      <h2>Todos os Pedidos</h2>
+
+      <label class="select-box">
+        <span>STATUS</span>
+        <select (change)="statusChanged($event)">
+          <option value="">Todos os status</option>
+          @for (option of statusOptions; track option[0]) {
+            <option [value]="option[0]">{{ option[1] }}</option>
+          }
+        </select>
+      </label>
+    </div>
+
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>PEDIDO</th>
+            <th>STATUS</th>
+            <th>TOTAL</th>
+            <th>CRIADO EM</th>
+            <th>ENDEREÇO DE ENTREGA</th>
+            <th>TRANSPORTADORA</th>
+            <th>AÇÕES</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          @if (loading) {
+            <tr>
+              <td colspan="7" class="state-cell">Carregando...</td>
+            </tr>
+          } @else if (loadError) {
+            <tr>
+              <td colspan="7" class="state-cell error">{{ loadError }}</td>
+            </tr>
+          } @else if (orders.length) {
+            @for (order of orders; track order.id) {
+              <tr>
+                <td>
+                  <strong [title]="order.id">#{{ shortId(order) }}</strong>
+                </td>
+
+                <td>
+                  <span class="status-badge" [ngClass]="statusTone(order.status)">
+                    {{ statusLabel(order.status) }}
+                  </span>
+                </td>
+
+                <td>{{ formatMoney(order.total) }}</td>
+                <td>{{ formatDate(order.created_at) }}</td>
+                <td class="address">{{ order.endereco_entrega || '—' }}</td>
+                <td>{{ order.carrier_name ?? '—' }}</td>
+
+                <td>
+                  @if (canConfirm(order)) {
+                    <button
+                      class="outline-button"
+                      type="button"
+                      [disabled]="confirming && confirmingOrder?.id === order.id"
+                      (click)="openConfirm(order)"
+                    >
+                      Confirmar pagamento
+                    </button>
+                  }
+                </td>
+              </tr>
+            }
+          } @else {
+            <tr>
+              <td colspan="7" class="state-cell">
+                {{ page === 0 ? 'Nenhum pedido encontrado.' : 'Nenhum pedido nesta página.' }}
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <footer class="directory-footer">
+      <p>
+        @if (orders.length) {
+          Mostrando {{ startResult }} a {{ endResult }}
+        } @else {
+          Página {{ page + 1 }}
+        }
+      </p>
+
+      <div class="pager">
+        <button
+          type="button"
+          aria-label="Página anterior"
+          [disabled]="page === 0 || loading"
+          (click)="previous()"
+        >
+          ‹
+        </button>
+        <button
+          type="button"
+          aria-label="Próxima página"
+          [disabled]="!hasNext"
+          (click)="next()"
+        >
+          ›
+        </button>
+      </div>
+    </footer>
+  </article>
+</section>
+
+@if (confirmingOrder) {
+  <div class="backdrop" (mousedown)="onConfirmBackdrop($event)">
+    <section class="modal" role="dialog" aria-modal="true">
+      <header>
+        <div>
+          <span>PEDIDO #{{ shortId(confirmingOrder) }}</span>
+          <h2>Confirmar Pagamento</h2>
+        </div>
+        <button type="button" aria-label="Fechar" (click)="closeConfirm()">
+          ×
+        </button>
+      </header>
+
+      <div class="body">
+        <p>
+          Confirmar o pagamento de
+          <strong>{{ formatMoney(confirmingOrder.total) }}</strong>? O pedido
+          segue direto para a fila de separação.
+        </p>
+
+        @if (confirmError) {
+          <div class="error">{{ confirmError }}</div>
+        }
+      </div>
+
+      <footer>
+        <button
+          class="cancel"
+          type="button"
+          [disabled]="confirming"
+          (click)="closeConfirm()"
+        >
+          Cancelar
+        </button>
+
+        <button
+          class="save"
+          type="button"
+          [disabled]="confirming"
+          (click)="submitConfirm()"
+        >
+          {{ confirming ? 'Confirmando...' : 'Confirmar Pagamento' }}
+        </button>
+      </footer>
+    </section>
+  </div>
+}
+
+@if (successMessage) {
+  <app-success-toast [message]="successMessage" />
+}

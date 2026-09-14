@@ -271,9 +271,11 @@ resposta, não lidos de coluna nenhuma: `nivel`, a partir de `total`
   qualquer subtema.
 - **`estudo`** — `questoes_respondidas` é a soma de
   `AlunoTemaProgresso.total_respondidas` entre todos os subtemas
-  (`func.sum`, com `coalesce` para zero); `subtemas_iniciados` é a
-  contagem de linhas de `AlunoTemaProgresso` do aluno (`func.count()`) —
-  um subtema só ganha linha na primeira resposta que o aluno dá nele.
+  (`func.sum`, com `coalesce` para zero); `subtemas_iniciados` conta só
+  as linhas de `AlunoTemaProgresso` com `total_respondidas > 0`. Contar
+  linhas não serve: `student.created` (`events/consumer.py`) cria uma linha
+  zerada para cada subtema no cadastro, e um aluno sem nenhuma resposta
+  aparecia com todos os subtemas "iniciados".
 
 Um aluno sem nenhuma atividade (zero respostas, zero objetivo) recebe
 `objetivo: null`, `roadmap` com os três campos zerados, `pontos` com
@@ -290,17 +292,34 @@ desenhar nada).
 **Conteúdo — matérias sem questão.** O seed que a spec D adiciona
 (`back-end/learning-service/scripts/seed_enem.sql`) cria só **estrutura**:
 11 matérias, 33 temas (3 por matéria), 99 subtemas (3 por tema) — cobrindo
-as quatro áreas do ENEM — e **nenhuma questão**. A única fonte de questões
-no repositório é `back-end/learning-service/scripts/seed_biologia_citologia.sql`,
-que antecede a spec D: **26 questões**, nos subtemas de id 1 a 8, dentro
+as quatro áreas do ENEM — e **nenhuma questão**. As fontes de questões no
+repositório são duas, ambas de Biologia. A primeira é
+`back-end/learning-service/scripts/seed_biologia_citologia.sql`, que
+antecede a spec D: **26 questões**, nos subtemas de id 1 a 8, dentro
 dos temas "Introdução ao Estudo da Célula", "Citologia" e "Genética
 Básica" (temas 1, 2 e 3), todos sob a matéria "Biologia" (id 1) — a mesma
 linha de `materia` que `seed_enem.sql` reaproveita em vez de duplicar (ver
-o comentário de faixas de id no topo do arquivo). As outras dez matérias
-do seed do ENEM (Física, Química, Matemática, Português, Literatura,
-Inglês, História, Geografia, Filosofia, Sociologia) não têm questão
-nenhuma hoje; todo subtema delas aparece no roadmap com `tem_questoes:
-false`.
+o comentário de faixas de id no topo do arquivo). A segunda é
+`back-end/learning-service/scripts/seed_biologia_genetica.sql`: **8
+questões**, quatro para cada subtema de "Genética Básica" ("Leis de Mendel",
+id 7, e "Herança e Genótipo/Fenótipo", id 8), que passam de duas para seis
+cada. Ela não cria subtema nenhum — só questões, com ids 1000-1007 —, então
+roda **depois** da citologia; na ordem inversa, falha na chave estrangeira.
+Nenhum alvo do Makefile aplica os três; a ordem é esta:
+
+```bash
+docker exec -i edu-postgres psql -U edu -d learning_db \
+  < back-end/learning-service/scripts/seed_enem.sql
+docker exec -i edu-postgres psql -U edu -d learning_db \
+  < back-end/learning-service/scripts/seed_biologia_citologia.sql
+docker exec -i edu-postgres psql -U edu -d learning_db \
+  < back-end/learning-service/scripts/seed_biologia_genetica.sql
+```
+
+As outras dez matérias do seed do ENEM (Física, Química, Matemática,
+Português, Literatura, Inglês, História, Geografia, Filosofia, Sociologia)
+não têm questão nenhuma hoje; todo subtema delas aparece no roadmap com
+`tem_questoes: false`.
 
 A lista exata de matérias com e sem questão, com a contagem por matéria,
 é a query que a Task 15 não pôde rodar (o ambiente de execução deste
@@ -317,9 +336,9 @@ GROUP BY m.nome
 ORDER BY 2 DESC;
 ```
 
-Pelo que o seed grava, o resultado esperado é "Biologia" com 26 e as
-outras dez matérias com 0 — mas isso é o que o código faz nascer no banco,
-não uma medição contra um banco real.
+Pelo que os seeds gravam, o resultado esperado é "Biologia" com 34 (26 da
+citologia e 8 da genética) e as outras dez matérias com 0 — mas isso é o que
+o código faz nascer no banco, não uma medição contra um banco real.
 
 **Fora de escopo, de propósito.** Três coisas que a spec D deliberadamente
 não construiu, e que não aparecem em nenhum router, service ou model deste

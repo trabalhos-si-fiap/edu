@@ -148,14 +148,11 @@ instalar_app() {
     passo "reaproveitando o APK já instalado"
     return
   fi
-  # DEMO_ITENS_MOCK enche a checklist do separador com itens de vitrine. É
-  # necessário porque nenhum schema de staff do Commerce Service devolve a
-  # chave `itens`, e sem ela a tela grava um aviso técnico no lugar dos
-  # produtos. Vale só nesta build — ver lib/features/logistics/data/demo_itens.dart.
-  passo "compilando com API_BASE_URL=$BASE_API (+ itens de vitrine)"
+  # A checklist do separador vem de `GET /picking/{id}`, com os itens reais
+  # do pedido — não há mais build com itens de vitrine.
+  passo "compilando com API_BASE_URL=$BASE_API"
   (cd "$FRONT" && "$FLUTTER" build apk --debug \
-    --dart-define="API_BASE_URL=$BASE_API" \
-    --dart-define=DEMO_ITENS_MOCK=true >/dev/null)
+    --dart-define="API_BASE_URL=$BASE_API" >/dev/null)
   passo "instalando em $DISPOSITIVO"
   adb -s "$DISPOSITIVO" install -r "$FRONT/build/app/outputs/flutter-apk/app-debug.apk" >/dev/null
 }

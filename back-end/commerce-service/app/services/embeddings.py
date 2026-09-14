@@ -4,15 +4,20 @@ usadas no Learning Service (`sentence-transformers`), aplicada aqui para
 sugerir produtos substitutos por similaridade semântica real, em vez de
 só "mesma categoria" (ver `services/substituicao_ia.py`).
 
-O modelo é carregado uma única vez por processo (singleton). Se o
-download falhar (sem internet, huggingface.co indisponível), quem chama
+O modelo é carregado uma única vez por processo (singleton). A imagem
+Docker já traz o modelo baixado (ver Dockerfile); fora dela, a primeira carga
+baixa do Hugging Face. Se o download falhar (sem internet, huggingface.co
+indisponível), quem chama
 `gerar_embeddings`/`gerar_embedding` recebe a exceção e deve degradar
 graciosamente — nunca deixar isso derrubar o fluxo de reportar uma
 ocorrência (ver nota em `substituicao_ia.py`, achado real testando o
 mesmo padrão no Learning Service).
 """
 
+import asyncio
+
 import numpy as np
+from loguru import logger
 from sentence_transformers import SentenceTransformer
 
 NOME_MODELO = "paraphrase-multilingual-MiniLM-L12-v2"
@@ -25,6 +30,17 @@ def _get_modelo() -> SentenceTransformer:
     if _modelo is None:
         _modelo = SentenceTransformer(NOME_MODELO)
     return _modelo
+
+
+async def precarregar_modelo() -> None:
+    """Carrega o modelo numa thread, ao subir o serviço, para o primeiro
+    request não pagar a carga dentro do event loop. É só otimização: se a
+    carga falhar, loga e segue — o primeiro uso real tenta de novo e degrada
+    como sempre degradou."""
+    try:
+        await asyncio.to_thread(_get_modelo)
+    except Exception:
+        logger.exception("pré-carga do modelo de embeddings falhou")
 
 
 def gerar_embedding(texto: str) -> np.ndarray:

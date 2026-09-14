@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     exchange_name: str = "edu.events"
     jwt_secret: str
     jwt_algorithm: str = "HS256"
+    # Ligado só na imagem Docker (ENV no Dockerfile), que já traz o modelo.
+    # Falso por padrão para a suíte e o host não carregarem centenas de MB ao
+    # subir o app. Ver app/services/embeddings.py::precarregar_modelo.
+    precarregar_embeddings: bool = False
     google_maps_api_key: str = ""
 
     # Rastreio. Os três valores batem com `legacy/app/core/config.py:70,71,80`

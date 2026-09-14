@@ -153,6 +153,27 @@ class PedidoFilaOut(PedidoStaffOut):
     score_risco: float
 
 
+class PedidoSeparacaoOut(PedidoStaffOut):
+    """PedidoStaffOut + os itens — `GET /picking/{id}`, a conferência do
+    separador. `items` é o mesmo `OrderItemOut` do contrato do aluno (campos
+    de `order_items`, em inglês). Lido do banco a cada abertura da tela: a
+    substituição troca ou remove item no meio da separação, e o separador
+    que retoma o pedido confere o que ele tem agora.
+
+    `order.items` precisa chegar carregado (`selectinload`): numa sessão
+    async, o lazy load da relação estoura em vez de consultar.
+    """
+
+    items: list[OrderItemOut]
+
+    @classmethod
+    def de_order(cls, order: Order) -> "PedidoSeparacaoOut":
+        return cls(
+            **PedidoStaffOut.de_order(order).model_dump(),
+            items=[OrderItemOut.model_validate(i) for i in order.items],
+        )
+
+
 class PagamentoConfirmadoOut(BaseModel):
     """Resposta de `POST /orders/{id}/confirm-payment`.
 

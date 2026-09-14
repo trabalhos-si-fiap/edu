@@ -60,3 +60,30 @@ async def test_groq_call_is_stubbed_not_a_real_network_call(monkeypatch):
     mock_groq_cls.assert_called_once()
     fake_client.chat.completions.create.assert_awaited_once()
     assert resultado == "Resumo gerado pelo dublê."
+
+
+async def test_groq_call_uses_an_available_model_with_low_reasoning(monkeypatch):
+    """`llama-3.1-8b-instant` saiu do Groq — medido em 2026-09-13: 404
+    `model_not_found`, e o `except` devolvia None em silêncio, então o painel
+    mostrava o template achando que era IA. `openai/gpt-oss-20b` é modelo de
+    raciocínio: sem `reasoning_effort="low"` o raciocínio consome o
+    `max_tokens` inteiro e o conteúdo volta vazio (medido: `finish_reason`
+    `length`, `content` vazio)."""
+    monkeypatch.setattr(resumo_ia.settings, "groq_api_key", "fake-key-never-sent-to-groq")
+    monkeypatch.setattr(resumo_ia, "_client", None)
+
+    fake_message = MagicMock()
+    fake_message.content = "Resumo."
+    fake_choice = MagicMock()
+    fake_choice.message = fake_message
+    fake_completion = MagicMock()
+    fake_completion.choices = [fake_choice]
+    fake_client = MagicMock()
+    fake_client.chat.completions.create = AsyncMock(return_value=fake_completion)
+
+    with patch("app.services.resumo_ia.AsyncGroq", return_value=fake_client):
+        await resumo_ia.gerar_resumo_executivo(CONTEXTO)
+
+    kwargs = fake_client.chat.completions.create.await_args.kwargs
+    assert kwargs["model"] == "openai/gpt-oss-20b"
+    assert kwargs["reasoning_effort"] == "low"

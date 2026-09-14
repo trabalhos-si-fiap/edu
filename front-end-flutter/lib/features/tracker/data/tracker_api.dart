@@ -134,8 +134,9 @@ class TrackerApi {
   }
 
   /// Cria (`update: false`) ou altera (`update: true`) o objetivo.
-  /// Devolve quantas etapas o percurso passou a ter.
-  Future<int> saveGoal({
+  /// Devolve quantas etapas o percurso passou a ter e se o prazo ficou
+  /// apertado — os dois vêm na própria resposta do salvar.
+  Future<({int steps, bool tightDeadline})> saveGoal({
     required String title,
     required DateTime targetDate,
     required bool update,
@@ -161,6 +162,9 @@ class TrackerApi {
       throw TrackerException(_mensagemErro(res, 'salvar seu objetivo'));
     }
     final mapa = jsonDecode(res.body) as Map<String, dynamic>;
-    return (mapa['etapas_geradas'] as num?)?.toInt() ?? 0;
+    return (
+      steps: (mapa['etapas_geradas'] as num?)?.toInt() ?? 0,
+      tightDeadline: mapa['prazo_apertado'] == true,
+    );
   }
 }

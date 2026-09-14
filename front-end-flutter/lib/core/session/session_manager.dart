@@ -50,8 +50,7 @@ class _FlutterSecureStorageAdapter implements SecureStorageLike {
 /// esta classe evita. Guardar quatro sessões ativas num aparelho não é postura
 /// de segurança para um app de estudante — por isso [habilitado] é uma
 /// constante de compilação, falsa em qualquer build normal, e todo o caminho
-/// que a usa some no tree-shaking. Mesmo padrão de `demoItensMock`
-/// (`features/logistics/data/demo_itens.dart`).
+/// que a usa some no tree-shaking.
 class SessionManager {
   SessionManager({SecureStorageLike? storage, TokenStore? tokenStore})
     : _storage =
@@ -63,9 +62,8 @@ class SessionManager {
 
   static const _key = 'demo_sessions';
 
-  /// `--dart-define=DEMO_MULTI_SESSAO=true`. Mesmo padrão de
-  /// `demoItensMock` (`features/logistics/data/demo_itens.dart`): constante de
-  /// compilação, então o código morto some no tree-shaking do build normal.
+  /// `--dart-define=DEMO_MULTI_SESSAO=true`. Constante de compilação, então o
+  /// código morto some no tree-shaking do build normal.
   static const bool habilitado = bool.fromEnvironment('DEMO_MULTI_SESSAO');
 
   /// Copia o par de tokens ativo (lido do [TokenStore]) para debaixo de

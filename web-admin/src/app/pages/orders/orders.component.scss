@@ -1,0 +1,272 @@
+.orders-page {
+  min-height: 100vh;
+  padding: 95px 32px 60px 24px;
+  color: #20262c;
+}
+
+.page-header {
+  h1 {
+    margin: 0;
+    font-size: 31px;
+    font-weight: 600;
+    letter-spacing: -1px;
+  }
+
+  p {
+    margin: 6px 0 0;
+    color: #41474f;
+    font-size: 16px;
+  }
+}
+
+.directory-card {
+  margin-top: 40px;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.directory-header {
+  min-height: 91px;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+
+  h2 {
+    margin: 0;
+    font-size: 21px;
+    font-weight: 600;
+  }
+}
+
+.select-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  span {
+    color: #535960;
+    font-size: 10px;
+    font-weight: 600;
+  }
+
+  select {
+    height: 40px;
+    min-width: 220px;
+    padding: 0 12px;
+    border: 1px solid #b9c5d2;
+    border-radius: 7px;
+    background: #f8fafc;
+    font: inherit;
+    font-size: 14px;
+  }
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  min-width: 980px;
+  border-collapse: collapse;
+}
+
+thead {
+  height: 55px;
+  background: #f2f4f7;
+}
+
+th {
+  padding: 0 16px;
+  color: #535960;
+  font-size: 10px;
+  font-weight: 600;
+  text-align: left;
+  letter-spacing: .55px;
+}
+
+tbody tr {
+  height: 74px;
+  border-bottom: 1px solid #e7eaed;
+}
+
+td {
+  padding: 0 16px;
+  font-size: 13px;
+}
+
+.address {
+  max-width: 280px;
+  color: #454b52;
+}
+
+.status-badge {
+  display: inline-flex;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+
+  &.pending { background: #fdecc8; color: #8a5a00; }
+  &.picking { background: #d9ebf7; color: #00699f; }
+  &.shipping { background: #e6e0f8; color: #5b3fb0; }
+  &.delivered { background: #bfe4c9; color: #147234; }
+  &.cancelled { background: #e5e7e9; color: #6f747a; }
+}
+
+.outline-button {
+  height: 38px;
+  padding: 0 15px;
+  border: 1px solid #85bddd;
+  border-radius: 24px;
+  background: #fff;
+  color: #00699f;
+  font: inherit;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:disabled {
+    opacity: .5;
+    cursor: default;
+  }
+}
+
+.state-cell {
+  height: 90px;
+  text-align: center;
+  color: #747b82;
+
+  &.error {
+    color: #b42318;
+  }
+}
+
+.directory-footer {
+  min-height: 57px;
+  padding: 0 17px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  p {
+    margin: 0;
+    color: #454b52;
+    font-size: 13px;
+  }
+}
+
+.pager button {
+  border: 0;
+  background: transparent;
+  color: #4d535a;
+  font-size: 27px;
+  cursor: pointer;
+
+  &:disabled {
+    opacity: .4;
+    cursor: default;
+  }
+}
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(27, 37, 43, .48);
+}
+
+.modal {
+  width: min(480px, 100%);
+  border-radius: 12px;
+  background: #fff;
+
+  > header {
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid #e3e6e9;
+
+    span {
+      color: #006c9f;
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    h2 {
+      margin: 3px 0 0;
+      font-size: 20px;
+      font-weight: 600;
+    }
+
+    button {
+      border: 0;
+      background: transparent;
+      color: #4d535a;
+      font-size: 30px;
+      cursor: pointer;
+    }
+  }
+
+  .body {
+    padding: 24px;
+    font-size: 14px;
+
+    p {
+      margin: 0;
+    }
+  }
+
+  .error {
+    margin-top: 16px;
+    padding: 9px 10px;
+    border-radius: 6px;
+    background: #fff0f0;
+    color: #b42318;
+    font-size: 12px;
+  }
+
+  > footer {
+    min-height: 66px;
+    padding: 0 24px;
+    border-top: 1px solid #e2e6ea;
+    background: #f6f8fa;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 24px;
+
+    button {
+      border: 0;
+      font: inherit;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+
+      &:disabled {
+        opacity: .6;
+        cursor: default;
+      }
+    }
+
+    .cancel {
+      background: transparent;
+      color: #006b9f;
+    }
+
+    .save {
+      height: 41px;
+      padding: 0 18px;
+      border-radius: 8px;
+      background: #004e77;
+      color: #fff;
+    }
+  }
+}

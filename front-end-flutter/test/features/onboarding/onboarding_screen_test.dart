@@ -5,10 +5,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _FakeApi extends TrackerApi {
-  _FakeApi({this.objetivo, this.erro});
+  _FakeApi({this.objetivo, this.erro, this.prazoApertado = false});
 
   final Goal? objetivo;
   final String? erro;
+  final bool prazoApertado;
   String? tituloSalvo;
   DateTime? dataSalva;
   bool? atualizou;
@@ -17,7 +18,7 @@ class _FakeApi extends TrackerApi {
   Future<Goal?> fetchGoal() async => objetivo;
 
   @override
-  Future<int> saveGoal({
+  Future<({int steps, bool tightDeadline})> saveGoal({
     required String title,
     required DateTime targetDate,
     required bool update,
@@ -26,7 +27,7 @@ class _FakeApi extends TrackerApi {
     tituloSalvo = title;
     dataSalva = targetDate;
     atualizou = update;
-    return 99;
+    return (steps: 99, tightDeadline: prazoApertado);
   }
 }
 
@@ -56,6 +57,14 @@ void main() {
 
     expect(find.text('Começar'), findsOneWidget);
     expect(find.text('Pular por enquanto'), findsOneWidget);
+  });
+
+  testWidgets('a dica do objetivo sugere uma meta do ENEM', (tester) async {
+    await tester.pumpWidget(_harness(_FakeApi()));
+    await tester.pumpAndSettle();
+
+    final campo = tester.widget<TextField>(find.byType(TextField).first);
+    expect(campo.decoration?.hintText, 'Ex.: Medicina pelo ENEM');
   });
 
   testWidgets('com objetivo, os campos vêm preenchidos e o botão diz Salvar', (tester) async {
@@ -99,6 +108,37 @@ void main() {
     expect(api.tituloSalvo, 'Medicina USP');
     expect(api.atualizou, isFalse);
     expect(find.text('HOME'), findsOneWidget);
+  });
+
+  testWidgets('ao chegar na home, avisa quantas etapas o percurso tem e até quando', (tester) async {
+    await tester.pumpWidget(_harness(_FakeApi()));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).first, 'Medicina pelo ENEM');
+    await _escolherHoje(tester);
+    await tester.tap(find.text('Começar'));
+    await tester.pumpAndSettle();
+
+    final hoje = DateTime.now();
+    final data =
+        '${hoje.day.toString().padLeft(2, '0')}/'
+        '${hoje.month.toString().padLeft(2, '0')}/'
+        '${hoje.year}';
+    expect(find.text('HOME'), findsOneWidget);
+    expect(find.text('Seu percurso tem 99 etapas até $data.'), findsOneWidget);
+  });
+
+  testWidgets('com prazo apertado, o aviso diz isso também', (tester) async {
+    await tester.pumpWidget(_harness(_FakeApi(prazoApertado: true)));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).first, 'Medicina pelo ENEM');
+    await _escolherHoje(tester);
+    await tester.tap(find.text('Começar'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Seu percurso tem 99 etapas'), findsOneWidget);
+    expect(find.textContaining('prazo é apertado'), findsOneWidget);
   });
 
   testWidgets('a mensagem do servidor aparece na tela', (tester) async {
