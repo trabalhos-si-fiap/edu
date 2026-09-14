@@ -22,6 +22,22 @@ class _FakeService extends ProductService {
   ];
 }
 
+/// Tipos chegam do backend como código sem acento; os subtypes já vêm em
+/// português e ocupam o card, então o chip é o único lugar do código cru.
+class _CatalogoComTiposService extends ProductService {
+  @override
+  Future<List<Product>> fetchProducts({int limit = 100}) async => [
+    const Product(
+      id: 'm', name: 'Mesa Dobrável', type: 'mobiliario', subtype: 'Mesa',
+      description: 'd', price: 199.90,
+    ),
+    const Product(
+      id: 'l', name: 'Luminária LED', type: 'iluminacao',
+      subtype: 'Luminária', description: 'd', price: 89.90,
+    ),
+  ];
+}
+
 // Sem parceiros ativos nesta suíte: MarketplaceView monta os dois providers
 // (task 12), mas o que este teste verifica é o catálogo próprio.
 class _EmptyPartnerService extends PartnerService {
@@ -58,4 +74,24 @@ void main() {
 
     expect(find.text('Guia de Redação'), findsOneWidget);
   });
+
+  testWidgets(
+    'os chips de categoria mostram o rótulo pt-BR, não o código do tipo',
+    (tester) async {
+      final provider = ProductsProvider(service: _CatalogoComTiposService());
+      await provider.load();
+      final partnersProvider = PartnersProvider(
+        service: _EmptyPartnerService(),
+      );
+      await partnersProvider.load();
+
+      await tester.pumpWidget(_harness(provider, partnersProvider));
+      await tester.pump();
+
+      expect(find.text('MOBILIÁRIO'), findsOneWidget);
+      expect(find.text('ILUMINAÇÃO'), findsOneWidget);
+      expect(find.text('MOBILIARIO'), findsNothing);
+      expect(find.text('ILUMINACAO'), findsNothing);
+    },
+  );
 }

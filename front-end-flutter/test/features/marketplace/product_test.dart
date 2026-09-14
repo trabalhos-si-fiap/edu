@@ -30,7 +30,34 @@ void main() {
     });
     expect(p.subtype, '');
     expect(p.ratingCount, 0);
-    expect(p.categoryLabel, 'CURSO');
+    // Sem subtype, o rótulo vem do código do tipo, em pt-BR com acento.
+    expect(p.categoryLabel, 'CURSOS');
+  });
+
+  test('categoryLabelFor traduz os códigos de tipo do catálogo', () {
+    expect(categoryLabelFor('mobiliario'), 'Mobiliário');
+    expect(categoryLabelFor('iluminacao'), 'Iluminação');
+    expect(categoryLabelFor('organizacao'), 'Organização');
+    expect(categoryLabelFor('curso'), 'Cursos');
+    expect(categoryLabelFor('digital'), 'Digital');
+    expect(categoryLabelFor('apostila'), 'Apostilas');
+    // Mesma normalização de `product_visuals.dart`: caixa e espaços não
+    // mudam o tipo.
+    expect(categoryLabelFor(' ILUMINACAO '), 'Iluminação');
+  });
+
+  test('categoryLabelFor capitaliza um código desconhecido', () {
+    expect(categoryLabelFor('papelaria'), 'Papelaria');
+    expect(categoryLabelFor('apostila_digital'), 'Apostila digital');
+    expect(categoryLabelFor(''), '');
+  });
+
+  test('categoryLabel sem subtype usa o rótulo do tipo em maiúsculas', () {
+    const p = Product(
+      id: 'x', name: 'Mesa', type: 'mobiliario', subtype: ' ',
+      description: '', price: 1.0,
+    );
+    expect(p.categoryLabel, 'MOBILIÁRIO');
   });
 
   test('Review.fromJson parses fields', () {
