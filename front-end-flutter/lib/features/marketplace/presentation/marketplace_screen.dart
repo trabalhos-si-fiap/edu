@@ -152,6 +152,21 @@ class _MarketplaceViewState extends State<MarketplaceView> {
                     ),
                   ),
                 ),
+                // Parceiros no topo da loja, antes da grade: é o que a
+                // apresentação destaca, e embaixo da grade ficava a várias
+                // rolagens de distância. Some enquanto uma busca ou categoria
+                // filtra a grade — a faixa não obedece ao filtro, e ficar
+                // entre o filtro e o resultado confundiria.
+                if (!provider.hasActiveFilter)
+                  SliverToBoxAdapter(
+                    child: PartnersSection(
+                      state: partnersProvider.state,
+                      partners: partnersProvider.partners,
+                      productsByPartner: partnersProvider.productsByPartner,
+                      errorMessage: partnersProvider.errorMessage,
+                      onRetry: partnersProvider.load,
+                    ),
+                  ),
                 if (filtered.isEmpty)
                   SliverToBoxAdapter(child: _EmptyResult(query: provider.query))
                 else
@@ -172,15 +187,6 @@ class _MarketplaceViewState extends State<MarketplaceView> {
                       ),
                     ),
                   ),
-                SliverToBoxAdapter(
-                  child: PartnersSection(
-                    state: partnersProvider.state,
-                    partners: partnersProvider.partners,
-                    productsByPartner: partnersProvider.productsByPartner,
-                    errorMessage: partnersProvider.errorMessage,
-                    onRetry: partnersProvider.load,
-                  ),
-                ),
               ],
             );
           },
