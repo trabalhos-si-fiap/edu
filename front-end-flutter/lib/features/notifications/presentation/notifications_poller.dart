@@ -2,10 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
-import '../../../core/utils/jwt_utils.dart';
 import '../data/notifications_api.dart';
 import '../domain/local_notifier.dart';
 import '../domain/notification_model.dart';
+import '../domain/usuario_notificavel.dart';
 
 /// Cria o timer periódico do ciclo. Injetável para o teste controlar o
 /// relógio; o app usa `Timer.periodic`.
@@ -144,7 +144,7 @@ class NotificationsPoller extends ChangeNotifier {
       final token = await _lerAccessToken();
       if (geracao != _geracao) return;
 
-      final usuario = token == null ? null : _usuarioNotificavel(token);
+      final usuario = token == null ? null : usuarioNotificavel(token);
       if (usuario == null) {
         parar();
         return;
@@ -203,21 +203,6 @@ class NotificationsPoller extends ChangeNotifier {
           '(${_descrever(e)})',
         );
       }
-    }
-  }
-
-  /// O `sub` de um token de usuário, ou `null` quando o token não serve às
-  /// rotas de notificação. O de carregamento (`role: carregamento`) carrega
-  /// no `sub` o id do lote, e o notification-service responde 403 a ele —
-  /// consultar a cada ciclo só produziria erro.
-  static String? _usuarioNotificavel(String token) {
-    try {
-      final payload = decodeJwtPayload(token);
-      if (payload['role'] == 'carregamento') return null;
-      final sub = payload['sub'];
-      return sub is String && sub.isNotEmpty ? sub : null;
-    } catch (_) {
-      return null;
     }
   }
 
