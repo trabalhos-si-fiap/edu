@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import '../network/session_store.dart';
 import '../network/token_store.dart';
 
 /// Uma sessão guardada para um papel: o suficiente para reativá-la sem
@@ -52,13 +53,19 @@ class _FlutterSecureStorageAdapter implements SecureStorageLike {
 /// constante de compilação, falsa em qualquer build normal, e todo o caminho
 /// que a usa some no tree-shaking.
 class SessionManager {
-  SessionManager({SecureStorageLike? storage, TokenStore? tokenStore})
-    : _storage =
-          storage ?? const _FlutterSecureStorageAdapter(FlutterSecureStorage()),
-      _tokenStore = tokenStore ?? TokenStore();
+  SessionManager({
+    SecureStorageLike? storage,
+    TokenStore? tokenStore,
+    SessionStore? sessionStore,
+  }) : _storage =
+           storage ??
+           const _FlutterSecureStorageAdapter(FlutterSecureStorage()),
+       _tokenStore = tokenStore ?? TokenStore(),
+       _sessionStore = sessionStore ?? SessionStore();
 
   final SecureStorageLike _storage;
   final TokenStore _tokenStore;
+  final SessionStore _sessionStore;
 
   static const _key = 'demo_sessions';
 
@@ -111,6 +118,16 @@ class SessionManager {
     if (access is! String || refresh is! String) return false;
 
     await _tokenStore.save(accessToken: access, refreshToken: refresh);
+    // O nome em cache é o que a home e o perfil cumprimentam. Sem trocá-lo
+    // junto, a aluna ativada pelo chip era saudada com o nome da sessão
+    // anterior. Sem nome guardado, limpa: `AuthApi.currentDisplayName` busca
+    // `/auth/me` com o token novo.
+    final nome = sessao['nome'];
+    if (nome is String && nome.isNotEmpty) {
+      await _sessionStore.saveName(nome);
+    } else {
+      await _sessionStore.clear();
+    }
     return true;
   }
 
