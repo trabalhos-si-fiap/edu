@@ -70,9 +70,13 @@ class _TrackingStepTile extends StatelessWidget {
     final titleColor = isPending
         ? AppColors.textSecondary
         : (isCurrent ? AppColors.purple : AppColors.textPrimary);
-    final subtitle = step.timestamp == null
-        ? null
-        : OrderFormat.dayMonthTime(step.timestamp!);
+    // Passo pendente não mostra horário mesmo que o payload traga um: o
+    // rastreio_builder do commerce-service carimba `status_updated_at` no
+    // passo "delivered" em qualquer estado, e "Entregue 01:39" com o pedido
+    // ainda em trânsito é mentira na tela.
+    final timestamp = isPending ? null : step.timestamp;
+    final subtitle =
+        timestamp == null ? null : OrderFormat.dayMonthTime(timestamp);
 
     return Padding(
       padding: EdgeInsets.only(bottom: isLast ? 0 : 20),

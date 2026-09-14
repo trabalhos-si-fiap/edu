@@ -18,16 +18,17 @@ class OrderFormat {
     'Dez',
   ];
 
-  /// "18 Out".
-  static String dayMonth(DateTime date) {
-    return '${date.day} ${_months[date.month - 1]}';
+  /// "18 Out", no dia local (ver [_local]).
+  static String dayMonth(DateTime date, {Duration? utcOffset}) {
+    return _dayMonth(_local(date, utcOffset));
   }
 
-  /// "12 Out, 09:45".
-  static String dayMonthTime(DateTime date) {
-    final h = date.hour.toString().padLeft(2, '0');
-    final m = date.minute.toString().padLeft(2, '0');
-    return '${dayMonth(date)}, $h:$m';
+  /// "12 Out, 09:45", no relógio local (ver [_local]).
+  static String dayMonthTime(DateTime date, {Duration? utcOffset}) {
+    final local = _local(date, utcOffset);
+    final h = local.hour.toString().padLeft(2, '0');
+    final m = local.minute.toString().padLeft(2, '0');
+    return '${_dayMonth(local)}, $h:$m';
   }
 
   /// "há 12 min", "há 2 h", "há 3 dias". Relativo ao momento atual.
@@ -42,18 +43,36 @@ class OrderFormat {
   /// Chegada estimada relativa ao dia: "hoje, ~14:48", "amanhã, ~09:05" ou
   /// "16 Jun, ~14:48". O "~" sinaliza que é uma estimativa. [now] é injetável
   /// para teste.
-  static String estimatedArrivalLabel(DateTime arrival, {DateTime? now}) {
-    final ref = now ?? DateTime.now();
+  static String estimatedArrivalLabel(
+    DateTime arrival, {
+    DateTime? now,
+    Duration? utcOffset,
+  }) {
+    final ref = _local(now ?? DateTime.now(), utcOffset);
+    final local = _local(arrival, utcOffset);
     final today = DateTime(ref.year, ref.month, ref.day);
-    final arrivalDay = DateTime(arrival.year, arrival.month, arrival.day);
+    final arrivalDay = DateTime(local.year, local.month, local.day);
     final deltaDays = arrivalDay.difference(today).inDays;
 
-    final h = arrival.hour.toString().padLeft(2, '0');
-    final m = arrival.minute.toString().padLeft(2, '0');
+    final h = local.hour.toString().padLeft(2, '0');
+    final m = local.minute.toString().padLeft(2, '0');
     final time = '~$h:$m';
 
     if (deltaDays == 0) return 'hoje, $time';
     if (deltaDays == 1) return 'amanhã, $time';
-    return '${dayMonth(arrival)}, $time';
+    return '${_dayMonth(local)}, $time';
+  }
+
+  /// O instante no fuso de quem olha. O backend manda UTC (`...+00:00`), e
+  /// ler `day`/`hour` direto dele mostrava "14 Set, 01:32" a quem viu 22:32
+  /// do dia 13 em UTC-3. Sem [utcOffset] vale o fuso do aparelho (uma data
+  /// já local passa intacta); com ele, o fuso é fixo — é o gancho dos testes,
+  /// que não podem depender do fuso da máquina. O resultado só serve para
+  /// ler os campos: não passe de volta por aqui.
+  static DateTime _local(DateTime date, Duration? utcOffset) =>
+      utcOffset == null ? date.toLocal() : date.toUtc().add(utcOffset);
+
+  static String _dayMonth(DateTime local) {
+    return '${local.day} ${_months[local.month - 1]}';
   }
 }

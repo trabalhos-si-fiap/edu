@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../../core/utils/currency.dart';
 import '../../logistics/data/logistics_api.dart';
 import '../../logistics/domain/occurrence.dart';
 
@@ -10,16 +11,20 @@ import '../../logistics/domain/occurrence.dart';
 /// Navegada a partir da tela de notificações, usando o `ocorrencia_id` que
 /// vem em `NotificationModel.data['ocorrencia_id']`.
 class OcorrenciaResolucaoScreen extends StatefulWidget {
-  const OcorrenciaResolucaoScreen({super.key, required this.ocorrenciaId});
+  const OcorrenciaResolucaoScreen({super.key, required this.ocorrenciaId, LogisticsApi? api})
+    : _api = api;
 
   final int ocorrenciaId;
+
+  /// Injeção só para teste; o app sempre usa o default.
+  final LogisticsApi? _api;
 
   @override
   State<OcorrenciaResolucaoScreen> createState() => _OcorrenciaResolucaoScreenState();
 }
 
 class _OcorrenciaResolucaoScreenState extends State<OcorrenciaResolucaoScreen> {
-  final _api = LogisticsApi();
+  late final LogisticsApi _api = widget._api ?? LogisticsApi();
   late Future<Ocorrencia> _ocorrenciaFuture;
   String? _produtoSelecionadoId;
   bool _enviando = false;
@@ -284,7 +289,7 @@ class _FaltaEstoqueContent extends StatelessWidget {
                     ),
                   ),
                   subtitle: Text(
-                    'R\$ ${produto.preco.toStringAsFixed(2)}',
+                    formatBRL(produto.preco),
                     style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
                   ),
                 ),
