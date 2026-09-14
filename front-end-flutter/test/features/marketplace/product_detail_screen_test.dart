@@ -81,4 +81,35 @@ void main() {
     expect(find.text('Ana'), findsOneWidget);
     expect(find.text('Excelente material'), findsOneWidget);
   });
+
+  testWidgets(
+      'a long name, no reviews and the price fit a 360dp-wide screen',
+      (tester) async {
+    // Largura de um Android comum (1080px a 3x). Antes, estrelas + "Sem
+    // avaliações" + preço dividiam uma Row só e o preço estourava a borda.
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ProductDetailView(
+          product: const Product(
+            id: 'p2',
+            name: 'Mesa de estudo 120 cm com gaveteiro e suporte para monitor',
+            type: 'mobiliario',
+            subtype: '',
+            description: '',
+            price: 12399.90,
+          ),
+          service: _FakeReviews(() async => <Review>[]),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Sem avaliações'), findsOneWidget);
+    expect(find.text(r'R$ 12.399,90'), findsOneWidget);
+  });
 }
