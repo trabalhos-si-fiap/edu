@@ -10,9 +10,10 @@ validação de transição, carimbo de `status_updated_at`, linha de histórico 
 evento acontecem de um jeito só, e não de dois.
 
 O salto AGUARDANDO_COLETA -> EM_TRANSITO é o único com efeito extra: ele
-substitui `PATCH /delivery/{id}/collect`, então congela a coordenada de
-destino como a coleta faz. O que ele NÃO faz é gravar `deliverer_id` — ver o
-comentário no laço e `docs/back-end/order-flow.md` §4.
+substitui `PATCH /delivery/{id}/collect`, então anexa a frota própria ao
+pedido sem carregamento e congela a coordenada de destino, como a coleta faz.
+O que ele NÃO faz é gravar `deliverer_id` — ver o comentário no laço e
+`docs/back-end/order-flow.md` §4.
 """
 
 import uuid
@@ -25,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.pedido import Order
 from app.routers.separacao import tem_ocorrencia_aguardando_aluno, transicionar_pedido
+from app.services.carregamentos import CRIADO_PELO_SISTEMA, anexar_a_frota_propria
 from app.services.posicao import congelar_destino
 from app.services.status_pedido import StatusPedido
 
@@ -124,6 +126,8 @@ async def _avancar_um(db: AsyncSession, pedido_id: uuid.UUID, origem: StatusPedi
         return False
     avancou = False
     for destino in saltos_a_partir_de(origem):
+        if destino is StatusPedido.EM_TRANSITO:
+            await _anexar_frota_propria_se_sem_carregamento(db, pedido_id)
         try:
             atualizado = await transicionar_pedido(
                 db, pedido_id, destino.value, None, observacao=OBSERVACAO
@@ -156,21 +160,57 @@ async def _avancar_um(db: AsyncSession, pedido_id: uuid.UUID, origem: StatusPedi
 
         if destino is StatusPedido.EM_TRANSITO:
             # Este salto SUBSTITUI `PATCH /delivery/{id}/collect`, e a coleta
-            # faz duas coisas que a transição sozinha não faz. Uma delas
-            # cabe aqui: congelar a coordenada de destino. Sem ela o pedido
-            # entra em EM_TRANSITO sem destino, o simulador de posição o
-            # filtra fora (`avancar_carregamentos` exige destino congelado) e
-            # o mapa do comprador nunca anda para esse pedido.
+            # faz coisas que a transição sozinha não faz. Duas cabem aqui: o
+            # lote da frota própria, anexado ANTES da transição (acima), e
+            # congelar a coordenada de destino. Sem elas o pedido entra em
+            # EM_TRANSITO sem origem de lote ou sem destino, o simulador de
+            # posição o filtra fora e o mapa do comprador nunca anda.
             #
             # `congelar_destino` nunca levanta, por desenho — não precisa de
             # guard aqui, do mesmo jeito que `confirmar_coleta` não tem um.
             #
-            # A outra coisa, `deliverer_id`, NÃO é feita: não há pessoa
-            # nenhuma coletando, e inventar um dono seria gravar mentira no
-            # histórico. A consequência está escrita em
+            # `deliverer_id` NÃO é gravado: não há pessoa nenhuma coletando, e
+            # inventar um dono seria gravar mentira no histórico. Nem a
+            # estimativa de `estimated_delivery_at` da rota: sem ela,
+            # `GET /orders/{id}/delivery-estimate` calcula a mesma média na
+            # hora da consulta. A consequência está em
             # `docs/back-end/order-flow.md` §4.
             await congelar_destino(db, atualizado)
 
         avancou = True
         logger.info("avanco_automatico: pedido {} avançou para {}", pedido_id, destino.value)
     return avancou
+
+
+async def _anexar_frota_propria_se_sem_carregamento(db: AsyncSession, pedido_id: uuid.UUID) -> None:
+    """A coleta manual anexa a frota própria ao pedido sem lote
+    (`routers/entrega.py::confirmar_coleta`); a coleta da rede de segurança
+    também, senão `congelar_destino` e o simulador ignoram o pedido.
+
+    Mesma ordem da rota: lock no pedido, lote, e a transição logo em seguida
+    comitando os dois juntos (`transicionar_pedido` relê a linha com lock na
+    mesma transação, sem deadlock — ver a docstring dela). Só com o pedido
+    AINDA em AGUARDANDO_COLETA sob o lock: se ele mudou desde a varredura, a
+    transição vai levar 400 e não pode sobrar lote para trás.
+
+    `populate_existing`: a sessão pode já ter a instância (os testes semeiam
+    na mesma sessão), e sem repopular o lock releria o `carregamento_id`
+    velho — o mesmo defeito da varredura por entidade.
+
+    `criado_por=CRIADO_PELO_SISTEMA`: não há pessoa coletando, a coluna é NOT
+    NULL, e inventar um entregador seria gravar mentira — ver a constante.
+    """
+    pedido = (
+        await db.execute(
+            select(Order)
+            .where(Order.id == pedido_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one_or_none()
+    if (
+        pedido is not None
+        and pedido.status == StatusPedido.AGUARDANDO_COLETA.value
+        and pedido.carregamento_id is None
+    ):
+        await anexar_a_frota_propria(db, pedido, criado_por=CRIADO_PELO_SISTEMA)
