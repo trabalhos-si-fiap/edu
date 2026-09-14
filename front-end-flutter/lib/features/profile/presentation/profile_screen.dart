@@ -71,7 +71,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _AvatarSection(name: _name),
+              _AvatarSection(name: _name, provider: _summaryProvider),
               const SizedBox(height: 24),
               ProfileSummarySection(provider: _summaryProvider),
               const SizedBox(height: 24),
@@ -174,9 +174,10 @@ class ProfileSummarySection extends StatelessWidget {
 }
 
 class _AvatarSection extends StatelessWidget {
-  const _AvatarSection({this.name});
+  const _AvatarSection({this.name, required this.provider});
 
   final String? name;
+  final SummaryProvider provider;
 
   @override
   Widget build(BuildContext context) {
@@ -221,22 +222,32 @@ class _AvatarSection extends StatelessWidget {
               color: AppColors.textPrimary,
             ),
           ),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-            decoration: BoxDecoration(
-              color: AppColors.purple,
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: const Text(
-              'LEVEL 18 SCHOLAR',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                color: AppColors.white,
-                letterSpacing: 1,
-              ),
-            ),
+          AnimatedBuilder(
+            animation: provider,
+            builder: (context, _) {
+              // O nível é o mesmo do cartão de pontos logo abaixo. Sem o
+              // resumo (carregando ou com erro) o selo some, em vez de
+              // mostrar um nível de exemplo.
+              final resumo = provider.summary;
+              if (resumo == null) return const SizedBox.shrink();
+              return Container(
+                margin: const EdgeInsets.only(top: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                decoration: BoxDecoration(
+                  color: AppColors.purple,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  'NÍVEL ${resumo.points.level}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.white,
+                    letterSpacing: 1,
+                  ),
+                ),
+              );
+            },
           ),
         ],
       ),
