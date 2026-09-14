@@ -36,11 +36,37 @@ CRIADO ──► CONFIRMADO ──► AGUARDANDO_SEPARACAO ──► EM_SEPARACA
 ```
 
 `CONFIRMADO` é atravessado numa única chamada: `admin.py::confirmar_pagamento`
-encadeia `CRIADO → CONFIRMADO → AGUARDANDO_SEPARACAO` porque não existe
-simulador que faça essa transição sozinha, e parar em `CONFIRMADO` deixaria a
-fila de separação vazia para sempre. É por isso que `CONFIRMADO` não tem
-destinatário de push (seção 5) — avisar ali duplicaria a notificação de um
-único clique do admin.
+encadeia `CRIADO → CONFIRMADO → AGUARDANDO_SEPARACAO` porque parar em
+`CONFIRMADO` deixaria a fila de separação vazia para sempre. É por isso que
+`CONFIRMADO` não tem destinatário de push (seção 5) — avisar ali duplicaria a
+notificação de um único clique do admin.
+
+### Confirmação automática no checkout
+
+Com `CONFIRMAR_PAGAMENTO_AUTOMATICO` ligado, `POST /orders` roda **o mesmo
+encadeamento** logo depois de gravar o pedido e publicar `order.created`
+(`app/routers/pedidos.py::_confirmar_pagamento_automaticamente`, chamando
+`admin.py::confirmar_pagamento_do_pedido`, que é o corpo da rota do admin —
+guard de idempotência e leitura escalar incluídos). No código o default é
+**desligado**; o `docker-compose.yml` o liga
+(`${CONFIRMAR_PAGAMENTO_AUTOMATICO:-true}`).
+
+**Não há verificação de pagamento nenhuma.** É o roteiro da demonstração: o
+aluno compra e o pedido já entra na fila do separador. O histórico ganha as
+duas linhas de sempre (`CONFIRMADO`, `AGUARDANDO_SEPARACAO`) com
+`user_id = NULL` e a observação "Pagamento confirmado automaticamente", e os
+dois `order.status_changed` saem na ordem em que o clique do admin os
+produziria. A resposta de `POST /orders` já traz o status final
+(`separating`).
+
+Se o encadeamento falhar no meio (broker fora depois de `CRIADO → CONFIRMADO`
+comitar, ou uma corrida com o admin), a rota **não** devolve 500 por uma
+compra que já aconteceu — o pedido está gravado e o carrinho, esvaziado. Ela
+registra em log (sem o texto da exceção) e devolve o pedido como ele ficou no
+banco (`pending` ou `confirmed`). O botão do admin continua existindo e é
+retentável por construção. Com a confirmação automática ligada, o passo
+"confirmar pagamento" do admin num pedido novo responde 400
+(`AGUARDANDO_SEPARACAO → AGUARDANDO_SEPARACAO`) — não há o que confirmar.
 
 ### O desvio de substituição
 
@@ -220,6 +246,61 @@ claim `role` por `extrairRoleDoToken`), em vez de oferecer um botão cuja
 única resposta possível é 403. Alargar o token para cobrir a rota seria dar
 ao lote uma capacidade que ele não deve ter.
 
+### Frota própria: o carregamento que ninguém montou
+
+O mapa do aluno só mostra o entregador para pedido **com** carregamento: é a
+origem do lote que `congelar_destino` usa e que o simulador interpola (seção
+3). Pelo caminho acima isso exige o admin cadastrar transportadora, criar o
+lote e digitar o id do pedido — passos que a demonstração não tem. Então a
+**coleta de um pedido sem carregamento cria um**:
+
+- **Quando.** `PATCH /delivery/{id}/collect` por uma conta `entregador`, num
+  pedido em `AGUARDANDO_COLETA` com `carregamento_id` nulo; e o salto de
+  coleta do avanço automático (seção 4). Pedido que já está num lote do admin
+  segue exatamente como antes; o ator de lote nunca chega aqui (a posse dele
+  já é o lote).
+- **O quê.** `app/services/carregamentos.py::anexar_a_frota_propria`:
+  - Uma transportadora interna **única**, `Frota própria Edu` (local
+    "Operação própria", e-mail `frota-propria@edu.invalid` — TLD reservado,
+    nunca entrega —, `ACTIVE`), criada na primeira coleta, sem seed.
+    `carriers.name` não é único, então o get-or-create roda sob
+    `pg_advisory_xact_lock`, que solta sozinho no fim da transação.
+  - **Um carregamento por pedido** — o simulador interpola para um destino
+    por lote. Origem copiada de `orders.origem_*`, como `atribuir_pedido`
+    faz; `codigo` sorteado como no lote do admin, com a colisão tratada pelo
+    índice único dentro de um SAVEPOINT (a transação de fora já segura o
+    lock do pedido e o `deliverer_id`); `aberto_em` = agora, porque a coleta
+    é a retirada da carga.
+  - `criado_por` = o id do entregador; no avanço automático, o **UUID nulo**
+    (`CRIADO_PELO_SISTEMA`). A coluna é `NOT NULL` e ninguém coletou;
+    `00000000-0000-0000-0000-000000000000` não é id de conta nenhuma (o
+    auth-users gera v7/v4) e `CarregamentoOut` não expõe a coluna.
+  - `entregador_nome` fica **nulo**: o JWT não carrega nome (de propósito,
+    ver `auth_client.py::get_me`), e buscar `/auth/me` dentro da coleta poria
+    uma chamada de rede sob o lock da linha do pedido.
+  - `senha_hash` é o bcrypt de uma senha sorteada e **descartada**. A coluna
+    é `NOT NULL`; um valor que não fosse bcrypt faria `verify_password`
+    estourar num login com esse código, e um hash real de um segredo que
+    ninguém recebe faz esse login responder 401 como qualquer senha errada.
+  - O pedido ganha `carregamento_id` e `carrier_name = "Frota própria Edu"`,
+    que é o nome que o rastreio passa a mostrar.
+- **Atomicidade (regra 3).** Tudo acontece **depois** do `with_for_update()`
+  do pedido e **na mesma transação** da transição para `EM_TRANSITO`. Uma
+  segunda coleta concorrente espera o lock, relê o pedido já com
+  `carregamento_id` e não cria outro lote
+  (`test_two_concurrent_collects_attach_one_shipment`); uma coleta recusada
+  não deixa lote para trás.
+- **`shipment.created` NÃO é publicado.** Ele mandaria por e-mail uma
+  credencial a uma transportadora que não existe. A coleta publica o que
+  sempre publicou: `order.status_changed`.
+
+Consequências visíveis: a transportadora aparece em `GET /carriers` e na
+contagem de transportadoras ativas do `web-admin`, e cada coleta sem lote
+aparece em `GET /shipments` com entregador "—". Como ninguém tem a senha
+desses lotes, **nenhum token de carregamento opera sobre eles**: quem entrega é
+a conta `entregador` que coletou (posse por `deliverer_id`) ou o avanço
+automático.
+
 ---
 
 ## 3. Posição — declarada como simulação
@@ -282,6 +363,11 @@ posição é dado que o router carrega e entrega a ele, não algo que o builder
 busca. O nome da transportadora também deixou de ser a constante fixa
 `"Logistics Intel Express"`: o builder devolve `order.carrier_name or
 _CARRIER`, e a atribuição ao carregamento grava o nome real (decisão D12).
+`_CARRIER` agora é `"Frota própria Edu"` — quem leva todo pedido coletado sem
+lote do admin (seção 2) —, então o aluno vê o mesmo nome antes e depois da
+coleta. Os dois `"Logistics Intel Express"` que sobram estão no Flutter: o
+mock `order_service.dart::_fetchMock` e um texto fixo em
+`marketplace/presentation/order_details_screen.dart`, que não lê a API.
 
 O Flutter consulta essa rota a cada 10 segundos
 (`front-end-flutter/lib/features/order_tracking/presentation/route_provider.dart`),
@@ -294,15 +380,17 @@ o mesmo critério de parada que a tela já usava para o status.
 ## 4. Avanço automático
 
 Rede de segurança da apresentação, não um simulador de pipeline
-(`app/services/avanco_automatico.py::avancar_parados`). **Desligado por
-padrão**: `AVANCO_AUTOMATICO_SEGUNDOS` ausente equivale a `0`, e com `0` a
+(`app/services/avanco_automatico.py::avancar_parados`). **Desligado no
+código**: `AVANCO_AUTOMATICO_SEGUNDOS` ausente equivale a `0`, e com `0` a
 função devolve lista vazia sem tocar em nada — é o critério de pronto 6 da
-spec C.
+spec C. **O `docker-compose.yml` o liga com `180`** (três minutos por passo),
+por pedido do roteiro gravado; `AVANCO_AUTOMATICO_SEGUNDOS=0` no
+`back-end/.env` desliga de novo.
 
-### Como ligar
+### Como ligar fora do compose
 
 ```bash
-AVANCO_AUTOMATICO_SEGUNDOS=600   # dez minutos — não três
+AVANCO_AUTOMATICO_SEGUNDOS=180   # o default do compose
 SIMULADOR_POSICAO_SEGUNDOS=10
 ```
 
@@ -310,16 +398,19 @@ Só quando `avanco_automatico_segundos > 0` o job correspondente
 (`tick_avanco_automatico`, a cada 60s) é sequer **registrado** no
 `AsyncIOScheduler` — não é um job que roda e não faz nada; ele simplesmente
 não existe no processo, o que também deixa o log distinguir "ligado e nada a
-fazer" de "desligado".
+fazer" de "desligado". Com o job a cada 60s, um prazo de 180s avança o pedido
+entre três e quatro minutos depois da última transição.
 
-### Por que o prazo é longo
+### O prazo de três minutos, e o custo dele
 
 A apresentação é conduzida por **uma pessoa alternando entre quatro perfis**
-no mesmo aparelho — trocar de sessão já leva mais que um prazo curto. Um
-`AVANCO_AUTOMATICO_SEGUNDOS` de poucos segundos faria o pedido correr na
-frente de quem está apresentando, avançando um estado que ninguém decidiu
-mostrar ainda. Dez minutos (o valor sugerido no `.env.example`) dá folga real
-sem deixar de existir como rede de segurança para quem travar numa tela.
+no mesmo aparelho. Até a spec C a sugestão era dez minutos, justamente para o
+pedido não correr na frente de quem apresenta; o roteiro gravado pediu três
+("cada passo avança sozinho depois de 3 minutos"), e o compose segue o
+roteiro. O custo é conhecido: quem ficar mais de três minutos num passo vê o
+pedido avançar sem ter decidido mostrar isso — e, pelo que está nas duas
+subseções abaixo, um pedido que a rede de segurança separou ou coletou fica
+fora do alcance do separador e do entregador daí em diante.
 
 ### Por que ação manual sempre vence
 
@@ -332,47 +423,93 @@ cancelar timer nenhum
 `transicionar_pedido` manualmente antes de rodar `avancar_parados` e espera
 lista vazia).
 
-Duas exclusões deliberadas de `PROXIMO_ESTADO`, a tabela de "para onde este
-estado avança sozinho":
+A varredura lê **colunas** (`id`, `status`), não entidades `Order`. Com
+entidades na sessão do tique, o `SELECT ... FOR UPDATE` de
+`transicionar_pedido` devolvia a instância do identity map sem repopular — o
+mesmo defeito já medido em `admin.py::confirmar_pagamento` — e revalidava
+contra o status da varredura: um pedido que ia para
+`AGUARDANDO_SUBSTITUICAO` nessa janela ganhava `SEPARADO` por cima
+(`test_a_status_changed_after_the_scan_is_never_trampled`). Lendo colunas, a
+releitura com lock é a do banco, e a corrida vira o 400 que o laço já
+registra e pula.
+
+### O que avança, e em quantos passos
+
+`PROXIMO_ESTADO` é a tabela de "para onde este estado avança sozinho". Uma
+exclusão deliberada:
 
 - **`AGUARDANDO_SUBSTITUICAO`** — é o único estado que espera uma decisão do
   aluno, e essa decisão é exatamente o que a apresentação está mostrando. A
   rede de segurança nunca pode atropelá-la (há um teste dedicado só para
-  isso).
-- **`SEPARADO`** — `finalizar_separacao` já encadeia
-  `SEPARADO → AGUARDANDO_COLETA` numa única chamada, então um pedido nunca
-  repousa nele em operação normal; não há nada para a rede de segurança
-  avançar.
+  isso). Pelo mesmo motivo, um pedido `EM_SEPARACAO` com ocorrência aberta
+  que o aluno decide **não** avança: `finalizar_separacao` recusa terminar
+  nesse caso, e a rede de segurança, que a substitui, recusa pelo mesmo guard
+  (`separacao.py::tem_ocorrencia_aguardando_aluno`).
+
+E dois **estados de passagem** (`ESTADOS_DE_PASSAGEM`), atravessados no
+mesmo tique em que se entra neles, porque nenhuma rota manual repousa neles:
+
+- **`CONFIRMADO`** — `confirmar_pagamento_do_pedido` encadeia
+  `CONFIRMADO → AGUARDANDO_SEPARACAO` numa chamada.
+- **`SEPARADO`** — `finalizar_separacao` encadeia
+  `SEPARADO → AGUARDANDO_COLETA` numa chamada.
+
+Até esta mudança `SEPARADO` ficava **fora** do mapa ("ninguém repousa nele")
+enquanto `EM_SEPARACAO` avançava **para** ele: todo pedido separado pela rede
+de segurança parava em `SEPARADO` para sempre — fora da fila do entregador
+(que lê `AGUARDANDO_COLETA`) e fora de qualquer rota manual (`finish` exige
+`EM_SEPARACAO`). Encadear, em vez de só pôr `SEPARADO` no mapa, grava as
+mesmas duas linhas de histórico e os mesmos dois eventos, na mesma ordem, que
+a rota manual grava, e não deixa o pedido um prazo inteiro num estado
+invisível para os dois perfis. `SEPARADO` continua **no** mapa para resgatar
+quem já ficou preso ali (pelo bug antigo, ou por um broker fora entre os dois
+saltos). Ponta a ponta, de `CRIADO` a `ENTREGUE` são **cinco** tiques
+(`test_a_full_run_of_ticks_takes_an_order_from_created_to_delivered`).
 
 O avanço automático escreve **pela mesma função de transição** que as rotas
 usam (`transicionar_pedido`), nunca por `UPDATE` direto — validação de
 transição, carimbo de `status_updated_at`, linha de histórico e evento
 `order.status_changed` acontecem de um jeito só, não de dois.
 
+### O que a rede de segurança faz de diferente na separação
+
+`iniciar_separacao` grava `picker_id` com quem clicou. O salto automático
+`AGUARDANDO_SEPARACAO → EM_SEPARACAO` **não grava**: não há pessoa, e
+inventar um separador seria mentira no histórico. Consequência: um pedido que
+a rede de segurança iniciou não aparece no "meus pedidos em separação" de
+ninguém em `GET /picking/queue`, e `PATCH /picking/{id}/finish` responde
+**403** a qualquer separador. Quem termina a separação desse pedido é a
+própria rede de segurança, no prazo seguinte. Nenhuma das rotas de separação
+mexe em estoque, então não há baixa de estoque que o caminho automático pule.
+
 ### O que a rede de segurança faz de diferente na coleta
 
-`AGUARDANDO_COLETA → EM_TRANSITO` é o único salto que a rota equivalente
-(`PATCH /delivery/{id}/collect`) acompanha de **dois** efeitos extras. O
-avanço automático reproduz um e deliberadamente não reproduz o outro:
+`AGUARDANDO_COLETA → EM_TRANSITO` é o salto que a rota equivalente
+(`PATCH /delivery/{id}/collect`) acompanha de mais efeitos. O avanço
+automático reproduz dois e deliberadamente não reproduz os outros:
 
+- **Anexa a frota própria** ao pedido sem carregamento (seção 2), com o pedido
+  travado e na mesma transação da transição, como a rota — `criado_por` é o
+  UUID nulo. Sem isso o mapa do aluno nunca mostraria o entregador.
 - **Congela o destino.** `congelar_destino` é chamado depois do salto, como
   na coleta manual — sem isso o pedido entraria em `EM_TRANSITO` sem
   coordenada de destino, o simulador (seção 3) o filtraria fora e o mapa do
   comprador nunca andaria para ele. A função nunca levanta, por desenho, e
   aqui vale a mesma garantia que vale na rota.
+- **NÃO grava `estimated_delivery_at`.** Sem ele,
+  `GET /orders/{id}/delivery-estimate` calcula a estimativa na hora da
+  consulta, pela mesma média histórica.
 - **NÃO grava `deliverer_id`.** Não há pessoa coletando: inventar um dono
-  seria gravar mentira no histórico. A consequência é concreta e vale
-  conhecer antes de ligar o interruptor: **um pedido coletado pela rede de
-  segurança não tem `deliverer_id`, e por isso uma conta `entregador` não
-  consegue mais confirmar a entrega dele** — `PATCH /delivery/{id}/deliver`
-  responde **403** ("Apenas o entregador responsável por este pedido pode
-  confirmar a entrega"), porque a posse que ela checa nunca foi
-  atribuída. Quem continua conseguindo entregar é o **entregador de lote**
-  (token de carregamento), cuja posse é o `carregamento_id` e não o
-  `deliverer_id` — e a própria rede de segurança, que levará o pedido a
-  `ENTREGUE` no prazo seguinte. É a descrição honesta de uma rede que é
-  desligada por padrão: quando ela age no lugar do entregador, ela também
-  assume o resto do trajeto daquele pedido.
+  seria gravar mentira no histórico. A consequência é concreta: **um pedido
+  coletado pela rede de segurança não tem `deliverer_id`, e por isso uma conta
+  `entregador` não consegue confirmar a entrega dele** —
+  `PATCH /delivery/{id}/deliver` responde **403** ("Apenas o entregador
+  responsável por este pedido pode confirmar a entrega"). Num lote montado
+  pelo admin, o **entregador de lote** (token de carregamento) ainda entrega,
+  porque a posse dele é o `carregamento_id`; num lote da frota própria
+  ninguém tem essa credencial, e quem leva o pedido a `ENTREGUE` é a própria
+  rede de segurança, no prazo seguinte. Quando ela age no lugar do
+  entregador, ela também assume o resto do trajeto daquele pedido.
 
 ---
 
@@ -392,7 +529,7 @@ exaustiva sobre os dez estados internos:
 | Estado interno | Quem é avisado |
 |---|---|
 | `CRIADO` | ninguém (fica para `order.created`, abaixo) |
-| `CONFIRMADO` | ninguém — transitório, atravessado na mesma chamada de `confirmar_pagamento` |
+| `CONFIRMADO` | ninguém — transitório, atravessado na mesma chamada de `confirmar_pagamento_do_pedido` (clique do admin ou checkout com confirmação automática) ou no mesmo tique do avanço automático |
 | `AGUARDANDO_SEPARACAO` | aluno, separador |
 | `EM_SEPARACAO` | aluno |
 | `AGUARDANDO_SUBSTITUICAO` | ninguém — `order.stock_issue` já avisa o aluno, e só ele traz o `occurrence_id` |
