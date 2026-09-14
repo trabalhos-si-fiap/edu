@@ -62,7 +62,7 @@ class OrderTrackingScreen extends StatelessWidget {
                       onRetry: provider.retry,
                     );
                   case OrderViewState.success:
-                    return _OrderContent(order: provider.order!);
+                    return OrderTrackingContent(order: provider.order!);
                 }
               },
             ),
@@ -104,10 +104,13 @@ class _LoadingView extends StatelessWidget {
 }
 
 /// Estado de sucesso: interface principal do rastreio.
-class _OrderContent extends StatelessWidget {
+///
+/// Público, não `_Privado`, para o teste montá-lo com um [OrderModel] fixo —
+/// a tela em si cria o [OrderProvider] com o serviço real.
+class OrderTrackingContent extends StatelessWidget {
   final OrderModel order;
 
-  const _OrderContent({required this.order});
+  const OrderTrackingContent({super.key, required this.order});
 
   @override
   Widget build(BuildContext context) {
