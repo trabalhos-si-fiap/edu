@@ -406,3 +406,244 @@ async def test_collect_never_fails_when_the_provider_returns_an_unusable_coordin
 
     await db_session.refresh(pedido)
     assert pedido.destino_lat is None
+
+
+# ── Frota própria: a coleta de um pedido SEM carregamento cria um, para o
+# destino ser congelado e o marcador do entregador andar no mapa do aluno —
+# sem o admin cadastrar transportadora, criar lote e digitar o id do pedido.
+
+
+ORIGEM_LEROY = ("Leroy Merlin Marginal Tietê", Decimal("-23.518300"), Decimal("-46.627600"))
+DESTINO_ALUNO = (-23.185700, -46.897800)
+
+
+async def _seed_pedido_sem_carregamento(
+    db_session, status: str = StatusPedido.AGUARDANDO_COLETA.value
+) -> Order:
+    """Pedido como o checkout da spec B o deixa: origem congelada do parceiro,
+    snapshot de endereço, e nenhum carregamento."""
+    pedido = Order(
+        user_id=str(uuid.uuid4()),
+        status=status,
+        total=Decimal("1299.90"),
+        ship_label="Casa",
+        ship_zip_code="13201-005",
+        ship_street="Rua das Flores",
+        ship_number="42",
+        ship_neighborhood="Centro",
+        ship_city="Jundiaí",
+        ship_state="SP",
+        origem_rotulo=ORIGEM_LEROY[0],
+        origem_lat=ORIGEM_LEROY[1],
+        origem_lng=ORIGEM_LEROY[2],
+    )
+    db_session.add(pedido)
+    await db_session.commit()
+    await db_session.refresh(pedido)
+    return pedido
+
+
+async def _carregamentos(db_session):
+    from sqlalchemy import select
+
+    from app.models.carregamento import Carregamento
+
+    resultado = await db_session.execute(select(Carregamento).order_by(Carregamento.id))
+    return list(resultado.scalars().all())
+
+
+def _directions_que_anota(origens: list) -> object:
+    async def fake_fetch(client, *, origin, destination, api_key):
+        origens.append(origin)
+        return DirectionsResult(
+            polyline="enc-poly",
+            distance_text="60 km",
+            distance_km=60.0,
+            duration_text="50 min",
+            duration_minutes=50,
+            destination_latitude=DESTINO_ALUNO[0],
+            destination_longitude=DESTINO_ALUNO[1],
+        )
+
+    return fake_fetch
+
+
+async def test_collect_without_a_shipment_attaches_one_from_the_own_fleet(
+    client, db_session, _stub_publish_event
+):
+    from app.models.transportadora import Carrier, CarrierStatus
+    from app.services.carregamentos import ALFABETO_CODIGO, TAMANHO_CODIGO
+
+    pedido = await _seed_pedido_sem_carregamento(db_session)
+
+    response = await client.patch(
+        f"/delivery/{pedido.id}/collect", headers=headers_for("entregador", sub=DELIVERER_A)
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == StatusPedido.EM_TRANSITO.value
+    await db_session.refresh(pedido)
+    [lote] = await _carregamentos(db_session)
+    assert pedido.carregamento_id == lote.id
+    assert pedido.carrier_name == "Frota própria Edu"
+    assert (lote.origem_rotulo, lote.origem_lat, lote.origem_lng) == ORIGEM_LEROY
+    assert lote.criado_por == uuid.UUID(DELIVERER_A)
+    assert lote.aberto_em is not None
+    assert len(lote.codigo) == TAMANHO_CODIGO
+    assert set(lote.codigo) <= set(ALFABETO_CODIGO)
+    assert lote.senha_hash.startswith("$2")
+
+    frota = await db_session.get(Carrier, lote.transportadora_id)
+    assert frota.name == "Frota própria Edu"
+    assert frota.status == CarrierStatus.ACTIVE.value
+
+    # A coleta publica o que sempre publicou. `shipment.created` NÃO sai: ele
+    # mandaria por e-mail uma credencial a uma transportadora que não existe.
+    assert [chave for chave, _ in _stub_publish_event] == ["order.status_changed"]
+
+
+async def test_an_own_fleet_shipment_moves_the_courier_on_the_students_map(
+    client, db_session, monkeypatch, _stub_publish_event
+):
+    """O ponto da tarefa, de ponta a ponta: com carregamento, `congelar_destino`
+    parte da origem do pedido, o simulador grava posição, e o rastreio do
+    aluno mostra o entregador e o nome da frota."""
+    from app.services.posicao import ultima_posicao
+    from app.services.simulador_posicao import avancar_carregamentos
+
+    pedido = await _seed_pedido_sem_carregamento(db_session)
+    monkeypatch.setattr(settings, "google_maps_api_key", "test-key")
+    origens: list = []
+    monkeypatch.setattr(
+        "app.services.posicao.directions.fetch_directions", _directions_que_anota(origens)
+    )
+
+    response = await client.patch(
+        f"/delivery/{pedido.id}/collect", headers=headers_for("entregador", sub=DELIVERER_A)
+    )
+    assert response.status_code == 200, response.text
+
+    await db_session.refresh(pedido)
+    assert origens == [(float(ORIGEM_LEROY[1]), float(ORIGEM_LEROY[2]))]
+    assert pedido.destino_lat == Decimal("-23.185700")
+
+    from datetime import UTC, datetime, timedelta
+
+    assert await avancar_carregamentos(db_session, datetime.now(UTC) + timedelta(minutes=3)) == 1
+    posicao = await ultima_posicao(db_session, pedido.carregamento_id)
+    assert posicao is not None
+    # Entre a origem e o destino (Jundiaí fica ao norte da Marginal Tietê).
+    assert ORIGEM_LEROY[1] < posicao.lat < Decimal(str(DESTINO_ALUNO[0]))
+
+    rastreio = await client.get(
+        f"/orders/{pedido.id}/tracking", headers=headers_for("student", sub=str(pedido.user_id))
+    )
+    assert rastreio.status_code == 200, rastreio.text
+    assert rastreio.json()["carrier"] == "Frota própria Edu"
+    assert rastreio.json()["courier_position"] is not None
+
+
+async def test_every_own_fleet_shipment_shares_one_carrier(client, db_session):
+    """Um lote por pedido (o simulador interpola para UM destino por lote),
+    mas uma transportadora só — criada na primeira coleta, sem seed."""
+    from sqlalchemy import func, select
+
+    from app.models.transportadora import Carrier
+
+    primeiro = await _seed_pedido_sem_carregamento(db_session)
+    segundo = await _seed_pedido_sem_carregamento(db_session)
+
+    for pedido in (primeiro, segundo):
+        response = await client.patch(
+            f"/delivery/{pedido.id}/collect", headers=headers_for("entregador", sub=DELIVERER_A)
+        )
+        assert response.status_code == 200, response.text
+
+    lotes = await _carregamentos(db_session)
+    assert len(lotes) == 2
+    assert lotes[0].transportadora_id == lotes[1].transportadora_id
+    total = await db_session.scalar(
+        select(func.count()).select_from(Carrier).where(Carrier.name == "Frota própria Edu")
+    )
+    assert total == 1
+
+
+async def test_collect_keeps_the_shipment_an_order_already_has(
+    client, db_session, seed_carregamento
+):
+    """O caminho de antes não muda: o lote que o admin montou continua sendo o
+    lote do pedido, e nenhuma frota própria é criada."""
+    from sqlalchemy import func, select
+
+    from app.models.transportadora import Carrier
+
+    carregamento = await seed_carregamento()
+    pedido = await _seed_pedido_com_endereco_e_carregamento(db_session, carregamento.id)
+
+    response = await client.patch(
+        f"/delivery/{pedido.id}/collect", headers=headers_for("entregador", sub=DELIVERER_A)
+    )
+
+    assert response.status_code == 200, response.text
+    await db_session.refresh(pedido)
+    assert pedido.carregamento_id == carregamento.id
+    assert [lote.id for lote in await _carregamentos(db_session)] == [carregamento.id]
+    assert await db_session.scalar(select(func.count()).select_from(Carrier)) == 1
+
+
+async def test_a_refused_collect_leaves_no_shipment_behind(client, db_session):
+    pedido = await _seed_pedido_sem_carregamento(
+        db_session, status=StatusPedido.AGUARDANDO_SEPARACAO.value
+    )
+
+    response = await client.patch(
+        f"/delivery/{pedido.id}/collect", headers=headers_for("entregador", sub=DELIVERER_A)
+    )
+
+    assert response.status_code == 400
+    assert await _carregamentos(db_session) == []
+
+
+async def test_a_colliding_own_fleet_code_is_drawn_again(
+    client, db_session, monkeypatch, seed_carregamento
+):
+    """A colisão de `codigo` é pega pelo índice único, como em
+    `criar_carregamento` — mas aqui dentro da transação da coleta, que já
+    segura o lock do pedido e já gravou `deliverer_id`. O re-sorteio não pode
+    desfazer nada disso."""
+    await seed_carregamento(codigo="ABCD2345")
+    pedido = await _seed_pedido_sem_carregamento(db_session)
+    sorteios = iter(["ABCD2345", "WXYZ6789"])
+    monkeypatch.setattr("app.services.carregamentos.gerar_codigo", lambda: next(sorteios))
+
+    response = await client.patch(
+        f"/delivery/{pedido.id}/collect", headers=headers_for("entregador", sub=DELIVERER_A)
+    )
+
+    assert response.status_code == 200, response.text
+    await db_session.refresh(pedido)
+    assert str(pedido.deliverer_id) == DELIVERER_A
+    assert pedido.status == StatusPedido.EM_TRANSITO.value
+    lote = next(lote for lote in await _carregamentos(db_session) if lote.codigo == "WXYZ6789")
+    assert pedido.carregamento_id == lote.id
+
+
+async def test_two_concurrent_collects_attach_one_shipment(client, db_session):
+    """Regra 3 do CLAUDE.md: o lote é criado DEPOIS do `with_for_update()` do
+    pedido, na mesma transação da transição. A segunda coleta espera o lock,
+    relê o pedido já com carregamento e não cria outro."""
+    import asyncio
+
+    pedido = await _seed_pedido_sem_carregamento(db_session)
+    url = f"/delivery/{pedido.id}/collect"
+
+    respostas = await asyncio.wait_for(
+        asyncio.gather(
+            client.patch(url, headers=headers_for("entregador", sub=DELIVERER_A)),
+            client.patch(url, headers=headers_for("entregador", sub=DELIVERER_A)),
+        ),
+        timeout=10,
+    )
+
+    assert sorted(r.status_code for r in respostas) == [200, 400]
+    assert len(await _carregamentos(db_session)) == 1
