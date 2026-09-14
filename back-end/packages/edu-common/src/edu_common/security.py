@@ -84,9 +84,18 @@ def create_access_token(
     secret: str,
     algorithm: str = DEFAULT_ALGORITHM,
     expires_minutes: int = 60,
+    *,
+    nome: str | None = None,
 ) -> str:
+    """`nome` vira a claim `nome` quando a conta é de uma pessoa: o commerce
+    grava quem retirou a carga da frota própria sem consultar o auth-users.
+    Só no access token — o refresh relê o usuário do banco de qualquer forma.
+    """
     expires_at = _now() + timedelta(minutes=expires_minutes)
-    return _encode(_base_claims(sub, role, "access", expires_at), secret, algorithm)
+    claims = _base_claims(sub, role, "access", expires_at)
+    if nome:
+        claims["nome"] = nome
+    return _encode(claims, secret, algorithm)
 
 
 def create_refresh_token(
