@@ -94,8 +94,14 @@ class _ProductDetailViewState extends State<ProductDetailView> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                // Wrap, não Row: numa tela de ~360dp, estrelas + "Sem
+                // avaliações" + preço não cabem lado a lado e a Row estourava
+                // por cima do preço. Quando falta espaço, o preço desce.
+                Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 12,
+                  runSpacing: 8,
                   children: [
                     RatingStars(
                       rating: product.ratingAvg,
