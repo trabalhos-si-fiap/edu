@@ -518,7 +518,7 @@ class _CartSection extends StatelessWidget {
       children: [
         for (var i = 0; i < items.length; i++) ...[
           if (i > 0) const SizedBox(height: 16),
-          _CartItemCard(item: items[i]),
+          CartItemCard(item: items[i]),
         ],
         const SizedBox(height: 16),
         Row(
@@ -547,10 +547,13 @@ class _CartSection extends StatelessWidget {
   }
 }
 
-class _CartItemCard extends StatelessWidget {
+/// Card de um item na revisão do carrinho. Público, não `_Privado`, para o
+/// teste montá-lo sem a tela inteira, que instancia as APIs de endereço e
+/// pagamento.
+class CartItemCard extends StatelessWidget {
   final CartItem item;
 
-  const _CartItemCard({required this.item});
+  const CartItemCard({super.key, required this.item});
 
   @override
   Widget build(BuildContext context) {
