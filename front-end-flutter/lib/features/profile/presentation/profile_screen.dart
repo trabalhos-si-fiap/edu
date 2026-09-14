@@ -108,8 +108,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
               const SizedBox(height: 12),
               _SettingsCard(
                 items: const [
-                  _SettingsItem(Icons.help_outline, 'Help & Support'),
-                  _SettingsItem(Icons.verified_user_outlined, 'Privacy Policy'),
+                  _SettingsItem(Icons.help_outline, 'Ajuda e suporte'),
+                  _SettingsItem(Icons.verified_user_outlined, 'Política de privacidade'),
                 ],
                 trailing: _LogoutTile(onTap: () async {
                   final navigator = Navigator.of(context);
@@ -305,7 +305,7 @@ class _LogoutTile extends StatelessWidget {
     return ListTile(
       leading: const Icon(Icons.logout, color: Colors.red),
       title: const Text(
-        'Logout',
+        'Sair',
         style: TextStyle(fontSize: 14, color: Colors.red, fontWeight: FontWeight.w600),
       ),
       onTap: onTap,
