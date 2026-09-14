@@ -234,3 +234,116 @@ async def test_one_bad_order_does_not_abort_the_rest_of_the_tick(
     assert bom.status == StatusPedido.EM_SEPARACAO.value
     await db_session.refresh(ruim)
     assert ruim.status == StatusPedido.AGUARDANDO_SEPARACAO.value
+
+
+# ── Estados de passagem: a rede de segurança atravessa, no mesmo tique, os
+# estados que as rotas manuais atravessam numa chamada só. ─────────────────
+
+
+async def _historico(db_session, pedido_id) -> list[str]:
+    from sqlalchemy import select
+
+    from app.models.pedido import PedidoStatusHistorico
+
+    resultado = await db_session.execute(
+        select(PedidoStatusHistorico.status)
+        .where(PedidoStatusHistorico.order_id == pedido_id)
+        .order_by(PedidoStatusHistorico.id)
+    )
+    return list(resultado.scalars().all())
+
+
+async def test_an_auto_advanced_picking_ends_waiting_for_collection(
+    db_session, seed_pedido_parado, _stub_publish_event
+):
+    """O bug: EM_SEPARACAO avançava para SEPARADO, e SEPARADO não tinha
+    próximo passo — o pedido ficava lá para sempre, fora da fila do
+    entregador (que lê AGUARDANDO_COLETA) e fora de qualquer rota manual
+    (`finish` exige EM_SEPARACAO). `finalizar_separacao` encadeia
+    SEPARADO -> AGUARDANDO_COLETA na mesma chamada; a rede de segurança faz o
+    mesmo, com as mesmas duas linhas de histórico e os dois eventos, nessa
+    ordem."""
+    pedido = await seed_pedido_parado(
+        status=StatusPedido.EM_SEPARACAO.value, parado_ha=timedelta(minutes=20)
+    )
+
+    avancados = await avancar_parados(db_session, datetime.now(UTC), 180)
+
+    assert avancados == [pedido.id]
+    await db_session.refresh(pedido)
+    assert pedido.status == StatusPedido.AGUARDANDO_COLETA.value
+    assert await _historico(db_session, pedido.id) == [
+        StatusPedido.SEPARADO.value,
+        StatusPedido.AGUARDANDO_COLETA.value,
+    ]
+    assert [payload["status"] for _chave, payload in _stub_publish_event] == [
+        StatusPedido.SEPARADO.value,
+        StatusPedido.AGUARDANDO_COLETA.value,
+    ]
+
+
+async def test_an_order_left_in_separado_is_moved_on(
+    db_session, seed_pedido_parado, _stub_publish_event
+):
+    """Quem já ficou preso em SEPARADO pelo bug antigo — ou por um encadeamento
+    interrompido no meio (broker fora entre as duas transições) — sai de lá no
+    tique seguinte."""
+    pedido = await seed_pedido_parado(
+        status=StatusPedido.SEPARADO.value, parado_ha=timedelta(minutes=20)
+    )
+
+    avancados = await avancar_parados(db_session, datetime.now(UTC), 180)
+
+    assert avancados == [pedido.id]
+    await db_session.refresh(pedido)
+    assert pedido.status == StatusPedido.AGUARDANDO_COLETA.value
+
+
+async def test_the_payment_confirmation_is_crossed_in_one_tick(
+    db_session, seed_pedido_parado, _stub_publish_event
+):
+    """Mesmo critério para CONFIRMADO: `confirmar_pagamento_do_pedido`
+    (admin.py) o atravessa numa chamada, e `CONFIRMADO` não tem destinatário
+    de push justamente por ser transitório. Repousar nele por um prazo
+    inteiro seria um passo que nenhuma rota manual produz."""
+    pedido = await seed_pedido_parado(
+        status=StatusPedido.CRIADO.value, parado_ha=timedelta(minutes=20)
+    )
+
+    await avancar_parados(db_session, datetime.now(UTC), 180)
+
+    await db_session.refresh(pedido)
+    assert pedido.status == StatusPedido.AGUARDANDO_SEPARACAO.value
+    assert await _historico(db_session, pedido.id) == [
+        StatusPedido.CONFIRMADO.value,
+        StatusPedido.AGUARDANDO_SEPARACAO.value,
+    ]
+
+
+async def test_a_full_run_of_ticks_takes_an_order_from_created_to_delivered(
+    db_session, seed_pedido_parado, _stub_publish_event
+):
+    """Ponta a ponta, só com a rede de segurança: nenhum estado do caminho
+    feliz pode ser um beco sem saída. Cada tique roda "no futuro" (o prazo já
+    venceu para a transição que o tique anterior acabou de carimbar)."""
+    pedido = await seed_pedido_parado(
+        status=StatusPedido.CRIADO.value, parado_ha=timedelta(minutes=20)
+    )
+
+    for tique in range(1, 11):
+        await avancar_parados(db_session, datetime.now(UTC) + timedelta(hours=tique), 180)
+        await db_session.refresh(pedido)
+        if pedido.status == StatusPedido.ENTREGUE.value:
+            break
+
+    assert pedido.status == StatusPedido.ENTREGUE.value
+    assert tique == 5
+    assert await _historico(db_session, pedido.id) == [
+        StatusPedido.CONFIRMADO.value,
+        StatusPedido.AGUARDANDO_SEPARACAO.value,
+        StatusPedido.EM_SEPARACAO.value,
+        StatusPedido.SEPARADO.value,
+        StatusPedido.AGUARDANDO_COLETA.value,
+        StatusPedido.EM_TRANSITO.value,
+        StatusPedido.ENTREGUE.value,
+    ]
