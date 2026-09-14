@@ -215,9 +215,15 @@ def test_the_tracking_shows_the_real_carrier_when_there_is_one() -> None:
 
 def test_the_tracking_falls_back_to_the_house_carrier() -> None:
     """Pedido sem carregamento continua mostrando a constante — não uma
-    string vazia, que a tela renderizaria como um campo em branco."""
+    string vazia, que a tela renderizaria como um campo em branco.
+
+    A constante é a frota própria, e não mais o nome inventado
+    "Logistics Intel Express": todo pedido que chega à coleta sem lote do
+    admin é levado por ela (`services/carregamentos.py::anexar_a_frota_propria`),
+    então é o nome que o aluno vai ver quando o pedido sair — e o mesmo
+    antes disso, em vez de trocar de transportadora no meio do rastreio."""
     order = _order_falso(StatusPedido.CRIADO.value, carrier_name=None)
-    assert build_order_tracking(order).carrier == "Logistics Intel Express"
+    assert build_order_tracking(order).carrier == "Frota própria Edu"
 
 
 def test_the_tracking_omits_the_courier_position_by_default() -> None:
