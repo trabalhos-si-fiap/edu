@@ -4,6 +4,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../network/session_store.dart';
 import '../network/token_store.dart';
+import '../utils/jwt_utils.dart';
 
 /// Uma sessão guardada para um papel: o suficiente para reativá-la sem
 /// redigitar senha. Os tokens em si não fazem parte deste tipo — eles só
@@ -72,6 +73,22 @@ class SessionManager {
   /// `--dart-define=DEMO_MULTI_SESSAO=true`. Constante de compilação, então o
   /// código morto some no tree-shaking do build normal.
   static const bool habilitado = bool.fromEnvironment('DEMO_MULTI_SESSAO');
+
+  /// Guarda a sessão ativa sob o papel que o próprio access token declara,
+  /// com o nome devolvido por [lerNome] (o papel, quando não houver nome).
+  /// É o que login e cadastro chamam ao entrar: sem o cadastro passar por
+  /// aqui, a aluna recém-cadastrada ficava sem atalho e fora do polling das
+  /// sessões guardadas. Devolve o papel, ou `null` sem token ou sem papel.
+  Future<String?> guardarSessaoDoToken({
+    required Future<String?> Function() lerNome,
+  }) async {
+    final access = await _tokenStore.readAccessToken();
+    final papel = access == null ? null : extrairRoleDoToken(access);
+    if (papel == null) return null;
+    final nome = await lerNome();
+    await guardarSessaoAtual(papel: papel, nome: nome ?? papel);
+    return papel;
+  }
 
   /// Copia o par de tokens ativo (lido do [TokenStore]) para debaixo de
   /// [papel] no armazenamento persistido, junto com [nome]. Sobrescreve
