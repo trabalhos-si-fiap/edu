@@ -60,4 +60,58 @@ void main() {
 
     expect(() => api.list(), throwsA(isA<NotificationsException>()));
   });
+
+  group('listWithToken', () {
+    // The multi-session demo polls saved sessions that are NOT the active one:
+    // the token comes from the saved session, not from the TokenStore.
+    test('sends the given token, not the active one', () async {
+      late http.Request captured;
+      final client = MockClient((req) async {
+        captured = req;
+        return http.Response('[]', 200);
+      });
+      final api = NotificationsApi(
+        client: client,
+        tokenStore: _FakeTokenStore('active'),
+      );
+
+      final items = await api.listWithToken('saved');
+
+      expect(items, isEmpty);
+      expect(captured.headers['Authorization'], 'Bearer saved');
+      expect(captured.url.path, endsWith('/notifications'));
+    });
+
+    test('throws NotificationsUnauthorizedException on 401', () async {
+      final client = MockClient((req) async => http.Response('', 401));
+      final api = NotificationsApi(
+        client: client,
+        tokenStore: _FakeTokenStore(null),
+      );
+
+      expect(
+        () => api.listWithToken('expired'),
+        throwsA(isA<NotificationsUnauthorizedException>()),
+      );
+    });
+
+    test('a non-401 failure is not mistaken for an expired token', () async {
+      final client = MockClient((req) async => http.Response('boom', 500));
+      final api = NotificationsApi(
+        client: client,
+        tokenStore: _FakeTokenStore(null),
+      );
+
+      await expectLater(
+        api.listWithToken('saved'),
+        throwsA(
+          isA<NotificationsException>().having(
+            (e) => e is NotificationsUnauthorizedException,
+            'is unauthorized',
+            isFalse,
+          ),
+        ),
+      );
+    });
+  });
 }
