@@ -85,23 +85,26 @@ async def avancar_parados(
         return []
 
     limite = agora - timedelta(seconds=prazo_segundos)
-    pedidos = (
-        (
-            await db.execute(
-                select(Order).where(
-                    Order.status.in_([e.value for e in PROXIMO_ESTADO]),
-                    Order.status_updated_at < limite,
-                )
+    # COLUNAS, não a entidade `Order` — obrigatório, não estilo. Uma entidade
+    # carregada aqui fica no identity map, e o `SELECT ... FOR UPDATE` de
+    # `transicionar_pedido` na mesma sessão a devolveria SEM repopular os
+    # atributos: a revalidação com lock olharia o status da varredura, e um
+    # pedido que foi para AGUARDANDO_SUBSTITUICAO nessa janela ganharia
+    # SEPARADO por cima. Mesmo defeito, e mesma correção, de
+    # `admin.py::confirmar_pagamento`.
+    parados = (
+        await db.execute(
+            select(Order.id, Order.status).where(
+                Order.status.in_([e.value for e in PROXIMO_ESTADO]),
+                Order.status_updated_at < limite,
             )
         )
-        .scalars()
-        .all()
-    )
+    ).all()
 
     avancados: list[uuid.UUID] = []
-    for pedido in pedidos:
-        if await _avancar_um(db, pedido.id, StatusPedido(pedido.status)):
-            avancados.append(pedido.id)
+    for pedido_id, status in parados:
+        if await _avancar_um(db, pedido_id, StatusPedido(status)):
+            avancados.append(pedido_id)
     return avancados
 
 
