@@ -13,3 +13,5 @@ ignore = ["S101"]
 # O roteiro da demo existe para chamar `adb`, `docker` e `flutter` do PATH
 # (S603/S607) e o gateway local cujo endereço vem da configuração (S310).
 "demo_roteiro/**" = ["S603", "S607", "S310"]
+# O roteiro do painel lê o gateway e o painel locais, com endereço vindo da opção.
+"demo_web/**" = ["S310"]
