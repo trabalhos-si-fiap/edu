@@ -12,6 +12,12 @@ A senha é a mesma das contas de demonstração
 ([`back-end/demo-accounts.md`](back-end/demo-accounts.md)) e nunca fica no
 código. Ela também é a senha da Ana criada a cada execução.
 
+Precisa do `uv`: o alvo instala o `uiautomator2` num ambiente à parte. Ele
+sobe um agente no aparelho (`/data/local/tmp/u2.jar`) que lê a tela em
+~0,2s, contra ~2,2s do `uiautomator dump` do Android — o roteiro lê a tela
+centenas de vezes, e só essa troca levou a execução de ~15 para ~5 min. O
+script para o agente ao terminar, inclusive quando uma cena falha.
+
 ## O que acontece
 
 **Preparo** (antes de gravar):
@@ -35,7 +41,7 @@ código. Ela também é a senha da Ana criada a cada execução.
    atalhos de troca de perfil.
 6. Espera Enter para começar (pule com `--sem-pausa`).
 
-**Roteiro gravado** (~6 min com `--pausa 2`):
+**Roteiro gravado** (~5 min com as opções padrão; o log mostra quanto cada cena levou):
 
 | Cena | O que aparece |
 |---|---|
@@ -58,9 +64,9 @@ código. Ela também é a senha da Ana criada a cada execução.
 | Opção | Efeito |
 |---|---|
 | `--skip-build` | Reaproveita o APK instalado |
-| `--pausa N` | Segundos de respiro para a narração entre os passos (padrão 2) |
+| `--pausa N` | Segundos de respiro para a narração entre os passos (padrão 1) |
 | `--sem-pausa` | Não espera Enter antes do roteiro gravado |
-| `--segundos-de-mapa N` | Tempo mostrando o mapa (padrão 20) |
+| `--segundos-de-mapa N` | Tempo mostrando o mapa (padrão 10) |
 
 ## Antes de gravar
 
@@ -91,6 +97,7 @@ tempo, o pedido pode seguir sozinho — rode de novo, que tudo é recriado.
 make demo-test
 ```
 
-Cobrem a leitura da árvore do `uiautomator`, o escape de texto para o
+Cobrem a leitura da árvore do `uiautomator` (só o app, com os limites
+cortados pela área visível), a busca na tela lida, o escape de texto para o
 `adb`, a data de novembro, a escolha da alternativa pelo gabarito e a
 criação idempotente das contas.
