@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../../core/session/session_manager.dart';
 import '../../../core/theme/app_colors.dart';
 import '../data/auth_api.dart';
 
@@ -72,6 +73,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
         educationLevel: _selectedEducation!,
         password: _passwordController.text,
       );
+      // Mesmo atalho que o login guarda na build de demo: sem ele a aluna
+      // recém-cadastrada some da troca de sessão e do polling de notificações.
+      if (SessionManager.habilitado) {
+        await SessionManager().guardarSessaoDoToken(
+          lerNome: _authApi.currentDisplayName,
+        );
+      }
       if (!mounted) return;
       Navigator.pushReplacementNamed(
         context,
