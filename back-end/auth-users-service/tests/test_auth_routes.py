@@ -92,6 +92,24 @@ async def test_refresh_exchanges_refresh_token_for_new_access_token(client):
     assert response.json()["access_token"]
 
 
+async def test_access_tokens_from_register_login_and_refresh_carry_the_user_name(client):
+    """O commerce grava quem retirou a carga da frota própria a partir do
+    token da coleta; sem o nome na claim, o painel mostrava "—" na retirada."""
+    registro = (await client.post("/auth/register", json=REGISTER)).json()["tokens"]
+    login = (
+        await client.post(
+            "/auth/login", json={"email": REGISTER["email"], "password": REGISTER["password"]}
+        )
+    ).json()["tokens"]
+    renovado = (
+        await client.post("/auth/refresh", json={"refresh_token": registro["refresh_token"]})
+    ).json()
+
+    for access in (registro["access_token"], login["access_token"], renovado["access_token"]):
+        payload = jwt.decode(access, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+        assert payload["nome"] == "Maria Teste"
+
+
 async def test_refresh_rejects_an_access_token(client):
     tokens = (await client.post("/auth/register", json=REGISTER)).json()
     response = await client.post(

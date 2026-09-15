@@ -36,7 +36,10 @@ PROMPT_SISTEMA = (
     "métrica zerada ou incomum), mas sem especular a causa.\n"
     "3. Se houver ocorrências não resolvidas, mencione isso como ponto "
     "de atenção.\n"
-    "4. Responda em português do Brasil."
+    '4. Use a palavra "ocorrência" só para as ocorrências abertas e '
+    "resolvidas. As passagens por etapa são pedidos chegando a uma etapa "
+    "do fluxo, não ocorrências — e não as compare com os pedidos criados.\n"
+    "5. Responda em português do Brasil."
 )
 
 
@@ -74,11 +77,14 @@ def _montar_prompt_usuario(contexto: dict) -> str:
 
     linhas.append(f"Pedidos criados: {contexto['pedidos_criados']}")
     if contexto["pedidos_por_status"]:
-        # A contagem vem de `order.status_changed`: um pedido conta uma vez
-        # por etapa que atingiu. Chamar isso de "pedidos por status" fazia o
-        # resumo comparar pedidos criados com etapas, como se fossem pedidos.
+        # A contagem vem de `order.status_changed` no período: um pedido conta
+        # em cada etapa por onde passou, de novo se voltar a ela (a separação
+        # depois de uma substituição), e conta mesmo tendo sido criado antes
+        # do período. Não é "pedidos por status" nem se compara com criados.
         linhas.append(
-            "Mudanças de status registradas (cada pedido conta uma vez por etapa que atingiu):"
+            "Passagens de pedidos por etapa no período (um pedido conta em cada etapa "
+            "por onde passou, e quem volta a ela conta de novo; inclui pedidos "
+            "criados antes do período):"
         )
         for status, total in contexto["pedidos_por_status"].items():
             linhas.append(f"  - {ROTULO_STATUS.get(status, status)}: {total}")

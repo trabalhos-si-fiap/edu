@@ -117,7 +117,7 @@ tecla a tecla e o que a narração cita ganha um contorno roxo.
 | Cena | O que aparece |
 |---|---|
 | login | O admin digita e-mail e senha (mascarada) |
-| dashboard | Cartões dos últimos 30 dias, pedidos por status e o Resumo Executivo da IA |
+| dashboard | Cartões dos últimos 30 dias, passagens por etapa e o Resumo Executivo da IA |
 | pedidos | O pedido da Ana em destaque e o filtro "Entregue" |
 | parceiros | Filtro "Ativos" e a Leroy Merlin |
 | produtos_e_estoque | Filtra "Mesa" e **repõe a mesa de 120 cm** ("Recebimento de lote") |

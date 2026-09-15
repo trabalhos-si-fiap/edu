@@ -48,6 +48,21 @@ def test_access_token_carries_sub_role_and_type():
     assert payload["type"] == "access"
 
 
+def test_access_token_carries_the_user_name_when_given():
+    """O commerce grava quem retirou a carga da frota própria a partir do
+    token da coleta, sem perguntar ao auth-users."""
+    token = create_access_token("user-1", "entregador", SECRET, nome="Entregador Demo")
+    payload = jwt.decode(token, SECRET, algorithms=["HS256"])
+    assert payload["nome"] == "Entregador Demo"
+
+
+def test_access_token_without_a_name_has_no_name_claim():
+    # O token de lote do commerce não é de uma pessoa.
+    token = create_access_token("42", "carregamento", SECRET)
+    payload = jwt.decode(token, SECRET, algorithms=["HS256"])
+    assert "nome" not in payload
+
+
 def test_access_token_carries_jti_and_iat():
     payload = jwt.decode(
         create_access_token("user-1", "student", SECRET), SECRET, algorithms=["HS256"]

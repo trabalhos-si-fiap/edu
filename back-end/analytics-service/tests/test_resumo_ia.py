@@ -108,6 +108,23 @@ def test_prompt_names_statuses_and_actions_in_portuguese_not_raw_codes():
     assert "AGUARDANDO_SUBSTITUICAO" not in prompt
     assert "Em trânsito: 6" in prompt
     assert "Aguardando decisão do aluno sobre substituição: 1" in prompt
-    assert "Mudanças de status registradas" in prompt
+    assert "Passagens de pedidos por etapa" in prompt
     assert "Pedidos por status" not in prompt
     assert "Estudar o tema de novo: 2" in prompt
+
+
+def test_prompt_keeps_occurrence_for_occurrences_and_explains_stage_passes():
+    """No ensaio da gravação do painel (2026-09-14) o resumo leu as passagens
+    como "12 ocorrências de 'Aguardando coleta'" — a mesma palavra do cartão
+    de ocorrências abertas, com outro sentido. E "cada pedido conta uma vez"
+    não era verdade: um pedido que volta à separação depois de uma
+    substituição conta de novo, e um criado antes do período também conta,
+    por isso "Entregue: 17" convivia com 11 pedidos criados."""
+    contexto = {**CONTEXTO, "pedidos_por_status": {"ENTREGUE": 17, "EM_SEPARACAO": 20}}
+
+    prompt = resumo_ia._montar_prompt_usuario(contexto)
+
+    assert "conta uma vez por etapa" not in prompt
+    assert "volta a ela conta de novo" in prompt
+    assert "criados antes do período" in prompt
+    assert '"ocorrência" só para as ocorrências abertas e resolvidas' in resumo_ia.PROMPT_SISTEMA

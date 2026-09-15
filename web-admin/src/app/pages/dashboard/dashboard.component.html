@@ -62,11 +62,15 @@
 
         <div class="chart-summary-grid">
           <article class="chart-card">
-            <h3>PEDIDOS POR STATUS</h3>
+            <!-- A contagem é de order.status_changed no período: um pedido
+                 conta em cada etapa por onde passou, e de novo se voltar a
+                 ela. "Pedidos por status" sugeria a situação atual. -->
+            <h3>PASSAGENS POR ETAPA</h3>
+            <p class="chart-hint">Pedidos que chegaram a cada etapa no período</p>
 
             @if (statusEntries.length) {
               <div class="mini-head">
-                <span>Status</span>
+                <span>Etapa</span>
                 <span>Qtd</span>
               </div>
 

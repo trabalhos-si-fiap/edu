@@ -64,6 +64,9 @@ class AtorEntrega:
     id: str
     carregamento_id: int | None
     papel: str | None
+    # Claim `nome` do token de usuário; nulo no token de lote e nos emitidos
+    # antes de a claim existir.
+    nome: str | None = None
 
     def autoriza(self, pedido) -> bool:
         if self.tipo == PAPEL_CARREGAMENTO:
@@ -111,7 +114,13 @@ def ator_de_entrega(*papeis_usuario: str) -> Callable:
                 papel=papel,
             )
         if papel in papeis_usuario:
-            return AtorEntrega(tipo="usuario", id=user["sub"], carregamento_id=None, papel=papel)
+            return AtorEntrega(
+                tipo="usuario",
+                id=user["sub"],
+                carregamento_id=None,
+                papel=papel,
+                nome=user.get("nome"),
+            )
         raise HTTPException(403, "Sem permissão para esta ação")
 
     return dependency

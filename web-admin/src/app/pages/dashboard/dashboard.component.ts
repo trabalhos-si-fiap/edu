@@ -3,23 +3,17 @@ import { ChangeDetectorRef, Component, OnInit, inject } from '@angular/core';
 import { forkJoin } from 'rxjs';
 
 import { DashboardResponse } from '../../core/models/dashboard.model';
+import { ORDER_STATUS_LABELS } from '../../core/models/order.model';
 import { CarrierService } from '../../core/services/carrier.service';
 import { DashboardService } from '../../core/services/dashboard.service';
 import { PartnerService } from '../../core/services/partner.service';
 
-// Rótulos de `StatusPedido` (commerce-service/app/services/status_pedido.py)
-// e do sentinela `SEM_CHAVE_STATUS` do analytics-service — tradução na
-// exibição, o serviço fala o idioma do backend.
+// Rótulos de `StatusPedido` — os mesmos da página de Pedidos, para uma
+// etapa nova não ficar crua só aqui (o AGUARDANDO_SUBSTITUICAO ficou) — e o
+// sentinela `SEM_CHAVE_STATUS` do analytics-service. Tradução na exibição,
+// o serviço fala o idioma do backend.
 const STATUS_LABELS: Record<string, string> = {
-  CRIADO: 'Criado',
-  CONFIRMADO: 'Confirmado',
-  AGUARDANDO_SEPARACAO: 'Aguardando separação',
-  EM_SEPARACAO: 'Em separação',
-  SEPARADO: 'Separado',
-  AGUARDANDO_COLETA: 'Aguardando coleta',
-  EM_TRANSITO: 'Em trânsito',
-  ENTREGUE: 'Entregue',
-  CANCELADO: 'Cancelado',
+  ...ORDER_STATUS_LABELS,
   sem_status: 'Sem status'
 };
 

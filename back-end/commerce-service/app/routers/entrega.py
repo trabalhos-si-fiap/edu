@@ -131,7 +131,9 @@ async def confirmar_coleta(
             # `anexar_a_frota_propria`. Só no status que a transição aceita:
             # uma coleta que vai levar 400 não sorteia lote nem gasta bcrypt.
             # (O ator de lote nunca chega aqui: a posse dele já É o lote.)
-            await anexar_a_frota_propria(db, pedido, criado_por=uuid.UUID(ator.id))
+            await anexar_a_frota_propria(
+                db, pedido, criado_por=uuid.UUID(ator.id), entregador_nome=ator.nome
+            )
     await db.flush()
 
     pedido_atualizado = await transicionar_pedido(

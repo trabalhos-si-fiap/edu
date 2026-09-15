@@ -145,7 +145,11 @@ async def obter_frota_propria(db: AsyncSession) -> Carrier:
 
 
 async def anexar_a_frota_propria(
-    db: AsyncSession, pedido: Order, *, criado_por: uuid.UUID
+    db: AsyncSession,
+    pedido: Order,
+    *,
+    criado_por: uuid.UUID,
+    entregador_nome: str | None = None,
 ) -> Carregamento:
     """Cria o carregamento da frota própria para `pedido` e o anexa. NÃO comita.
 
@@ -158,7 +162,8 @@ async def anexar_a_frota_propria(
     Origem copiada de `orders.origem_*`, como `atribuir_pedido` faz com o
     primeiro pedido de um lote. `aberto_em` agora: é o que o login do
     entregador grava num lote do admin, e aqui a coleta É a retirada da
-    carga.
+    carga — e `entregador_nome` é quem coletou, o que o login de lote grava
+    num lote do admin. Nulo quando quem coleta é o sistema.
 
     A senha é sorteada e descartada. `senha_hash` é NOT NULL, e um hash que
     não fosse bcrypt faria `verify_password` estourar num login com este
@@ -179,6 +184,7 @@ async def anexar_a_frota_propria(
             origem_lat=pedido.origem_lat,
             origem_lng=pedido.origem_lng,
             aberto_em=datetime.now(UTC),
+            entregador_nome=entregador_nome[:120] if entregador_nome else None,
         )
         # SAVEPOINT, não `rollback()` como em `criar_carregamento`: a
         # transação de fora já tem o lock do pedido e `deliverer_id`. Uma
