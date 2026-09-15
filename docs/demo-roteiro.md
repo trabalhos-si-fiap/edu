@@ -88,8 +88,59 @@ tempo, o pedido pode seguir sozinho — rode de novo, que tudo é recriado.
 
 - `adb shell input text` não digita acento. Por isso o endereço da compra é
   em Barueri, sem acento nenhum; o script recusa texto não ASCII.
-- O painel web (`web-admin/`) não faz parte do roteiro; o painel mostrado é
-  o do admin no próprio app.
+- O roteiro do celular mostra o painel do admin no próprio app; o painel
+  web tem roteiro próprio, logo abaixo.
+
+## Painel web (`make demo-web`)
+
+`scripts/demo_web/` abre o painel (`web-admin/`) num Chromium visível e
+navega sozinho, para gravar num take separado — de preferência logo depois
+do `make demo`, que deixa o pedido da Ana entregue.
+
+```bash
+cd web-admin && npm start                   # o painel em :4200, se não estiver no ar
+DEMO_ACCOUNTS_PASSWORD='...' make demo-web
+make demo-web DEMO_ACCOUNTS_PASSWORD='...' ARGS="--tamanho 1600x900 --pausa 2"
+```
+
+**Preparo:** confere o gateway, o painel e a conta `admin@demo.edu` (com a
+mesma criação idempotente) e escolhe o pedido a destacar — o entregue mais
+recente. Abre a janela sem abas nem barra de endereço no canto da tela e
+espera Enter para começar.
+
+O Playwright não mexe no mouse do sistema, então a página ganha uma seta
+desenhada que desliza até cada botão antes do clique; o texto é digitado
+tecla a tecla e o que a narração cita ganha um contorno roxo.
+
+**Roteiro gravado** (~1 min 30 s com as opções padrão):
+
+| Cena | O que aparece |
+|---|---|
+| login | O admin digita e-mail e senha (mascarada) |
+| dashboard | Cartões dos últimos 30 dias, pedidos por status e o Resumo Executivo da IA |
+| pedidos | O pedido da Ana em destaque e o filtro "Entregue" |
+| parceiros | Filtro "Ativos" e a Leroy Merlin |
+| produtos_e_estoque | Filtra "Mesa" e **repõe a mesa de 120 cm** ("Recebimento de lote") |
+| transportadoras | Diretório com o filtro "Ativas" |
+| carregamentos | O carregamento da frota própria que a coleta abriu sozinha |
+| ocorrencias | A falta de estoque da Ana, já resolvida pela escolha do substituto |
+| encerramento | De volta ao dashboard |
+
+A reposição grava uma quantidade absoluta (o dobro do mínimo, pelo menos
+20), então rodar de novo não acumula estoque; cada execução deixa uma linha
+de auditoria em `estoque_ajustes`.
+
+| Opção | Efeito |
+|---|---|
+| `--url URL` | Painel já no ar (padrão `http://localhost:4200`) |
+| `--tamanho LxA` | Tamanho da janela (padrão `1920x1080`) |
+| `--pausa N` | Segundos de respiro para a narração (padrão 1.5) |
+| `--sem-pausa` | Não espera Enter antes do roteiro |
+
+O alvo usa `playwright==1.61.0`, cujo Chromium já está no cache desta
+máquina. Noutra máquina o script avisa e diz o comando que baixa o
+navegador. Numa falha, o print e o HTML da página ficam em
+`/tmp/edu-demo-web-<data-hora>/`.
 
 ## Testes
 
@@ -100,4 +151,6 @@ make demo-test
 Cobrem a leitura da árvore do `uiautomator` (só o app, com os limites
 cortados pela área visível), a busca na tela lida, o escape de texto para o
 `adb`, a data de novembro, a escolha da alternativa pelo gabarito e a
-criação idempotente das contas.
+criação idempotente das contas. Do painel web, cobrem a escolha do pedido
+em destaque, o `--tamanho` e a quantidade da reposição; o navegador em si
+é conferido rodando o roteiro.

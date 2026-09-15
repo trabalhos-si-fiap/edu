@@ -30,6 +30,7 @@ from .preparo import (
     garantir_contas,
     instalar_app,
     ler_gabarito,
+    porta_do_gateway,
 )
 from .roteiro_dados import validar_senha
 from .tela import Tela, TelaNaoMostrouError
@@ -47,15 +48,6 @@ def passo(texto: str) -> None:
 
 def aviso(texto: str) -> None:
     print(f"  \033[1;33m! {texto}\033[0m", flush=True)
-
-
-def porta_do_gateway() -> str:
-    env = RAIZ / "back-end" / ".env"
-    if env.exists():
-        for linha in env.read_text().splitlines():
-            if linha.startswith("GATEWAY_PORT_EXTERNAL="):
-                return linha.split("=", 1)[1].strip() or "8100"
-    return "8100"
 
 
 def argumentos() -> argparse.Namespace:
@@ -102,7 +94,7 @@ def main() -> int:
         print(f"DEMO_ACCOUNTS_PASSWORD inválida ou ausente: {exc}", file=sys.stderr)
         return 2
 
-    porta = porta_do_gateway()
+    porta = porta_do_gateway(RAIZ)
     backend = Backend(RAIZ, f"http://localhost:{porta}/api", senha)
     pasta_falhas = Path(tempfile.gettempdir()) / f"edu-demo-{datetime.now():%Y%m%d-%H%M%S}"
 

@@ -158,7 +158,7 @@ services-sync: ## Sync deps of every service on the host (for IDE support)
 
 # ── Demo ──────────────────────────────────────────────────
 
-.PHONY: demo demo-test
+.PHONY: demo demo-web demo-test
 
 # ARGS repassa opções ao roteiro, ex.: make demo ARGS="--skip-build --pausa 3"
 # O uv instala o uiautomator2 (a leitura rápida da tela) num ambiente à parte.
@@ -167,6 +167,14 @@ demo: ## Run the whole demo script on a connected Android (needs DEMO_ACCOUNTS_P
 	  { echo "defina DEMO_ACCOUNTS_PASSWORD antes de rodar"; exit 1; }
 	@cd scripts && DEMO_ACCOUNTS_PASSWORD='$(DEMO_ACCOUNTS_PASSWORD)' \
 	  uv run --no-project --with uiautomator2==3.7.0 python -m demo_roteiro $(ARGS)
+
+# Precisa do painel no ar (cd web-admin && npm start). O uv instala o Playwright
+# na versão cujo Chromium já está no cache; noutra máquina, o script diz como baixar.
+demo-web: ## Run the web admin panel demo in a visible Chromium (needs DEMO_ACCOUNTS_PASSWORD)
+	@test -n "$(DEMO_ACCOUNTS_PASSWORD)" || \
+	  { echo "defina DEMO_ACCOUNTS_PASSWORD antes de rodar"; exit 1; }
+	@cd scripts && DEMO_ACCOUNTS_PASSWORD='$(DEMO_ACCOUNTS_PASSWORD)' \
+	  uv run --no-project --with playwright==1.61.0 python -m demo_web $(ARGS)
 
 demo-test: ## Run the demo script unit tests
 	cd scripts && python3 -m unittest discover -s tests -t .
