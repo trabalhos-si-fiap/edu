@@ -9,6 +9,7 @@ Veja docs/demo-roteiro.md.
 from __future__ import annotations
 
 import argparse
+import atexit
 import os
 import subprocess
 import sys
@@ -65,13 +66,13 @@ def argumentos() -> argparse.Namespace:
     )
     parser.add_argument("--skip-build", action="store_true", help="reaproveita o APK instalado")
     parser.add_argument(
-        "--pausa", type=float, default=2.0, help="segundos de respiro para a narração (padrão 2)"
+        "--pausa", type=float, default=1.0, help="segundos de respiro para a narração (padrão 1)"
     )
     parser.add_argument(
         "--sem-pausa", action="store_true", help="não espera Enter antes do roteiro gravado"
     )
     parser.add_argument(
-        "--segundos-de-mapa", type=float, default=20, help="tempo mostrando o mapa (padrão 20)"
+        "--segundos-de-mapa", type=float, default=10, help="tempo mostrando o mapa (padrão 10)"
     )
     return parser.parse_args()
 
@@ -123,7 +124,10 @@ def main() -> int:
 
         titulo("Aparelho")
         serial = achar_aparelho()
-        tela = Tela(serial, pasta_falhas)
+        tela = Tela(serial, pasta_falhas, PACOTE)
+        # O agente do uiautomator2 segue vivo no aparelho se ninguém o parar;
+        # atexit cobre o fim normal, a falha de uma cena e o Ctrl+C.
+        atexit.register(tela.encerrar)
         if args.skip_build:
             passo("reaproveitando o APK instalado")
         else:
@@ -155,6 +159,7 @@ def main() -> int:
     inicio = time.monotonic()
     for nome in cenas.CENAS_GRAVADAS:
         passo(nome.replace("_", " "))
+        comeco = time.monotonic()
         try:
             passos.get(nome, lambda n=nome: getattr(cenas, n)(roteiro))()
         except (TelaNaoMostrouError, subprocess.CalledProcessError, ValueError) as exc:
@@ -162,6 +167,7 @@ def main() -> int:
             print(f"\n\033[1;31m✗ cena '{nome}': {exc}\033[0m", file=sys.stderr)
             print(f"  print e árvore da tela em {pasta}", file=sys.stderr)
             return 1
+        passo(f"  {time.monotonic() - comeco:.0f}s")
 
     titulo(f"Pronto em {time.monotonic() - inicio:.0f}s")
     passo(f"pedido #{roteiro.pedido_curto} entregue; pode parar a gravação")

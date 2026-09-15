@@ -14,7 +14,7 @@ from datetime import date, datetime
 
 from .preparo import CONTAS_STAFF, Backend
 from .roteiro_dados import Questao, email_da_ana, escolher_alternativa, proximo_8_de_novembro
-from .tela import Tela, TelaNaoMostrouError
+from .tela import Elemento, Tela, TelaNaoMostrouError, achar_em
 
 ENDERECO = {
     "Identificação": "Casa",
@@ -36,7 +36,7 @@ class Roteiro:
     backend: Backend
     gabarito: list[Questao]
     acertar: set[int]
-    pausa_segundos: float = 2.0
+    pausa_segundos: float = 1.0
     log: Callable[[str], None] = print
     email_ana: str = field(default_factory=lambda: email_da_ana(datetime.now()))
     pedido_curto: str = ""
@@ -56,23 +56,25 @@ class Roteiro:
         t = self.tela
         for _ in range(8):
             t.garantir_app_em_foco()
-            if t.achar("Insira suas credenciais"):
+            # Uma leitura só por volta: cada saída é conferida na mesma tela.
+            tela = t.elementos()
+            if achar_em(tela, "Insira suas credenciais"):
                 return
-            sair = t.achar("Sair", exato=True, clicavel=True)
+            sair = achar_em(tela, "Sair", exato=True, clicavel=True)
             if sair:
                 t.tocar_xy(*sair.centro)
                 t.esperar("Insira suas credenciais", prazo=20)
                 return
-            if t.achar("Meu perfil", exato=True):
+            if achar_em(tela, "Meu perfil", exato=True):
                 t.rolar_ate("Sair", exato=True)
                 t.tocar("Sair", exato=True, clicavel=True)
                 t.esperar("Insira suas credenciais", prazo=20)
                 return
-            if t.achar("Voltar", exato=True, clicavel=True):
+            if achar_em(tela, "Voltar", exato=True, clicavel=True):
                 t.voltar()
-                time.sleep(1.2)
+                time.sleep(0.5)
                 continue
-            aba_home = t.achar("Home", clicavel=True)
+            aba_home = achar_em(tela, "Home", clicavel=True)
             if aba_home:
                 # Numa aba raiz, voltar fecharia o app. A home e a loja têm o
                 # perfil no ícone da esquerda; as demais abas não — nelas,
@@ -83,37 +85,52 @@ class Roteiro:
                     continue
                 except TelaNaoMostrouError:
                     t.tocar_xy(*aba_home.centro)
-                    time.sleep(2)
+                    time.sleep(0.8)
                     continue
             t.voltar()
-            time.sleep(1.2)
+            time.sleep(0.5)
         raise TelaNaoMostrouError("não consegui voltar para a tela de login")
 
+    @staticmethod
+    def _sino(elementos: list[Elemento]) -> Elemento | None:
+        """O sino do topo. Sem não lidas ele se chama "Notificações"; com não
+        lidas, a acessibilidade anuncia só a contagem ("4")."""
+        meio = max((e.limites[2] for e in elementos), default=0) // 2
+        sinos = [
+            e
+            for e in elementos
+            if e.clicavel
+            and e.classe == "Button"
+            and e.limites[1] < 300
+            and e.centro[0] > meio
+            and (e.texto == "Notificações" or e.texto.isdigit())
+        ]
+        return max(sinos, key=lambda e: e.limites[2]) if sinos else None
+
     def abrir_notificacoes(self) -> None:
-        """Toca o sino do topo. Sem não lidas ele se chama "Notificações";
-        com não lidas, a acessibilidade anuncia só a contagem ("4")."""
+        """Toca o sino e confere que a tela abriu; um toque que cai numa
+        transição é engolido pelo app, então toca de novo."""
         t = self.tela
-        for _ in range(20):
-            elementos = t.elementos()
-            meio = max((e.limites[2] for e in elementos), default=0) // 2
-            sinos = [
-                e
-                for e in elementos
-                if e.clicavel
-                and e.classe == "Button"
-                and e.limites[1] < 300
-                and e.centro[0] > meio
-                and (e.texto == "Notificações" or e.texto.isdigit())
-            ]
-            if sinos:
-                t.tocar_xy(*max(sinos, key=lambda e: e.limites[2]).centro)
-                return
-            time.sleep(0.5)
-        raise TelaNaoMostrouError("o sino de notificações não apareceu no topo")
+        limite = time.monotonic() + 30
+        while time.monotonic() < limite:
+            sino = self._sino(t.elementos())
+            if sino is None:
+                time.sleep(0.5)
+                continue
+            t.tocar_xy(*sino.centro)
+            fim_da_espera = time.monotonic() + 6
+            while time.monotonic() < fim_da_espera:
+                if self._sino(t.elementos()) is None:
+                    return
+                time.sleep(0.3)
+        raise TelaNaoMostrouError("tocar o sino não abriu as notificações")
 
     def entrar_pelo_atalho(self, papel: str, marco: str) -> None:
         self.tela.tocar(f"({papel})", clicavel=True)
         self.tela.esperar(marco, prazo=30)
+        # O marco aparece ainda na transição da tela de login, e o app engole
+        # os toques até ela acabar.
+        time.sleep(0.6)
 
     def abrir_pedido(self) -> None:
         self.tela.tocar(f"Pedido #{self.pedido_curto}", prazo=30)
@@ -200,7 +217,7 @@ def questionario(r: Roteiro) -> None:
 
     for _ in range(30):
         t.rolar_para_cima()
-        time.sleep(0.6)
+        time.sleep(0.2)
         elementos = t.elementos()
         enunciado = max(
             (
@@ -218,11 +235,11 @@ def questionario(r: Roteiro) -> None:
             if alternativa and alternativa.texto.startswith(f"{letra}\n"):
                 break
             t.rolar(500)
-            time.sleep(0.6)
+            time.sleep(0.2)
         if alternativa is None:
             raise TelaNaoMostrouError(f"alternativa {letra} não apareceu")
         t.tocar_xy(*alternativa.centro)
-        time.sleep(0.5)
+        time.sleep(0.3)
 
         botao = None
         for _ in range(4):
@@ -230,13 +247,13 @@ def questionario(r: Roteiro) -> None:
             if botao:
                 break
             t.rolar(500)
-            time.sleep(0.6)
+            time.sleep(0.2)
         if botao is None:
             raise TelaNaoMostrouError("nem Avançar nem Finalizar apareceram")
         t.tocar_xy(*botao.centro)
         if botao.texto == "Finalizar":
             break
-        time.sleep(0.8)
+        time.sleep(0.4)
 
     t.esperar("QUESTIONÁRIO CONCLUÍDO", prazo=90)
 
@@ -269,7 +286,7 @@ def loja_e_compra(r: Roteiro) -> None:
     t.esperar("Adicionar ao carrinho")
     r.pausa()
     t.tocar("Adicionar ao carrinho", exato=True)
-    time.sleep(1.5)
+    time.sleep(1)
     t.tocar_icone("direita")
     t.esperar("Revisão do Carrinho")
     r.pausa()
@@ -279,14 +296,19 @@ def loja_e_compra(r: Roteiro) -> None:
     for rotulo, valor in ENDERECO.items():
         t.preencher_campo(rotulo, valor)
     t.tocar("Salvar endereço", exato=True)
-    t.esperar("Revisão do Carrinho", prazo=20)
+    t.esperar_sumir("Salvar endereço")
+    t.esperar("FAVORITO", prazo=20)
 
     t.rolar_ate("Sem método de pagamento")
     t.tocar("Sem método de pagamento")
     t.esperar("Adicionar Método")
     t.tocar("PIX", exato=True)
     t.tocar("Salvar método", exato=True)
-    t.esperar("Revisão do Carrinho", prazo=20)
+    t.esperar_sumir("Salvar método")
+    # O carrinho recarrega ao voltar, e o aviso de método adicionado cobre
+    # "Finalizar Pedido" por uns segundos: um toque antes disso se perde.
+    t.rolar_ate("Outro método", exato=True)
+    t.esperar_sumir("Método de pagamento adicionado", prazo=15)
     r.pausa(0.7)
 
     t.tocar("Finalizar Pedido", exato=True, clicavel=True)
@@ -335,6 +357,7 @@ def aluna_escolhe_substituto(r: Roteiro) -> None:
     t.tocar("Mesa de estudo compacta 90 cm")
     r.pausa(0.5)
     t.tocar("Confirmar substituição", exato=True)
+    t.esperar_sumir("Confirmar substituição")
     t.esperar("Notificações", prazo=20)
     r.pausa(0.5)
 
@@ -347,6 +370,7 @@ def separador_finaliza(r: Roteiro) -> None:
     t.tocar("Mesa de estudo compacta 90 cm")
     r.pausa()
     t.tocar("Finalizar Separação", exato=True)
+    t.esperar_sumir("Finalizar Separação")
     t.esperar("Fila de Separação", prazo=20)
     r.pausa(0.5)
 
@@ -359,11 +383,12 @@ def entregador_coleta(r: Roteiro) -> None:
     t.esperar("Confirmar Coleta")
     r.pausa()
     t.tocar("Confirmar Coleta", exato=True)
+    t.esperar_sumir("Confirmar Coleta")
     t.esperar("Fila de Coleta", prazo=20)
     r.pausa(0.5)
 
 
-def aluna_acompanha(r: Roteiro, segundos_de_mapa: float = 20) -> None:
+def aluna_acompanha(r: Roteiro, segundos_de_mapa: float = 10) -> None:
     t = r.tela
     r.ir_para_login()
     r.entrar_pelo_atalho("aluno", "Percurso")
