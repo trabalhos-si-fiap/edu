@@ -138,6 +138,33 @@ void main() {
     expect(_botaoPrincipal(tester).onPressed, isNotNull);
   });
 
+  testWidgets('o diálogo de falta de estoque cabe na tela com o teclado aberto', (
+    tester,
+  ) async {
+    // Tela do celular da demo (1080x2400) com o teclado cobrindo quase metade.
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 2.625;
+    tester.view.padding = const FakeViewPadding(top: 88);
+    addTearDown(tester.view.reset);
+    final api = _api(
+      <String>[],
+      statusAtual: 'EM_SEPARACAO',
+      itensAtuais: [_itemJson('Mesa de estudo 120 cm', 1)],
+    );
+
+    await _abrir(tester, Pedido.fromJson(_pedidoJson('EM_SEPARACAO')), api);
+    await tester.tap(find.text('Reportar falta de estoque'));
+    await tester.pumpAndSettle();
+
+    tester.view.viewInsets = const FakeViewPadding(bottom: 1100);
+    await tester.enterText(find.byType(TextField), 'Sem estoque na prateleira');
+    await tester.pumpAndSettle();
+
+    // Um RenderFlex estourado vira exceção no teste.
+    expect(tester.takeException(), isNull);
+    expect(find.text('Reportar').hitTestable(), findsOneWidget);
+  });
+
   testWidgets('se o pedido não carregar, a tela não deixa finalizar às cegas', (
     tester,
   ) async {
